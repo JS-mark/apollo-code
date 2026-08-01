@@ -1,0 +1,30 @@
+schema = 1
+upstream = "https://github.com/openai/codex"
+revision = "ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff"
+license = "Apache-2.0"
+copyright = "Copyright 2025 OpenAI"
+
+# The three upstream sandbox components reviewed for the L1 adapter boundary.
+# windows-sandbox-rs is provenance-only until the L2 Windows milestone.
+components = [
+  "codex-rs/sandboxing",
+  "codex-rs/linux-sandbox",
+  "codex-rs/windows-sandbox-rs",
+]
+
+# Maximum codex workspace crates Apollo may import for this boundary. CI can
+# compare this allowlist; adding an entry requires an explicit security review.
+workspace_crate_allowlist = [
+  "codex-install-context",
+  "codex-network-proxy",
+  "codex-process-hardening",
+  "codex-protocol",
+  "codex-sandboxing",
+  "codex-utils-absolute-path",
+  "codex-utils-home-dir",
+  "codex-utils-path-uri",
+  "codex-utils-pty",
+  "codex-utils-string",
+  "codex-windows-sandbox",
+  "codex-otel",
+]

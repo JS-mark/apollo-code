@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod digest;
 pub mod profile;
 
 pub use backend::{probe, run};

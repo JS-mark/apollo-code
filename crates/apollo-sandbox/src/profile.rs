@@ -28,6 +28,30 @@ pub struct Permissions {
     pub env: EnvPermissions,
 }
 
+impl Permissions {
+    /// Returns true only when every capability in `self` was already granted
+    /// by `declared`. Backends must call this before applying a transformed
+    /// profile so normalization can never widen PermissionSpec.
+    pub fn is_subset_of(&self, declared: &Self) -> bool {
+        (!self.net || declared.net)
+            && self
+                .fs
+                .read
+                .iter()
+                .all(|path| declared.fs.read.contains(path))
+            && self
+                .fs
+                .write
+                .iter()
+                .all(|path| declared.fs.write.contains(path))
+            && self
+                .env
+                .read
+                .iter()
+                .all(|name| declared.env.read.contains(name))
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EnvPermissions {
     #[serde(default)]
@@ -118,5 +142,31 @@ mod tests {
             .validate()
             .unwrap_err()
             .contains("writable filesystem root"));
+    }
+
+    #[test]
+    fn transformed_profile_cannot_widen_declared_permissions() {
+        let declared = Permissions {
+            fs: FsPermissions {
+                read: vec!["/workspace/**".into()],
+                write: vec![],
+            },
+            net: false,
+            env: EnvPermissions {
+                read: vec!["PATH".into()],
+            },
+        };
+        let widened = Permissions {
+            fs: FsPermissions {
+                read: declared.fs.read.clone(),
+                write: vec!["/workspace/**".into()],
+            },
+            net: true,
+            env: EnvPermissions {
+                read: vec!["PATH".into(), "HOME".into()],
+            },
+        };
+        assert!(!widened.is_subset_of(&declared));
+        assert!(declared.is_subset_of(&declared));
     }
 }
