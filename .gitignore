@@ -13,6 +13,7 @@ yarn-error.log*
 dist/
 build/
 .turbo/
+coverage/
 *.tsbuildinfo
 
 # --- Rust / Cargo ---
