@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vitepress build",
     "dev": "vitepress dev",
+    "preview": "vitepress preview",
     "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
     "typecheck": "vitepress build"
   },

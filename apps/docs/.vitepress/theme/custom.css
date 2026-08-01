@@ -83,6 +83,89 @@ body {
     auto;
 }
 
+html:not(.dark) .apollo-home {
+  --apollo-line: rgba(20, 31, 25, 0.14);
+  --apollo-accent: #5d850f;
+  --apollo-accent-strong: #456a06;
+  --apollo-muted: #667069;
+  color: #111714;
+  background:
+    radial-gradient(circle at 77% 4%, rgba(93, 133, 15, 0.13), transparent 25rem),
+    linear-gradient(rgba(18, 30, 23, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18, 30, 23, 0.045) 1px, transparent 1px), #f0f0e9;
+  background-size:
+    auto,
+    3rem 3rem,
+    3rem 3rem,
+    auto;
+}
+
+html:not(.dark) .hero-copy h1 span {
+  -webkit-text-stroke-color: rgba(17, 23, 20, 0.42);
+}
+
+html:not(.dark) .hero-lede,
+html:not(.dark) .control-copy p,
+html:not(.dark) .feature-ledger article p {
+  color: #4e5952;
+}
+
+html:not(.dark) .text-action,
+html:not(.dark) .install-command,
+html:not(.dark) .signal-strip p {
+  color: #333d37 !important;
+}
+
+html:not(.dark) .primary-action {
+  color: #f8faef !important;
+}
+
+html:not(.dark) .primary-action:hover {
+  color: #fff !important;
+}
+
+html:not(.dark) .orbital-ring {
+  border-color: rgba(75, 111, 9, 0.24);
+}
+
+html:not(.dark) .rail-node {
+  color: #111714;
+  border-color: #c5c9be;
+  background: rgba(250, 251, 245, 0.82);
+}
+
+html:not(.dark) .rail-user,
+html:not(.dark) .rail-sandbox {
+  border-color: rgba(74, 109, 11, 0.55);
+}
+
+html:not(.dark) .rail-line {
+  background: #c5c9be;
+}
+
+html:not(.dark) .closing-callout,
+html:not(.dark) .apollo-footer {
+  background: #e3e5dc;
+}
+
+.dark .closing-callout,
+.dark .apollo-footer {
+  color: #edf1e9;
+  border-color: var(--apollo-line);
+  background: #151a18;
+}
+
+.dark .closing-callout .eyebrow,
+.dark .closing-callout p,
+.dark .apollo-footer {
+  color: #9ca59f;
+}
+
+.dark .footer-brand,
+.dark .apollo-footer > div a {
+  color: #dfe6e1 !important;
+}
+
 .apollo-home::before {
   position: absolute;
   z-index: 0;
@@ -292,6 +375,8 @@ body {
 }
 
 .terminal-shell {
+  --apollo-accent: #b9f559;
+  --apollo-accent-strong: #d0ff85;
   position: relative;
   z-index: 2;
   width: min(100%, 45rem);
@@ -465,6 +550,7 @@ body {
   letter-spacing: -0.065em;
   line-height: 0.92;
   text-wrap: balance;
+  white-space: pre-line;
 }
 
 .control-copy {
