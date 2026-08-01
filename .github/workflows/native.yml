@@ -172,9 +172,18 @@ jobs:
         shell: pwsh
         run: |
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Apollo Code CI (NON-PRODUCTION)' -CertStoreLocation Cert:\CurrentUser\My
-          Get-ChildItem artifact -Recurse -Filter 'apollo-*.exe' | ForEach-Object {
-            $signature = Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert
-            if ($signature.Status -ne 'Valid') { throw "Self-sign verification failed for $($_.FullName): $($signature.Status)" }
+          $cerPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.cer'
+          Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+          Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+          $binaries = @(Get-ChildItem artifact -Recurse -Filter 'apollo-*.exe')
+          if ($binaries.Count -ne 3) { throw "Expected 3 Windows binaries, found $($binaries.Count)" }
+          $binaries | ForEach-Object {
+            Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert -HashAlgorithm SHA256 | Out-Null
+            $signature = Get-AuthenticodeSignature -FilePath $_.FullName
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
+              throw "Self-sign verification failed for $($_.FullName): $($signature.Status)"
+            }
           }
           'verification=self-signed-flow-only' | Set-Content authenticode-evidence.txt
           'production_signature=false' | Add-Content authenticode-evidence.txt
