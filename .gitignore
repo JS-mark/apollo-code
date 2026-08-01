@@ -33,3 +33,6 @@ target/
 .env.*
 !.env.example
 credentials.enc
+
+# --- Vitepress ---
+**/.vitepress/cache
