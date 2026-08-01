@@ -6,10 +6,13 @@ export default defineConfig({
   cleanUrls: true,
   sitemap: { hostname: 'https://apollo-code.dev' },
   head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { property: 'og:title', content: 'Apollo Code' }],
     ['meta', { property: 'og:description', content: 'Own your terminal. Choose your model.' }],
   ],
   themeConfig: {
+    logo: '/apollo-mark.svg',
+    siteTitle: 'APOLLO CODE',
     nav: [
       { text: 'Docs', link: '/docs/getting-started/install' },
       { text: 'Security', link: '/docs/concepts/security-model' },

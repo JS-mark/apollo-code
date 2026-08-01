@@ -7,12 +7,13 @@ const scriptPath = fileURLToPath(import.meta.url)
 const root = resolve(dirname(scriptPath), '..')
 const sourceRoots = ['apps', 'packages']
 const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts'])
+const assetExtensions = new Set(['.css', '.svg', '.vue'])
 
 export function relativeSpecifierError(sourcePath, specifier, fileExists = existsSync) {
   if (!specifier.startsWith('./') && !specifier.startsWith('../')) return undefined
 
   const extension = extname(specifier)
-  if (extension === '.json') return undefined
+  if (extension === '.json' || assetExtensions.has(extension)) return undefined
   if (extension)
     return `uses explicit ${extension} extension; TypeScript source imports must omit it`
 

@@ -30,6 +30,23 @@ void test('keeps the docs site private and buildable', async () => {
   assert.equal(manifest.scripts.build, 'vitepress build')
 })
 
+void test('ships a branded responsive home instead of the default feature grid', async () => {
+  const [home, theme, styles, logo] = await Promise.all([
+    readRepoFile('apps/docs/.vitepress/theme/components/HomeLanding.vue'),
+    readRepoFile('apps/docs/.vitepress/theme/index.ts'),
+    readRepoFile('apps/docs/.vitepress/theme/custom.css'),
+    readRepoFile('apps/docs/public/apollo-mark.svg'),
+  ])
+
+  assert.match(home, /class="terminal-shell"/)
+  assert.match(home, /class="architecture-rail"/)
+  assert.match(home, /aria-label="Apollo Code system flow"/)
+  assert.match(theme, /HomeLanding/)
+  assert.match(styles, /prefers-reduced-motion/)
+  assert.match(styles, /@media \(max-width: 760px\)/)
+  assert.match(logo, /<svg/)
+})
+
 void test('documents the prompt-injection trust boundary', async () => {
   const security = await readRepoFile('apps/docs/docs/concepts/security-model.md')
   assert.match(security, /Prompt injection threat model/i)
