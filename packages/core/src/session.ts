@@ -8,6 +8,7 @@ export interface SessionState {
   cumulativeUsage: Usage & { costUSD: number }
   contextBudget: { maxTokens: number; currentTokens: number; lastCompactedAt?: string }
   toolRegistrySnapshot: string; pendingInterrupt: boolean
+  systemPromptSnapshot?: string
 }
 export function createSession(input: Pick<SessionState, 'cwd' | 'id' | 'toolRegistrySnapshot'> & { maxTokens: number }): SessionState {
   return { id: input.id, cwd: input.cwd, createdAt: Date.now(), version: 0, messages: [], turns: [], activeTurn: null, cumulativeUsage: { input: 0, output: 0, costUSD: 0 }, contextBudget: { maxTokens: input.maxTokens, currentTokens: 0 }, toolRegistrySnapshot: input.toolRegistrySnapshot, pendingInterrupt: false }
