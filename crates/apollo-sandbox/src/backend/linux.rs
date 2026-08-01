@@ -80,7 +80,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
             command.args(["--setenv", key, &value]);
         }
     }
-    command.args(["/bin/sh", "-lc", &request.command]);
+    command.args(["/bin/sh", "-c", &request.command]);
     execute(command, SandboxTier::Full)
 }
 #[cfg(test)]
