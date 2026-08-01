@@ -1,0 +1,32 @@
+name: L1 sandbox escape
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  escape:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
+          - { runner: macos-13, target: x86_64-apple-darwin, verification: native }
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
+          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-gnu, verification: partial-verified }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - if: matrix.verification == 'native'
+        run: cargo test -p apollo-sandbox
+      - if: matrix.verification == 'native'
+        run: bash crates/apollo-sandbox/tests/escape/run.sh target/debug/apollo-sandbox
+      - if: matrix.verification == 'partial-verified'
+        run: echo 'Cross-build only; syscall isolation requires a real arm64 runner.' | tee escape-verification.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escape-${{ matrix.target }}
+          path: escape-verification.txt
+          if-no-files-found: ignore

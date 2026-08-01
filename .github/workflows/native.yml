@@ -1,0 +1,46 @@
+name: L1 native
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  license:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans
+  native:
+    needs: license
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
+          - { runner: macos-13, target: x86_64-apple-darwin, verification: native }
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
+          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-gnu, verification: partial-verified }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+      - run: cargo check --workspace --target ${{ matrix.target }}
+      - run: cargo build --workspace --release --target ${{ matrix.target }}
+      - if: matrix.verification == 'native'
+        run: cargo test --workspace --target ${{ matrix.target }}
+      - run: echo '${{ matrix.verification }}' > native-verification.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/apollo-sandbox*
+            target/${{ matrix.target }}/release/apollo-search*
+            target/${{ matrix.target }}/release/apollo-fs*
+            native-verification.txt

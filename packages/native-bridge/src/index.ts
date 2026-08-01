@@ -1,3 +1,7 @@
 export { resolveBinary } from './resolver.js'
 export { execSandbox, probeSandbox } from './sandbox.js'
+export { computeDiff, countTokens, readLarge } from './fs.js'
+export { search } from './search.js'
+export { WorkerPool, workerPool } from './worker-pool.js'
+export type { SearchMatch, SearchOptions } from './search.js'
 export type { ExecOptions, ExecResult, SandboxInfo, SandboxTier } from './types.js'

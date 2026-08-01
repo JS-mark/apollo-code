@@ -3,6 +3,13 @@
 version = 3
 
 [[package]]
+name = "apollo-fs"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "apollo-sandbox"
 version = "0.0.0"
 dependencies = [
@@ -10,6 +17,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "apollo-search"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
