@@ -15,7 +15,7 @@ export interface CredentialPort {
 }
 export interface HttpRequest {
   url: string
-  method: 'POST'
+  method: 'GET' | 'POST'
   headers: Record<string, string>
   body: unknown
   signal: AbortSignal
@@ -36,6 +36,34 @@ export interface AnthropicClientOptions {
   http: HttpPort
   attachments?: AttachmentPort
   baseUrl?: string
+}
+
+async function readJson(body: AsyncIterable<Uint8Array>): Promise<unknown> {
+  const chunks: Uint8Array[] = []
+  for await (const chunk of body) chunks.push(chunk)
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
+
+export async function verifyAnthropicCredential(
+  http: HttpPort,
+  credential: string,
+  signal = AbortSignal.timeout(10_000),
+  baseUrl = 'https://api.anthropic.com',
+): Promise<boolean> {
+  const response = await http.request({
+    url: `${baseUrl}/v1/models?limit=1`,
+    method: 'GET',
+    headers: { 'x-api-key': credential, 'anthropic-version': '2023-06-01' },
+    body: undefined,
+    signal,
+  })
+  if (response.status < 200 || response.status >= 300) return false
+  const value = await readJson(response.body)
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Array.isArray((value as Record<string, unknown>).data)
+  )
 }
 
 export const anthropicCapabilities: ProviderCapabilities = {

@@ -29,6 +29,8 @@ function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
         configured: false,
         detail: 'anthropic credential unavailable',
       })),
+      login: vi.fn(async () => ({ detail: 'anthropic credential stored in encrypted file' })),
+      logout: vi.fn(async () => ({ detail: 'anthropic credential removed' })),
     },
     config: { health: vi.fn(async () => ({ valid: true, detail: 'valid' })) },
     telemetry: { securityEvent: vi.fn(async () => {}) },
@@ -139,5 +141,35 @@ describe('runCli', () => {
     const result = await runCli(['resume', 'session-42'], testPorts)
     expect(result.exitCode).toBe(0)
     expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
+  })
+
+  it('connects stdin login without including the credential in output', async () => {
+    const testPorts = ports()
+    const result = await runCli(['login', 'anthropic', '--api-key-stdin'], testPorts, {
+      readStdin: async () => 'super-secret\n',
+    })
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(result.stdout).not.toContain('super-secret')
+    expect(testPorts.auth.login).toHaveBeenCalledWith({
+      provider: 'anthropic',
+      credential: 'super-secret',
+      flow: 'stdin',
+      dangerouslySkipVerify: false,
+    })
+  })
+
+  it('requires --dangerous when verification is skipped', async () => {
+    const testPorts = ports()
+    const result = await runCli(['login', 'anthropic', '--skip-verify'], testPorts)
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('--dangerous')
+    expect(testPorts.auth.login).not.toHaveBeenCalled()
+  })
+
+  it('connects logout to credential revocation', async () => {
+    const testPorts = ports()
+    const result = await runCli(['logout', 'anthropic'], testPorts)
+    expect(result.exitCode).toBe(0)
+    expect(testPorts.auth.logout).toHaveBeenCalledWith('anthropic')
   })
 })

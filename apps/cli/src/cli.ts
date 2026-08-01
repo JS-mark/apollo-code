@@ -26,8 +26,25 @@ const argsDefinition = {
   dangerousNoSandbox: { type: 'boolean' as const },
   dangerouslySkipPermissions: { type: 'boolean' as const },
   yolo: { type: 'boolean' as const },
+  apiKeyStdin: { type: 'boolean' as const },
+  skipVerify: { type: 'boolean' as const },
+  dangerous: { type: 'boolean' as const },
 }
-export async function runCli(rawArgs: string[], ports: ApolloPorts): Promise<CliResult> {
+export interface CliIo {
+  readStdin(): Promise<string>
+}
+const defaultIo: CliIo = {
+  async readStdin() {
+    const chunks: Buffer[] = []
+    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+    return Buffer.concat(chunks).toString('utf8')
+  },
+}
+export async function runCli(
+  rawArgs: string[],
+  ports: ApolloPorts,
+  io: CliIo = defaultIo,
+): Promise<CliResult> {
   const args = parseArgs(rawArgs, argsDefinition)
   const subcommand = args._[0]
   let stdout = ''
@@ -93,6 +110,44 @@ export async function runCli(rawArgs: string[], ports: ApolloPorts): Promise<Cli
     if (!id) return { exitCode: 2, stdout, stderr: 'resume requires a session id' }
     await ports.session.resume(id)
     return { exitCode: 0, stdout, stderr }
+  }
+  if (subcommand === 'login') {
+    const provider = args._[1] ?? 'anthropic'
+    if (provider !== 'anthropic')
+      return { exitCode: 2, stdout, stderr: `Unsupported provider: ${provider}` }
+    if (args.skipVerify && !args.dangerous)
+      return { exitCode: 2, stdout, stderr: '--skip-verify requires --dangerous' }
+    const credential = args.apiKeyStdin ? (await io.readStdin()).trim() : undefined
+    if (args.apiKeyStdin && !credential)
+      return { exitCode: 2, stdout, stderr: 'No credential received on stdin' }
+    try {
+      const result = await ports.auth.login({
+        provider,
+        ...(credential === undefined ? {} : { credential }),
+        flow: args.apiKeyStdin ? 'stdin' : 'api-key',
+        dangerouslySkipVerify: Boolean(args.skipVerify),
+      })
+      return { exitCode: 0, stdout: `${stdout}${result.detail}\n`, stderr }
+    } catch (error) {
+      return {
+        exitCode: 1,
+        stdout,
+        stderr: error instanceof Error ? error.message : 'Login failed',
+      }
+    }
+  }
+  if (subcommand === 'logout') {
+    const provider = args._[1] ?? 'anthropic'
+    try {
+      const result = await ports.auth.logout(provider)
+      return { exitCode: 0, stdout: `${stdout}${result.detail}\n`, stderr }
+    } catch (error) {
+      return {
+        exitCode: 1,
+        stdout,
+        stderr: error instanceof Error ? error.message : 'Logout failed',
+      }
+    }
   }
   if (subcommand !== undefined && subcommand !== 'chat')
     return {

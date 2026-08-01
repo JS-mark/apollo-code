@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AnthropicClient, mapAnthropicError, parseAnthropicSse, toAnthropicMessages } from './index'
+import {
+  AnthropicClient,
+  mapAnthropicError,
+  parseAnthropicSse,
+  toAnthropicMessages,
+  verifyAnthropicCredential,
+} from './index'
 
 async function* chunks(parts: Uint8Array[]): AsyncIterable<Uint8Array> {
   yield* parts
@@ -11,6 +17,21 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return result
 }
 describe('Anthropic adapter', () => {
+  it('verifies credentials only for a successful models response with a valid schema', async () => {
+    const http = {
+      request: vi.fn(async () => ({
+        status: 200,
+        body: chunks([new TextEncoder().encode('{"data":[]}')]),
+      })),
+    }
+    await expect(verifyAnthropicCredential(http, 'never-log-this')).resolves.toBe(true)
+    expect(http.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        url: 'https://api.anthropic.com/v1/models?limit=1',
+      }),
+    )
+  })
   it('converts neutral multimodal and tool messages', async () => {
     const converted = await toAnthropicMessages([
       {
