@@ -22,6 +22,8 @@ jobs:
       - if: matrix.verification == 'native'
         run: cargo test -p apollo-sandbox
       - if: matrix.verification == 'native'
+        run: cargo build -p apollo-sandbox --bin apollo-sandbox
+      - if: matrix.verification == 'native'
         run: bash crates/apollo-sandbox/tests/escape/run.sh target/debug/apollo-sandbox
       - if: matrix.verification == 'partial-verified'
         run: echo 'Cross-build only; syscall isolation requires a real arm64 runner.' | tee escape-verification.txt
