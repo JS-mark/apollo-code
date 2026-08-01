@@ -54,11 +54,38 @@ describe('runCli', () => {
       'logout',
       'config',
       'history',
+      'context',
       'doctor',
       'hook',
       'version',
       'help',
     ])
+  })
+
+  it('exposes context show, keep, compact and policy control through one port', async () => {
+    const context = {
+      show: vi.fn(async () => ({
+        policy: 'summary',
+        currentTokens: 80,
+        maxTokens: 100,
+        threshold: 0.85,
+        sources: { messages: 60, system: 20 },
+      })),
+      keep: vi.fn(async () => {}),
+      unkeep: vi.fn(async () => {}),
+      compact: vi.fn(async () => ({ beforeTokens: 80, afterTokens: 50 })),
+      getPolicy: vi.fn(async () => ({ name: 'summary', params: { keepRecent: 20 } })),
+      setPolicy: vi.fn(async () => {}),
+    }
+    expect((await runCli(['context', 'show', '--json'], ports({ context }))).stdout).toContain(
+      '"policy":"summary"',
+    )
+    await runCli(['context', 'keep', 'm1'], ports({ context }))
+    await runCli(['context', 'compact', 'summary'], ports({ context }))
+    await runCli(['context', 'policy', 'set', 'sliding', 'keepRecent=30'], ports({ context }))
+    expect(context.keep).toHaveBeenCalledWith('m1')
+    expect(context.compact).toHaveBeenCalledWith('summary')
+    expect(context.setPolicy).toHaveBeenCalledWith('sliding', { keepRecent: '30' })
   })
 
   it('fails strict doctor and precisely lists unavailable integrations', async () => {

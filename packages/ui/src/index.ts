@@ -7,6 +7,52 @@ export interface SandboxDisclosure {
 }
 export type DangerousMode = 'no-sandbox' | 'skip-permissions'
 
+export interface ContextPanelState {
+  strategy: string
+  currentTokens: number
+  maxTokens: number
+  threshold: number
+  sources: Record<string, number>
+  recentCompactions: readonly { at: string; removed: number; turns?: string }[]
+}
+export function renderContextPanel(state: ContextPanelState): string {
+  const percent = Math.round((state.currentTokens / Math.max(1, state.maxTokens)) * 100)
+  const sources = Object.entries(state.sources)
+    .map(([name, tokens]) => `  ${name}: ${tokens}`)
+    .join('\n')
+  const history = state.recentCompactions.length
+    ? state.recentCompactions
+        .map(
+          (item) =>
+            `  ${item.at} removed ${item.removed} msgs${item.turns ? ` (${item.turns})` : ''}`,
+        )
+        .join('\n')
+    : '  none'
+  return [
+    `Context`,
+    `Strategy: ${state.strategy}   Budget: ${state.currentTokens} / ${state.maxTokens} (${percent}%)`,
+    `Compacts at: ${Math.round(state.threshold * 100)}%`,
+    'Sources:',
+    sources,
+    'Recent compactions:',
+    history,
+    '[K] keep selected  [C] compact  [Esc] close',
+  ].join('\n')
+}
+export type ContextPanelAction =
+  | { type: 'close' }
+  | { type: 'compact' }
+  | { type: 'keep'; messageId: string }
+export function contextPanelKey(
+  key: string,
+  selectedMessageId?: string,
+): ContextPanelAction | undefined {
+  if (key === 'Escape') return { type: 'close' }
+  if (key.toLowerCase() === 'c') return { type: 'compact' }
+  if (key.toLowerCase() === 'k' && selectedMessageId)
+    return { type: 'keep', messageId: selectedMessageId }
+}
+
 export function renderSecurityBanner(modes: readonly DangerousMode[], color: boolean): string {
   const labels = modes.map((mode) =>
     mode === 'no-sandbox' ? 'DANGER: NO SANDBOX' : 'DANGER: PERMISSIONS DISABLED',

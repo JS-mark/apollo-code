@@ -9,6 +9,7 @@ export const command = defineCommand({
     logout: leaf('logout', 'Remove provider credentials'),
     config: leaf('config', 'Inspect configuration'),
     history: leaf('history', 'List or show sessions'),
+    context: leaf('context', 'Inspect and control context compaction'),
     doctor: leaf('doctor', 'Diagnose L1 dependencies'),
     hook: leaf('hook', 'List builtin hooks'),
     version: leaf('version', 'Print version'),
