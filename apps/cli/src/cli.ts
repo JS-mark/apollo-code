@@ -105,6 +105,68 @@ export async function runCli(
     return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
+  if (subcommand === 'context') {
+    if (!ports.context)
+      return { exitCode: 2, stdout, stderr: 'context integration port is not connected' }
+    const action = args._[1] ?? 'show'
+    if (action === 'show') {
+      const status = await ports.context.show()
+      stdout += args.json
+        ? `${JSON.stringify(status)}\n`
+        : `Policy: ${status.policy}\nTokens: ${status.currentTokens} / ${status.maxTokens}\nCompaction threshold: ${Math.round(status.threshold * 100)}%\nSources: ${Object.entries(
+            status.sources,
+          )
+            .map(([key, value]) => `${key}=${value}`)
+            .join(', ')}\n`
+      return { exitCode: 0, stdout, stderr }
+    }
+    if (action === 'diff') {
+      const status = await ports.context.show()
+      stdout += status.lastCompaction
+        ? `${status.lastCompaction.compactedMessageIds.join('\n')}\n`
+        : 'No compaction recorded.\n'
+      return { exitCode: 0, stdout, stderr }
+    }
+    if (action === 'keep' || action === 'unkeep') {
+      const target = args._[2]
+      if (!target)
+        return { exitCode: 2, stdout, stderr: `context ${action} requires a message or turn id` }
+      await ports.context[action](target)
+      return { exitCode: 0, stdout, stderr }
+    }
+    if (action === 'compact') {
+      const value = args._[2]
+      if (value && value !== 'sliding' && value !== 'summary')
+        return { exitCode: 2, stdout, stderr: `Unsupported context strategy: ${value}` }
+      const result = await ports.context.compact(value as 'sliding' | 'summary' | undefined)
+      return {
+        exitCode: 0,
+        stdout: `${stdout}Compacted: ${result.beforeTokens} → ${result.afterTokens} tokens\n`,
+        stderr,
+      }
+    }
+    if (action === 'policy' && (args._[2] ?? 'get') === 'get') {
+      const policy = await ports.context.getPolicy()
+      return {
+        exitCode: 0,
+        stdout: `${stdout}${args.json ? JSON.stringify(policy) : `${policy.name} ${JSON.stringify(policy.params)}`}\n`,
+        stderr,
+      }
+    }
+    if (action === 'policy' && args._[2] === 'set') {
+      const name = args._[3]
+      if (!name) return { exitCode: 2, stdout, stderr: 'context policy set requires a name' }
+      const params = Object.fromEntries(
+        args._.slice(4).map((entry) => {
+          const [key, ...rest] = entry.split('=')
+          return [key!, rest.join('=')]
+        }),
+      )
+      await ports.context.setPolicy(name, params)
+      return { exitCode: 0, stdout, stderr }
+    }
+    return { exitCode: 2, stdout, stderr: `Unknown context action: ${action}` }
+  }
   if (subcommand === 'resume') {
     const id = args._[1]
     if (!id) return { exitCode: 2, stdout, stderr: 'resume requires a session id' }

@@ -5,6 +5,8 @@ import {
   createPickerCandidates,
   PermissionPromptQueue,
   resumeSessionView,
+  renderContextPanel,
+  contextPanelKey,
   createSessionView,
 } from './index'
 
@@ -24,6 +26,21 @@ describe('unified picker', () => {
       ),
     ).toEqual({ hint: { explicitModel: 'claude-sonnet-4' }, text: 'fix it' })
   })
+})
+
+it('renders and controls the /context panel', () => {
+  const output = renderContextPanel({
+    strategy: 'summary',
+    currentTokens: 80,
+    maxTokens: 100,
+    threshold: 0.85,
+    sources: { messages: 60, system: 20 },
+    recentCompactions: [{ at: '12:34', removed: 5 }],
+  })
+  expect(output).toContain('Strategy: summary')
+  expect(output).toContain('removed 5 msgs')
+  expect(contextPanelKey('k', 'm1')).toEqual({ type: 'keep', messageId: 'm1' })
+  expect(contextPanelKey('c')).toEqual({ type: 'compact' })
 })
 
 it('serializes permission prompts', async () => {

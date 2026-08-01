@@ -17,6 +17,22 @@ export interface SessionPort {
   end(): Promise<void>
   configureSecurity?(input: { skipPermissions: boolean }): void
 }
+export interface ContextStatus {
+  policy: string
+  currentTokens: number
+  maxTokens: number
+  threshold: number
+  sources: Record<string, number>
+  lastCompaction?: { compactedMessageIds: string[]; at: string }
+}
+export interface ContextPort {
+  show(): Promise<ContextStatus>
+  keep(target: string): Promise<void>
+  unkeep(target: string): Promise<void>
+  compact(strategy?: 'sliding' | 'summary'): Promise<{ beforeTokens: number; afterTokens: number }>
+  getPolicy(): Promise<{ name: string; params: Record<string, boolean | number | string> }>
+  setPolicy(name: string, params: Record<string, string>): Promise<void>
+}
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
@@ -36,6 +52,7 @@ export interface ApolloPorts {
   }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   session: SessionPort
+  context?: ContextPort
 }
 export function unavailablePorts(): ApolloPorts {
   return {

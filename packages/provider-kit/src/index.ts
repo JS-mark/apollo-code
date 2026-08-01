@@ -45,7 +45,16 @@ export interface Message {
   role: 'assistant' | 'system' | 'user'
   content: ContentPart[]
   createdAt: number
-  meta?: { provider?: string; model?: string; usage?: Usage; stopReason?: StopReason }
+  meta?: {
+    provider?: string
+    model?: string
+    usage?: Usage
+    stopReason?: StopReason
+    compacted?: boolean
+    compactedMessageIds?: string[]
+    turnId?: string
+    pinnedToContext?: boolean
+  }
 }
 
 export interface ToolSchema {
@@ -174,4 +183,16 @@ export interface ContextPolicy {
   estimateTokens(text: string, model: string): number
   init?(config: ContextConfig): Promise<void>
   dispose?(): Promise<void>
+}
+export interface ContextPolicySpec {
+  readonly name: string
+  readonly policy: ContextPolicy
+  readonly priority: number
+  readonly when?: (context: ContextCtx) => boolean
+}
+export interface ContextPolicyRegistration {
+  dispose(): void
+}
+export interface ContextPolicyContributor {
+  contributePolicy(spec: ContextPolicySpec): ContextPolicyRegistration
 }
