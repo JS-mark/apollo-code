@@ -70,6 +70,7 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
     escapeWorkflow,
     /runner\.os == 'Linux' && matrix\.verification != 'partial-verified'[\s\S]*kernel\.unprivileged_userns_clone=1/,
   )
+  assert.match(escapeWorkflow, /name: Record verification evidence\s+shell: bash\s+run:/)
 
   const windowsFoundation = await readFile(
     new URL('crates/apollo-sandbox/tests/escape/windows-foundation.ps1', root),
