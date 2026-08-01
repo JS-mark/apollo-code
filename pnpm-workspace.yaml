@@ -8,6 +8,7 @@ allowBuilds:
 catalog:
   '@changesets/cli': ^2.31.1
   '@types/node': ^26.1.2
+  citty: ^0.2.2
   immer: ^11.1.15
   turbo: ^2.10.7
   typescript: ^7.0.2

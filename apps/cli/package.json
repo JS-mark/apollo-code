@@ -1,0 +1,10 @@
+{
+  "name": "apollo-code",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": { "apollo": "dist/bin.js" },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "vitest run --passWithNoTests --exclude='dist/**'", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@apollo-code/core": "workspace:*", "@apollo-code/shared": "workspace:*", "@apollo-code/ui": "workspace:*", "citty": "catalog:" },
+  "devDependencies": { "@types/node": "catalog:", "typescript": "catalog:", "vitest": "catalog:" }
+}

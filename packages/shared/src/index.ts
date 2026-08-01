@@ -19,3 +19,5 @@ export class ApolloError extends Error {
     this.name = 'ApolloError'
   }
 }
+
+export { validateWorkspacePath } from './path-guard.js'
