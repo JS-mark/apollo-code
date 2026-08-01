@@ -83,3 +83,25 @@ export interface ProviderClient {
   countTokens?(messages: Message[], tools?: ToolSchema[]): Promise<number>
   dispose(): Promise<void>
 }
+
+export interface ContextConfig { compactionThreshold?: number; targetRatio?: number; reservedOutputTokens?: number; keepRecent?: number; maxTokens?: number }
+export interface ContextSessionSnapshot { messages: readonly Message[]; activeTurn?: string | null; turns?: readonly { id: string; status: string; startMessageId?: string; endMessageId?: string }[] }
+export interface ContextCtx {
+  readonly session: ContextSessionSnapshot
+  readonly capabilities: ProviderCapabilities
+  readonly turnId: string
+  readonly model: string
+  readonly systemTokens?: number
+  readonly toolSchemaTokens?: number
+}
+export interface ContextMessages { messages: readonly Message[]; removedMessageIds: string[]; estimatedTokens: number; hasSummary: boolean }
+export interface ContextSnapshot { messages: readonly Message[]; compactedMessageIds: string[]; beforeTokens: number; afterTokens: number; strategy: string; hookIntercepted: boolean }
+export interface ContextPolicy {
+  readonly name: string
+  shouldCompact(context: ContextCtx): boolean
+  buildPrompt(context: ContextCtx): ContextMessages
+  compact(context: ContextCtx): Promise<ContextSnapshot>
+  estimateTokens(text: string, model: string): number
+  init?(config: ContextConfig): Promise<void>
+  dispose?(): Promise<void>
+}
