@@ -56,18 +56,51 @@ importers:
 
   apps/cli:
     dependencies:
+      '@apollo-code/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@apollo-code/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@apollo-code/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@apollo-code/native-bridge':
+        specifier: workspace:*
+        version: link:../../packages/native-bridge
+      '@apollo-code/permission':
+        specifier: workspace:*
+        version: link:../../packages/permission
+      '@apollo-code/provider-anthropic':
+        specifier: workspace:*
+        version: link:../../packages/provider-anthropic
+      '@apollo-code/router':
+        specifier: workspace:*
+        version: link:../../packages/router
       '@apollo-code/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@apollo-code/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      '@apollo-code/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+      '@apollo-code/tool-kit':
+        specifier: workspace:*
+        version: link:../../packages/tool-kit
+      '@apollo-code/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
       '@apollo-code/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       citty:
         specifier: 'catalog:'
         version: 0.2.2
+      uuid:
+        specifier: 'catalog:'
+        version: 14.0.1
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

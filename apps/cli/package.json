@@ -5,6 +5,6 @@
   "bin": { "apollo": "dist/bin.js" },
   "files": ["dist"],
   "scripts": { "build": "tsc -p tsconfig.json", "test": "vitest run --passWithNoTests --exclude='dist/**'", "typecheck": "tsc -p tsconfig.json --noEmit" },
-  "dependencies": { "@apollo-code/core": "workspace:*", "@apollo-code/shared": "workspace:*", "@apollo-code/ui": "workspace:*", "citty": "catalog:" },
+  "dependencies": { "@apollo-code/auth": "workspace:*", "@apollo-code/config": "workspace:*", "@apollo-code/core": "workspace:*", "@apollo-code/native-bridge": "workspace:*", "@apollo-code/permission": "workspace:*", "@apollo-code/provider-anthropic": "workspace:*", "@apollo-code/router": "workspace:*", "@apollo-code/shared": "workspace:*", "@apollo-code/storage": "workspace:*", "@apollo-code/telemetry": "workspace:*", "@apollo-code/tool-kit": "workspace:*", "@apollo-code/tools": "workspace:*", "@apollo-code/ui": "workspace:*", "citty": "catalog:", "uuid": "catalog:" },
   "devDependencies": { "@types/node": "catalog:", "typescript": "catalog:", "vitest": "catalog:" }
 }
