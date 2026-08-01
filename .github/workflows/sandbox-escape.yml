@@ -12,11 +12,31 @@ jobs:
           - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
           - { runner: macos-15-intel, target: x86_64-apple-darwin, verification: native }
           - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
-          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-gnu, verification: partial-verified }
-          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-musl, verification: cross-verified }
-          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-musl, verification: partial-verified }
-          - { runner: windows-2022, target: x86_64-pc-windows-msvc, verification: foundation-verified }
-          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, verification: foundation-verified }
+          - {
+              runner: ubuntu-24.04,
+              target: aarch64-unknown-linux-gnu,
+              verification: partial-verified,
+            }
+          - {
+              runner: ubuntu-24.04,
+              target: x86_64-unknown-linux-musl,
+              verification: cross-verified,
+            }
+          - {
+              runner: ubuntu-24.04,
+              target: aarch64-unknown-linux-musl,
+              verification: partial-verified,
+            }
+          - {
+              runner: windows-2022,
+              target: x86_64-pc-windows-msvc,
+              verification: foundation-verified,
+            }
+          - {
+              runner: windows-11-arm,
+              target: aarch64-pc-windows-msvc,
+              verification: foundation-verified,
+            }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +64,7 @@ jobs:
         uses: mlugg/setup-zig@v2
       - if: contains(matrix.target, 'musl')
         run: cargo install cargo-zigbuild --locked
-      - if: runner.os == 'Linux' && matrix.verification == 'native'
+      - if: runner.os == 'Linux' && matrix.verification != 'partial-verified'
         run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
           if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then

@@ -20,9 +20,21 @@ jobs:
           - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
           - { runner: macos-15-intel, target: x86_64-apple-darwin, verification: native }
           - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
-          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-gnu, verification: partial-verified }
-          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-musl, verification: partial-verified }
-          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-musl, verification: partial-verified }
+          - {
+              runner: ubuntu-24.04,
+              target: aarch64-unknown-linux-gnu,
+              verification: partial-verified,
+            }
+          - {
+              runner: ubuntu-24.04,
+              target: x86_64-unknown-linux-musl,
+              verification: partial-verified,
+            }
+          - {
+              runner: ubuntu-24.04,
+              target: aarch64-unknown-linux-musl,
+              verification: partial-verified,
+            }
           - { runner: windows-2022, target: x86_64-pc-windows-msvc, verification: native }
           - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, verification: native }
     runs-on: ${{ matrix.runner }}
@@ -72,11 +84,25 @@ jobs:
           echo "APOLLO_NATIVE_SANDBOX_BINARY=target/${{ matrix.target }}/release/apollo-sandbox$extension" >> "$GITHUB_ENV"
           echo "APOLLO_NATIVE_SEARCH_BINARY=target/${{ matrix.target }}/release/apollo-search$extension" >> "$GITHUB_ENV"
           echo "APOLLO_NATIVE_FS_BINARY=target/${{ matrix.target }}/release/apollo-fs$extension" >> "$GITHUB_ENV"
-      - name: Run strict doctor against target artifacts
+      - name: Run strict doctor against sandbox-capable target artifacts
+        if: runner.os != 'Windows'
         shell: bash
         env:
           ANTHROPIC_API_KEY: ci-doctor-placeholder
         run: node apps/cli/dist/apollo.js doctor --strict --json
+      - name: Verify Windows foundation health and fail-closed sandbox disclosure
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ci-doctor-placeholder
+        run: |
+          output=$(node apps/cli/dist/apollo.js doctor --json)
+          printf '%s\n' "$output"
+          grep -F 'Sandbox: NONE' <<<"$output"
+          grep -F 'Windows Tier 1/2 isolation is not active in this build; execution is refused' <<<"$output"
+          grep -F '"name":"native sandbox","ok":false' <<<"$output"
+          grep -F '"name":"native search","ok":true' <<<"$output"
+          grep -F '"name":"native fs","ok":true' <<<"$output"
       - name: Stage platform packages
         shell: bash
         run: |

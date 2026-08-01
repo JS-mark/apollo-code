@@ -50,3 +50,31 @@ void test('native bridge declares every platform package optional', async () => 
         'workspace:*',
       )
 })
+
+void test('CI verifies foundation targets without weakening sandbox evidence', async () => {
+  const nativeWorkflow = await readFile(new URL('.github/workflows/native.yml', root), 'utf8')
+  assert.match(nativeWorkflow, /if: runner\.os != 'Windows'[\s\S]*doctor --strict --json/)
+  assert.match(
+    nativeWorkflow,
+    /if: runner\.os == 'Windows'[\s\S]*Windows Tier 1\/2 isolation is not active in this build; execution is refused/,
+  )
+  assert.match(nativeWorkflow, /"name":"native sandbox","ok":false/)
+  assert.match(nativeWorkflow, /"name":"native search","ok":true/)
+  assert.match(nativeWorkflow, /"name":"native fs","ok":true/)
+
+  const escapeWorkflow = await readFile(
+    new URL('.github/workflows/sandbox-escape.yml', root),
+    'utf8',
+  )
+  assert.match(
+    escapeWorkflow,
+    /runner\.os == 'Linux' && matrix\.verification != 'partial-verified'[\s\S]*kernel\.unprivileged_userns_clone=1/,
+  )
+
+  const windowsFoundation = await readFile(
+    new URL('crates/apollo-sandbox/tests/escape/windows-foundation.ps1', root),
+    'utf8',
+  )
+  assert.match(windowsFoundation, /\$PSNativeCommandUseErrorActionPreference = \$false/)
+  assert.match(windowsFoundation, /if \(\$exitCode -eq 0\)/)
+})
