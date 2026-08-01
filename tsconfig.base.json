@@ -4,7 +4,7 @@
     "declarationMap": true,
     "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
-    "lib": ["ES2023"],
+    "lib": ["ESNext"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noFallthroughCasesInSwitch": true,
@@ -13,7 +13,7 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "strict": true,
-    "target": "ES2023",
+    "target": "ESNext",
     "types": ["node"]
   }
 }
