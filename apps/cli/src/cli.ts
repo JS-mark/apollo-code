@@ -38,6 +38,7 @@ export async function runCli(rawArgs: string[], ports: ApolloPorts): Promise<Cli
   }
   const banner = renderSecurityBanner(dangerousModes, !args.noColor)
   if (banner) stdout += `${banner}\n`
+  ports.session.configureSecurity?.({ skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions) })
   if (subcommand === 'doctor') {
     const checks = await runDoctor(cwd, ports)
     stdout += args.json ? `${checks.map(check => JSON.stringify(check)).join('\n')}\n` : `${checks.map(check => `${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`).join('\n')}\n`

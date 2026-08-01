@@ -2,12 +2,12 @@ import type { SandboxDisclosure } from '@apollo-code/ui'
 
 export interface DoctorHealth { detail: string; valid?: boolean; configured?: boolean }
 export interface NativeHealth { sandbox: boolean; search: boolean; fs: boolean }
-export interface SessionPort { start(input: { cwd: string; prompt?: string }): Promise<{ id: string }>; resume(id: string): Promise<{ id: string }>; interrupt(): Promise<void>; end(): Promise<void> }
+export interface SessionPort { start(input: { cwd: string; prompt?: string }): Promise<{ id: string }>; resume(id: string): Promise<{ id: string }>; interrupt(): Promise<void>; end(): Promise<void>; configureSecurity?(input: { skipPermissions: boolean }): void }
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
   auth: { health(): Promise<DoctorHealth> }
-  config: { health(): Promise<DoctorHealth> }
+  config: { health(cwd: string): Promise<DoctorHealth> }
   telemetry: { securityEvent(name: string, payload: Record<string, boolean | string>): Promise<void> }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   session: SessionPort

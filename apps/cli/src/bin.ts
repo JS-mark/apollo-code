@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import process from 'node:process'
 import { runCli } from './cli.js'
-import { unavailablePorts } from './ports.js'
+import { createProductionPorts } from './runtime.js'
 import { createSignalController } from './signals.js'
-const ports = unavailablePorts()
+const ports = createProductionPorts()
 const signals = createSignalController(ports.session)
 process.on('SIGINT', () => { void signals.handle('SIGINT') })
 process.on('SIGTERM', () => { void signals.handle('SIGTERM').then(code => { process.exitCode = code }) })
