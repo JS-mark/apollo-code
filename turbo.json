@@ -2,7 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "//#check:typescript-config": { "outputs": [] },
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".vitepress/dist/**"] },
     "test": { "dependsOn": ["^build"], "outputs": [] },
     "typecheck": { "dependsOn": ["^build", "//#check:typescript-config"], "outputs": [] }
   }

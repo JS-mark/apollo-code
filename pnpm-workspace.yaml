@@ -19,4 +19,5 @@ catalog:
   typescript: ^7.0.2
   uuid: ^14.0.1
   vitest: ^4.1.10
+  vitepress: ^1.6.4
   zod: ^4.4.3

@@ -1,0 +1,15 @@
+{
+  "name": "@apollo-code/docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vitepress build",
+    "dev": "vitepress dev",
+    "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
+    "typecheck": "vitepress build"
+  },
+  "devDependencies": {
+    "vitepress": "catalog:"
+  }
+}
