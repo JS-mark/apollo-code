@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createSession, updateSession } from './session.ts'
+import { createSession, updateSession } from './session'
 
 describe('SessionState', () => {
   it('updates immutably and increments version', () => {

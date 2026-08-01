@@ -2,10 +2,10 @@ import type { ProviderChunk, ProviderClient } from '@apollo-code/provider-kit'
 import type { RouterPolicy } from '@apollo-code/router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { EventBus } from './event-bus.ts'
-import { DefaultPromptComposer } from './prompt-composer.ts'
-import { Runner } from './runner.ts'
-import { createSession } from './session.ts'
+import { EventBus } from './event-bus'
+import { DefaultPromptComposer } from './prompt-composer'
+import { Runner } from './runner'
+import { createSession } from './session'
 
 function provider(streams: ProviderChunk[][], name = 'p'): ProviderClient {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { EventBus, eventTypes, idempotentSubscriber } from './event-bus.ts'
+import { EventBus, eventTypes, idempotentSubscriber } from './event-bus'
 
 describe('EventBus', () => {
   it('exposes the complete L1 event contract', () => {

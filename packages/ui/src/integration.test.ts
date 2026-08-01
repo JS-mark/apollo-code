@@ -6,7 +6,7 @@ import {
   PermissionPromptQueue,
   resumeSessionView,
   createSessionView,
-} from './index.ts'
+} from './index'
 
 describe('unified picker', () => {
   it('puts an alias before a same-named file and supports explicit file mode', () => {

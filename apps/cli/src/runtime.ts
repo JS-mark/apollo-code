@@ -29,7 +29,7 @@ import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
 import { v7 as uuidv7 } from 'uuid'
 
-import type { ApolloPorts, SessionPort } from './ports.ts'
+import type { ApolloPorts, SessionPort } from './ports'
 
 export type RunnerFactory = (state: SessionState, events: EventBus) => Runner
 const terminalStatuses = new Set(['done', 'aborted', 'error'])

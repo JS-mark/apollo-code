@@ -1,7 +1,7 @@
 import type { ProviderClient, ProviderError } from '@apollo-code/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
-import { SingleProviderRouter } from './index.ts'
+import { SingleProviderRouter } from './index'
 
 const client = {
   name: 'fake',

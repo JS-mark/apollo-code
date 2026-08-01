@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { wrapUntrusted } from './runner.ts'
+import { wrapUntrusted } from './runner'
 describe('untrusted wrapper', () => {
   it('traces source and cannot be closed by injected content', () => {
     const [out] = wrapUntrusted(

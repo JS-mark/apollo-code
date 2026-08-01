@@ -1,4 +1,4 @@
-import type { SessionPort } from './ports.ts'
+import type { SessionPort } from './ports'
 export function createSignalController(session: SessionPort): {
   handle(signal: 'SIGHUP' | 'SIGINT' | 'SIGTERM'): Promise<number>
 } {

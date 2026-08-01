@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AuthManager, MemoryCredentialStore } from './index.ts'
+import { AuthManager, MemoryCredentialStore } from './index'
 describe('AuthManager', () => {
   it('resolves keychain before env without leaking payload', async () => {
     const store = new MemoryCredentialStore()

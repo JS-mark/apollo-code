@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "check:typescript-config": "node --test scripts/verify-typescript-config.test.mjs && node scripts/verify-typescript-config.mjs",
+    "check:typescript-config": "node --test scripts/verify-typescript-config.test.mjs scripts/rewrite-esm-specifiers.test.mjs && node scripts/verify-typescript-config.mjs",
     "format": "oxfmt apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",

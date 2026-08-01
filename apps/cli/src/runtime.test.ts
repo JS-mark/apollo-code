@@ -5,7 +5,7 @@ import { updateSession } from '@apollo-code/core'
 import type { EventBus, Runner, SessionState } from '@apollo-code/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { RuntimeSessionPort } from './runtime.ts'
+import { RuntimeSessionPort } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>

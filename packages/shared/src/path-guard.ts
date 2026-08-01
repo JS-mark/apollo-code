@@ -2,7 +2,7 @@ import { lstat, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, parse, resolve, sep } from 'node:path'
 
-import { ApolloError } from './index.ts'
+import { ApolloError } from './index'
 
 function contains(base: string, candidate: string): boolean {
   return candidate === base || candidate.startsWith(`${base}${sep}`)

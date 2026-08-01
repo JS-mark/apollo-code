@@ -4,7 +4,7 @@ import { dirname } from 'node:path'
 
 import { argon2id } from 'hash-wasm'
 
-import type { CredentialStore } from './index.ts'
+import type { CredentialStore } from './index'
 interface Envelope {
   v: 1
   salt: string

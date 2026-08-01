@@ -6,7 +6,7 @@ import {
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
   renderSecurityBanner,
-} from './index.ts'
+} from './index'
 
 describe('security disclosure', () => {
   it.each([

@@ -145,4 +145,4 @@ export class MemoryCredentialStore implements CredentialStore {
     this.values.delete(p)
   }
 }
-export { EncryptedCredentialStore } from './encrypted-store.ts'
+export { EncryptedCredentialStore } from './encrypted-store'

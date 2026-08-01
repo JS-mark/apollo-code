@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-  AnthropicClient,
-  mapAnthropicError,
-  parseAnthropicSse,
-  toAnthropicMessages,
-} from './index.ts'
+import { AnthropicClient, mapAnthropicError, parseAnthropicSse, toAnthropicMessages } from './index'
 
 async function* chunks(parts: Uint8Array[]): AsyncIterable<Uint8Array> {
   yield* parts

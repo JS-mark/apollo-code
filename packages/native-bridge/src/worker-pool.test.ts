@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { WorkerPool } from './worker-pool.ts'
+import { WorkerPool } from './worker-pool'
 
 function fakeWorker() {
   const child = new EventEmitter() as EventEmitter & {

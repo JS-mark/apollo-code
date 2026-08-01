@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { loadConfig } from './index.ts'
+import { loadConfig } from './index'
 describe('config layering', () => {
   it('filters project data-flow keys and applies env/flags last', async () => {
     const warning = vi.fn()
