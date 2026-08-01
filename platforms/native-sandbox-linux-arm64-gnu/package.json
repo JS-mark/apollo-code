@@ -1,0 +1,20 @@
+{
+  "name": "@apollo-code/native-sandbox-linux-arm64-gnu",
+  "version": "0.0.0",
+  "description": "Apollo sandbox native binary for linux-arm64-gnu",
+  "license": "Apache-2.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "bin": {
+    "apollo-sandbox": "bin/apollo-sandbox"
+  }
+}

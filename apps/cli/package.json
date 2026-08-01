@@ -2,14 +2,14 @@
   "name": "apollo-code",
   "version": "0.0.0",
   "bin": {
-    "apollo": "dist/bin.js"
+    "apollo": "dist/apollo.js"
   },
   "files": [
     "dist"
   ],
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "rolldown -c",
     "test": "vitest run --passWithNoTests --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "rolldown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

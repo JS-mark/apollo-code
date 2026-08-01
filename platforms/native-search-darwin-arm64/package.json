@@ -1,0 +1,20 @@
+{
+  "name": "@apollo-code/native-search-darwin-arm64",
+  "version": "0.0.0",
+  "description": "Apollo search native binary for darwin-arm64",
+  "license": "Apache-2.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "bin": {
+    "apollo-search": "bin/apollo-search"
+  }
+}

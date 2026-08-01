@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - platforms/*
 
 allowBuilds:
   esbuild: true
@@ -10,6 +11,7 @@ catalog:
   '@types/node': ^26.1.2
   citty: ^0.2.2
   immer: ^11.1.15
+  rolldown: ^1.2.1
   oxfmt: ^0.61.0
   oxlint: ^1.76.0
   oxlint-tsgolint: ^7.0.2001

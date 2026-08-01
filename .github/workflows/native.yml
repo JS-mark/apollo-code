@@ -28,15 +28,53 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu libc6-arm64-cross
       - if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+          echo 'QEMU_LD_PREFIX=/usr/aarch64-linux-gnu' >> "$GITHUB_ENV"
       - run: cargo check --workspace --target ${{ matrix.target }}
       - run: cargo build --workspace --release --target ${{ matrix.target }}
       - if: runner.os == 'Linux' && matrix.verification == 'native'
         run: target/${{ matrix.target }}/release/apollo-sandbox --verify-bwrap-digest
       - if: matrix.verification == 'native'
         run: cargo test --workspace --target ${{ matrix.target }}
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run build
+      - name: Run strict doctor against target artifacts
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ci-doctor-placeholder
+          APOLLO_NATIVE_SANDBOX_BINARY: target/${{ matrix.target }}/release/apollo-sandbox
+          APOLLO_NATIVE_SEARCH_BINARY: target/${{ matrix.target }}/release/apollo-search
+          APOLLO_NATIVE_FS_BINARY: target/${{ matrix.target }}/release/apollo-fs
+        run: node apps/cli/dist/apollo.js doctor --strict --json
+      - name: Stage platform packages
+        shell: bash
+        run: |
+          case '${{ matrix.target }}' in
+            aarch64-apple-darwin) suffix=darwin-arm64 ;;
+            x86_64-apple-darwin) suffix=darwin-x64 ;;
+            aarch64-unknown-linux-gnu) suffix=linux-arm64-gnu ;;
+            x86_64-unknown-linux-gnu) suffix=linux-x64-gnu ;;
+          esac
+          for kind in sandbox search fs; do
+            mkdir -p "platforms/native-$kind-$suffix/bin"
+            cp "target/${{ matrix.target }}/release/apollo-$kind" "platforms/native-$kind-$suffix/bin/apollo-$kind"
+            cp crates/apollo-sandbox-vendor/LICENSE "platforms/native-$kind-$suffix/LICENSE"
+            cp crates/apollo-sandbox-vendor/NOTICE "platforms/native-$kind-$suffix/NOTICE"
+          done
       - run: echo '${{ matrix.verification }}' > native-verification.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -46,6 +84,32 @@ jobs:
             target/${{ matrix.target }}/release/apollo-search*
             target/${{ matrix.target }}/release/apollo-fs*
             native-verification.txt
+            platforms/*/bin/*
+            platforms/*/LICENSE
+            platforms/*/NOTICE
+  universal2:
+    needs: native
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-aarch64-apple-darwin
+          path: arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-x86_64-apple-darwin
+          path: x64
+      - name: Create and verify universal2 binaries
+        run: |
+          mkdir universal2
+          for kind in sandbox search fs; do
+            lipo -create "arm64/target/aarch64-apple-darwin/release/apollo-$kind" "x64/target/x86_64-apple-darwin/release/apollo-$kind" -output "universal2/apollo-$kind"
+            lipo "universal2/apollo-$kind" -verify_arch arm64 x86_64
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-darwin-universal2
+          path: universal2/*
   bwrap-reproducibility:
     runs-on: ubuntu-24.04
     steps:

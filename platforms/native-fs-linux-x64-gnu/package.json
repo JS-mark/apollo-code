@@ -1,0 +1,20 @@
+{
+  "name": "@apollo-code/native-fs-linux-x64-gnu",
+  "version": "0.0.0",
+  "description": "Apollo fs native binary for linux-x64-gnu",
+  "license": "Apache-2.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "bin": {
+    "apollo-fs": "bin/apollo-fs"
+  }
+}

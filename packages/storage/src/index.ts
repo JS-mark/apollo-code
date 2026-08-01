@@ -195,9 +195,11 @@ export class PromptLoader {
   }
 }
 function sensitive(path: string): boolean {
+  const portablePath = path.replaceAll('\\', '/')
   return (
-    /(?:^|\/)(?:\.env[^/]*|credentials[^/]*|auth[^/]*|id_[^/]+|[^/]*\.(?:pem|key))$/i.test(path) ||
-    path.includes('/.ssh/')
+    /(?:^|\/)(?:\.env[^/]*|credentials[^/]*|auth[^/]*|id_[^/]+|[^/]*\.(?:pem|key))$/i.test(
+      portablePath,
+    ) || portablePath.includes('/.ssh/')
   )
 }
 export async function sourceHash(path: string): Promise<string> {

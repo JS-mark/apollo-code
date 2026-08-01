@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict'
+import { dirname, resolve } from 'node:path'
 import { test } from 'node:test'
 
 import { relativeSpecifierError, outDirError } from './verify-typescript-config.mjs'
 
 test('accepts a .ts specifier when it maps to TypeScript source', () => {
+  const source = resolve('repo', 'src', 'cli.ts')
+  const target = resolve(dirname(source), 'ports.ts')
   assert.equal(
-    relativeSpecifierError(
-      '/repo/src/cli.ts',
-      './ports.ts',
-      (path) => path === '/repo/src/ports.ts',
-    ),
+    relativeSpecifierError(source, './ports.ts', (path) => path === target),
     undefined,
   )
 })
