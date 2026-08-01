@@ -1,14 +1,16 @@
 import { mkdir, mkdtemp, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, parse } from 'node:path'
+
 import { afterEach, describe, expect, it } from 'vitest'
-import { validateWorkspacePath } from './path-guard.js'
+
+import { validateWorkspacePath } from './path-guard.ts'
 
 const fixtures: string[] = []
 
 afterEach(async () => {
   const { rm } = await import('node:fs/promises')
-  await Promise.all(fixtures.map(path => rm(path, { force: true, recursive: true })))
+  await Promise.all(fixtures.map((path) => rm(path, { force: true, recursive: true })))
 })
 
 describe('validateWorkspacePath', () => {

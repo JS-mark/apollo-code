@@ -6,34 +6,30 @@ import { fileURLToPath } from 'node:url'
 const scriptPath = fileURLToPath(import.meta.url)
 const root = resolve(dirname(scriptPath), '..')
 const sourceRoots = ['apps', 'packages']
-const sourceExtensions = ['.ts', '.tsx', '.mts', '.cts']
+const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts'])
 
 export function relativeSpecifierError(sourcePath, specifier, fileExists = existsSync) {
   if (!specifier.startsWith('./') && !specifier.startsWith('../')) return undefined
 
   const extension = extname(specifier)
-  if (sourceExtensions.includes(extension)) {
-    return `uses source extension ${extension}; NodeNext source must name the emitted runtime extension`
-  }
-  if (!['.js', '.mjs', '.cjs', '.json'].includes(extension)) {
-    return 'has no supported runtime extension; Node ESM cannot resolve the emitted import'
-  }
+  if (['.js', '.mjs', '.cjs'].includes(extension))
+    return `uses emitted extension ${extension}; source imports must name their TypeScript extension`
   if (extension === '.json') return undefined
+  if (!sourceExtensions.has(extension)) return 'has no supported TypeScript source extension'
 
-  const sourceExtension = extension === '.mjs' ? '.mts' : extension === '.cjs' ? '.cts' : '.ts'
-  const target = resolve(dirname(sourcePath), specifier.slice(0, -extension.length) + sourceExtension)
-  const alternate = sourceExtension === '.ts' ? `${target.slice(0, -3)}.tsx` : undefined
-  if (!fileExists(target) && !(alternate && fileExists(alternate))) {
+  const target = resolve(dirname(sourcePath), specifier)
+  if (!fileExists(target)) {
     return `does not map to a source file (${relative(root, target)})`
   }
   return undefined
 }
 
 function walk(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name)
-    if (entry.isDirectory()) return entry.name === 'dist' || entry.name === 'node_modules' ? [] : walk(path)
-    return sourceExtensions.includes(extname(entry.name)) ? [path] : []
+    if (entry.isDirectory())
+      return entry.name === 'dist' || entry.name === 'node_modules' ? [] : walk(path)
+    return sourceExtensions.has(extname(entry.name)) ? [path] : []
   })
 }
 
@@ -51,12 +47,14 @@ function sourceSpecifiers(path) {
 }
 
 function workspaceDirectories() {
-  return sourceRoots.flatMap(sourceRoot => {
+  return sourceRoots.flatMap((sourceRoot) => {
     const directory = join(root, sourceRoot)
     if (!existsSync(directory)) return []
     return readdirSync(directory, { withFileTypes: true })
-      .filter(entry => entry.isDirectory() && existsSync(join(directory, entry.name, 'package.json')))
-      .map(entry => join(directory, entry.name))
+      .filter(
+        (entry) => entry.isDirectory() && existsSync(join(directory, entry.name, 'package.json')),
+      )
+      .map((entry) => join(directory, entry.name))
   })
 }
 

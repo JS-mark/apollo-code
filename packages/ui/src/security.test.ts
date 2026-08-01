@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { applySessionEvent, createSessionView, renderPrivacyDisclosure, renderSandboxDisclosure, renderSecurityBanner } from './index.js'
+
+import {
+  applySessionEvent,
+  createSessionView,
+  renderPrivacyDisclosure,
+  renderSandboxDisclosure,
+  renderSecurityBanner,
+} from './index.ts'
 
 describe('security disclosure', () => {
   it.each([
@@ -12,7 +19,12 @@ describe('security disclosure', () => {
   })
 
   it('discloses the probed tier and its limitations', () => {
-    const output = renderSandboxDisclosure({ tier: 'partial', mechanism: 'landlock v1', features: { filesystem: true, network: false }, degradationReasons: ['seccomp unavailable'] })
+    const output = renderSandboxDisclosure({
+      tier: 'partial',
+      mechanism: 'landlock v1',
+      features: { filesystem: true, network: false },
+      degradationReasons: ['seccomp unavailable'],
+    })
     expect(output).toContain('Sandbox: PARTIAL')
     expect(output).toContain('seccomp unavailable')
     expect(output).toContain('Network egress: unavailable')
