@@ -159,6 +159,49 @@ jobs:
         with:
           name: native-darwin-universal2
           path: universal2/*
+  signing-smoke:
+    name: Authenticode self-sign smoke (non-production)
+    needs: native
+    runs-on: windows-2022
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-x86_64-pc-windows-msvc
+          path: artifact
+      - name: Self-sign and verify Windows binaries
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Apollo Code CI (NON-PRODUCTION)' -CertStoreLocation Cert:\CurrentUser\My
+          Get-ChildItem artifact -Recurse -Filter 'apollo-*.exe' | ForEach-Object {
+            $signature = Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert
+            if ($signature.Status -ne 'Valid') { throw "Self-sign verification failed for $($_.FullName): $($signature.Status)" }
+          }
+          'verification=self-signed-flow-only' | Set-Content authenticode-evidence.txt
+          'production_signature=false' | Add-Content authenticode-evidence.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: authenticode-self-sign-smoke
+          path: authenticode-evidence.txt
+  notarization-gate:
+    name: macOS notarization credential gate
+    needs: universal2
+    runs-on: macos-14
+    steps:
+      - name: Record external notarization gate
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_PASSWORD" ]]; then
+            printf 'credentials=available\nsubmission=release-workflow-required\n' > notarization-gate.txt
+          else
+            printf 'credentials=unavailable\nsubmission=blocked\n' > notarization-gate.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notarization-gate
+          path: notarization-gate.txt
   bwrap-reproducibility:
     runs-on: ubuntu-24.04
     steps:
