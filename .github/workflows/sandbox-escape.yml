@@ -1,4 +1,4 @@
-name: L1 sandbox escape
+name: L2 sandbox escape (8 targets)
 on:
   pull_request:
   push:
@@ -13,6 +13,10 @@ jobs:
           - { runner: macos-15-intel, target: x86_64-apple-darwin, verification: native }
           - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
           - { runner: ubuntu-24.04, target: aarch64-unknown-linux-gnu, verification: partial-verified }
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-musl, verification: cross-verified }
+          - { runner: ubuntu-24.04, target: aarch64-unknown-linux-musl, verification: partial-verified }
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc, verification: foundation-verified }
+          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, verification: foundation-verified }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +40,10 @@ jobs:
         run: |
           echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
           echo 'QEMU_LD_PREFIX=/usr/aarch64-linux-gnu' >> "$GITHUB_ENV"
+      - if: contains(matrix.target, 'musl')
+        uses: mlugg/setup-zig@v2
+      - if: contains(matrix.target, 'musl')
+        run: cargo install cargo-zigbuild --locked
       - if: runner.os == 'Linux' && matrix.verification == 'native'
         run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
@@ -44,7 +52,17 @@ jobs:
           fi
       - if: matrix.verification == 'native'
         run: cargo test -p apollo-sandbox --target ${{ matrix.target }}
-      - run: cargo build -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
+      - if: ${{ !contains(matrix.target, 'musl') }}
+        run: cargo build -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: cargo zigbuild -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
+      - if: matrix.verification == 'foundation-verified'
+        name: Verify Windows foundation refuses unsandboxed execution
+        shell: pwsh
+        run: ./crates/apollo-sandbox/tests/escape/windows-foundation.ps1 "target/${{ matrix.target }}/debug/apollo-sandbox.exe"
+      - if: matrix.verification == 'cross-verified'
+        name: Run musl x64 escape suite on the host kernel
+        run: bash crates/apollo-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/apollo-sandbox
       - if: matrix.verification == 'native'
         name: Run upstream-derived sandbox smoke and escape suite
         run: bash crates/apollo-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/apollo-sandbox
@@ -67,6 +85,9 @@ jobs:
           if [ '${{ matrix.verification }}' = partial-verified ]; then
             printf 'status=qemu-runtime-limited\n' >> escape-verification.txt
             printf 'limitation=QEMU user-mode is not real arm64 hardware; stable release still requires the checklist hardware gate.\n' >> escape-verification.txt
+          elif [ '${{ matrix.verification }}' = foundation-verified ]; then
+            printf 'status=refuses-unsandboxed-execution\n' >> escape-verification.txt
+            printf 'limitation=Windows Tier 1/2 and Authenticode remain external release gates.\n' >> escape-verification.txt
           else
             printf 'status=passed\n' >> escape-verification.txt
           fi

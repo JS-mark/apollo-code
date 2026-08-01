@@ -1,7 +1,7 @@
 {
-  "name": "@apollo-code/native-search-linux-x64-gnu",
+  "name": "@apollo-code/native-search-linux-x64-musl",
   "version": "0.0.0",
-  "description": "Apollo search native binary for linux-x64-gnu",
+  "description": "Apollo search native binary for linux-x64-musl",
   "license": "Apache-2.0",
   "bin": {
     "apollo-search": "bin/apollo-search"
@@ -18,6 +18,6 @@
     "x64"
   ],
   "libc": [
-    "glibc"
+    "musl"
   ]
 }

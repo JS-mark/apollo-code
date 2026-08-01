@@ -3,18 +3,21 @@
   "version": "0.0.0",
   "description": "Apollo fs native binary for linux-arm64-gnu",
   "license": "Apache-2.0",
+  "bin": {
+    "apollo-fs": "bin/apollo-fs"
+  },
+  "files": [
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
   "os": [
     "linux"
   ],
   "cpu": [
     "arm64"
   ],
-  "files": [
-    "bin",
-    "LICENSE",
-    "NOTICE"
-  ],
-  "bin": {
-    "apollo-fs": "bin/apollo-fs"
-  }
+  "libc": [
+    "glibc"
+  ]
 }

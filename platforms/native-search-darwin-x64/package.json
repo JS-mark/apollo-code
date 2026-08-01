@@ -3,18 +3,18 @@
   "version": "0.0.0",
   "description": "Apollo search native binary for darwin-x64",
   "license": "Apache-2.0",
-  "os": [
-    "darwin"
-  ],
-  "cpu": [
-    "x64"
-  ],
+  "bin": {
+    "apollo-search": "bin/apollo-search"
+  },
   "files": [
     "bin",
     "LICENSE",
     "NOTICE"
   ],
-  "bin": {
-    "apollo-search": "bin/apollo-search"
-  }
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ]
 }
