@@ -23,6 +23,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - if: matrix.verification == 'partial-verified'
         run: echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+      - if: runner.os == 'Linux' && matrix.verification == 'native'
+        run: |
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - if: matrix.verification == 'native'
         run: cargo test -p apollo-sandbox
       - if: matrix.verification == 'native'

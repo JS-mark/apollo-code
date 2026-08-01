@@ -70,6 +70,10 @@ mod tests {
                 "9a7a181ac5fab3e8fcecfeeec280f8b0d4fd60c852cf71cdf3b5c65d02401e0c",
             ),
             (
+                "sandboxing/src/restricted_read_only_platform_defaults.sbpl",
+                "3365fee8421135a25bf1c7bcc36f637961024dbbaa1e97d94acb41265090e02f",
+            ),
+            (
                 "linux-sandbox/src/bundled_bwrap.rs",
                 "a87780f4a20d8cc4efa507054bb9ac539084ed5bc404d53d87bc3f29c26eced5",
             ),

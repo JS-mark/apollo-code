@@ -21,18 +21,47 @@ fn profile(request: &ExecRequest) -> String {
     const UPSTREAM_BASE_POLICY: &str = include_str!(
         "../../../apollo-sandbox-vendor/upstream/sandboxing/src/seatbelt_base_policy.sbpl"
     );
-    let mut rules = vec![UPSTREAM_BASE_POLICY, "(allow file-read-metadata)"];
+    const UPSTREAM_PLATFORM_DEFAULTS: &str = include_str!(
+        "../../../apollo-sandbox-vendor/upstream/sandboxing/src/restricted_read_only_platform_defaults.sbpl"
+    );
+    // Codex's minimal platform defaults are needed for dyld, system frameworks,
+    // and shell startup. Apollo removes the upstream scratch-directory writes
+    // because PermissionSpec remains the only source of writable roots.
+    let platform_defaults = UPSTREAM_PLATFORM_DEFAULTS
+        .replace(
+            "(allow file-read* file-test-existence file-write* (subpath \"/tmp\"))",
+            "(allow file-read* file-test-existence (subpath \"/tmp\"))",
+        )
+        .replace(
+            "(allow file-read* file-write* (subpath \"/private/tmp\"))",
+            "(allow file-read* (subpath \"/private/tmp\"))",
+        )
+        .replace(
+            "(allow file-read* file-write* (subpath \"/var/tmp\"))",
+            "(allow file-read* (subpath \"/var/tmp\"))",
+        )
+        .replace(
+            "(allow file-read* file-write* (subpath \"/private/var/tmp\"))",
+            "(allow file-read* (subpath \"/private/var/tmp\"))",
+        );
+    let mut rules = vec![
+        UPSTREAM_BASE_POLICY,
+        platform_defaults.as_str(),
+        "(allow file-read-metadata)",
+    ];
     let mut dynamic = Vec::new();
     for path in &request.permissions.fs.read {
+        let path = canonical_policy_path(path);
         dynamic.push(format!(
             "(allow file-read* (subpath \"{}\"))",
-            escape_sbpl_string(path.trim_end_matches("/**"))
+            escape_sbpl_string(&path)
         ));
     }
     for path in &request.permissions.fs.write {
+        let path = canonical_policy_path(path);
         dynamic.push(format!(
             "(allow file-write* (subpath \"{}\"))",
-            escape_sbpl_string(path.trim_end_matches("/**"))
+            escape_sbpl_string(&path)
         ));
     }
     if request.permissions.net {
@@ -40,6 +69,14 @@ fn profile(request: &ExecRequest) -> String {
     }
     rules.extend(dynamic.iter().map(String::as_str));
     rules.join("\n")
+}
+
+fn canonical_policy_path(path: &str) -> String {
+    let path = path.trim_end_matches("/**");
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.into())
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn probe() -> ProbeInfo {
@@ -74,7 +111,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
         .arg("-p")
         .arg(profile(request))
         .arg("/bin/sh")
-        .arg("-lc")
+        .arg("-c")
         .arg(&request.command)
         .current_dir(&request.cwd)
         .env_clear();
@@ -111,6 +148,9 @@ mod tests {
         let generated = profile(&request);
         assert!(generated.contains("(deny default)"));
         assert!(generated.contains("(allow signal (target same-sandbox))"));
+        assert!(generated.contains("Map system frameworks + dylibs for loader"));
+        assert!(!generated.contains("file-test-existence file-write* (subpath \"/tmp\")"));
+        assert!(!generated.contains("file-write* (subpath \"/private/tmp\")"));
         assert!(!generated.contains("(allow network*)"));
     }
 }
