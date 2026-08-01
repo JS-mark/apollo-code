@@ -1,7 +1,7 @@
 # CLAUDE.md — Apollo Code
 
-> 本文件是 [AGENT.md](./AGENT.md) 的镜像 + Claude Code 特化补充。
-> **所有通用工程约定请以 `AGENT.md` 为准**，修改任何一份都必须同步另一份。
+> [AGENT.md](./AGENT.md) 是通用工程约定的唯一事实来源；本文件只维护 Claude Code 特化补充。
+> 通用约定只修改 `AGENT.md`，涉及 Claude Code 行为时同步审查并更新本文件的补充与索引。
 
 ## 与 AGENT.md 相同的部分
 
