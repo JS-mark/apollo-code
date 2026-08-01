@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
+import { command } from './command'
 import type { ApolloPorts } from './ports'
 
 const fixtures: string[] = []
@@ -43,6 +44,21 @@ function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
 }
 
 describe('runCli', () => {
+  it('declares the complete L1 command surface', () => {
+    expect(Object.keys(command.subCommands ?? {})).toEqual([
+      'chat',
+      'resume',
+      'login',
+      'logout',
+      'config',
+      'history',
+      'doctor',
+      'hook',
+      'version',
+      'help',
+    ])
+  })
+
   it('fails strict doctor and precisely lists unavailable integrations', async () => {
     const result = await runCli(['doctor', '--strict', '--json'], ports())
     expect(result.exitCode).toBe(1)

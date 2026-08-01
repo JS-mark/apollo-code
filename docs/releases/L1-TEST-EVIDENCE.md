@@ -1,0 +1,135 @@
+# L1 automated test evidence
+
+This map is an index into independently runnable tests for the automated and
+security requirements in `RELEASE-CHECKLIST-L1.md` sections 2–8 and 10–11. A
+passing aggregate test command is not evidence unless the relevant scenario is
+named below.
+
+Run one entry with:
+
+```sh
+pnpm --filter <package> test -- --testNamePattern '<test name>'
+```
+
+Run the complete TypeScript gate with:
+
+```sh
+pnpm turbo run typecheck test build --force
+```
+
+## Section 2 — core
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| 17-event contract | `@apollo-code/core` | `src/event-bus.test.ts` — `exposes the complete L1 event contract` |
+| UUIDv7 event IDs | `@apollo-code/core` | `src/event-bus.test.ts` — `emits ordered UUIDv7 events` |
+| subscriber deduplication | `@apollo-code/core` | `src/event-bus.test.ts` — `deduplicates replayed events per subscriber` |
+| PromptComposer injection | `@apollo-code/core` | `src/runner.test.ts` — `injects composed system prompt` |
+| 25-loop limit | `@apollo-code/core` | `src/runner.test.ts` — `limits tool loops to 25` |
+| interrupt propagation | `@apollo-code/core` | `src/runner.test.ts` — `propagates abort to provider stream` |
+| sticky provider lock and interrupted output invalidation | `@apollo-code/core` | `src/runner.test.ts` — `locks at first tool_use and rejects cross-provider retry without persisting partial output` |
+| router retry decision | `@apollo-code/core` | `src/runner.test.ts` — `uses the router retry decision before sticky lock without picking again` |
+| session-only permission cache | `@apollo-code/core` | `src/session.test.ts` — `does not persist a permission cache in SessionState` |
+
+## Section 3 — provider and router
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| complete ProviderClient contract | `@apollo-code/provider-kit` | `src/index.test.ts` — `requires the complete L1 ProviderClient surface` |
+| multimodal messages and RawMeta | `@apollo-code/provider-kit` | `src/index.test.ts` — `keeps multimodal messages and provider-native metadata at the boundary` |
+| normalized stream chunk union | `@apollo-code/provider-kit` | `src/index.test.ts` — `makes normal completion, interruption, usage, tools, and errors explicit chunks` |
+| Message ↔ Anthropic conversion | `@apollo-code/provider-anthropic` | `src/index.test.ts` — `converts neutral multimodal and tool messages` |
+| streaming TextDecoder | `@apollo-code/provider-anthropic` | `src/index.test.ts` — `uses streaming TextDecoder across UTF-8 boundaries` |
+| interruption/stop exclusivity | `@apollo-code/provider-anthropic` | `src/index.test.ts` — `emits interrupted instead of stop for incomplete and aborted streams` |
+| ProviderError mapping | `@apollo-code/provider-anthropic` | `src/index.test.ts` — `maps errors` |
+| credential, system, and AbortSignal ports | `@apollo-code/provider-anthropic` | `src/index.test.ts` — `passes credentials, system, and AbortSignal through injected ports` |
+| SingleProviderRouter pick and explicit model | `@apollo-code/router` | `src/index.test.ts` — `honors an explicit model` |
+| retry/give-up decision | `@apollo-code/router` | `src/index.test.ts` — `retries retryable errors and gives up otherwise` |
+| unified picker alias precedence | `@apollo-code/ui` | `src/integration.test.ts` — `puts an alias before a same-named file and supports explicit file mode` |
+
+## Section 4 — tools, permissions, and sandbox bridge
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| Tool contract surface | `@apollo-code/tool-kit` | `src/index.test.ts` — `requires schema, permission, abort-aware context, and normalized result` |
+| fixed builtin names and disposal | `@apollo-code/tool-kit` | `src/index.test.ts` — `registers builtins under fixed names and disposes them` |
+| MCP/plugin name prefixes | `@apollo-code/tool-kit` | `src/index.test.ts` — `enforces MCP and plugin namespaces` |
+| duplicate registration rejection | `@apollo-code/tool-kit` | `src/index.test.ts` — `rejects duplicate names regardless of source` |
+| seven tools and destructive sandbox declarations | `@apollo-code/tools` | `src/index.test.ts` — `registers seven tools and destructive tools require sandbox` |
+| schema validation before permission | `@apollo-code/tools` | `src/index.test.ts` — `validates before permission` |
+| long tool-result truncation | `@apollo-code/tools` | `src/index.test.ts` — `middle-truncates long output` |
+| eight-step permission order | `@apollo-code/permission` | `src/index.test.ts` — `uses strict decision order` |
+| serialized permission prompts and session cache | `@apollo-code/permission` | `src/index.test.ts` — `serializes prompts and caches session grants` |
+| conservative cwd read auto-allow | `@apollo-code/permission` | `src/index.test.ts` — `conservatively auto-allows cwd reads` |
+| sandbox tier frozen per process | `@apollo-code/native-bridge` | `src/sandbox.test.ts` — `is frozen for the lifetime of the process` |
+| worker handshake/restart/idle lifecycle | `@apollo-code/native-bridge` | `src/worker-pool.test.ts` — all three named tests |
+| malformed worker protocol handling | `@apollo-code/native-bridge` | `src/ipc.test.ts` — `rejects malformed protocol frames without losing later frames` |
+| dangerous-mode telemetry, confirmation, and red banner | `apollo-code` | `src/cli.test.ts` — `rejects dangerous mode without an explicit confirmation and emits one event`; `shows a red warning and records permission bypass once`; `never enters a none-tier session without explicit confirmation` |
+| sandbox tier disclosure | `@apollo-code/ui` | `src/security.test.ts` — `discloses the probed tier and its limitations` |
+
+Rust backend, digest, license, target, and escape evidence belongs to the native
+CI evidence owned by APO-12; it is not inferred from TypeScript unit tests.
+
+## Section 5 — storage, config, and credentials
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| JSONL v1, append-only fsync, delta omission | `@apollo-code/storage` | `src/index.test.ts` — `writes v first, skips deltas, fsyncs append-only records` |
+| attachment bytes excluded from JSONL | `@apollo-code/storage` | `src/index.test.ts` — `rejects inline attachment bytes` |
+| AGENT/CLAUDE fallback and safe include | `@apollo-code/storage` | `src/index.test.ts` — `loads AGENT over CLAUDE and expands safe includes` |
+| sensitive include denial placeholder | `@apollo-code/storage` | `src/index.test.ts` — `leaves a denial placeholder for sensitive includes`; `recognizes Windows separators in sensitive include paths` |
+| resume and incomplete-turn abort | `apollo-code` | `src/runtime.test.ts` — `resumes the last snapshot, aborts an incomplete turn, and emits session.resumed` |
+| config precedence and protected data-flow keys | `@apollo-code/config` | `src/index.test.ts` — `filters project data-flow keys and applies env/flags last` |
+| noninteractive project-config deny | `@apollo-code/config` | `src/index.test.ts` — `denies project config non-interactively by default` |
+| cwd canonicalization and sensitive-prefix rejection | `@apollo-code/shared` | `src/path-guard.test.ts` — all named tests |
+| keychain-before-env and sanitized auth events | `@apollo-code/auth` | `src/index.test.ts` — `resolves keychain before env without leaking payload` |
+| verify-before-store | `@apollo-code/auth` | `src/index.test.ts` — `verifies before storing` |
+| Argon2id/AES-GCM and no plaintext | `@apollo-code/auth` | `src/encrypted-store.test.ts` — `round trips using Argon2id and AES-GCM without plaintext on disk` |
+| sink sanitization | `@apollo-code/telemetry` | `src/index.test.ts` — `sanitizes every event before the local sink` |
+
+## Section 6 — context
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| ContextPolicy ownership | `@apollo-code/provider-kit` | `src/index.test.ts` — `owns the replaceable context policy contract` |
+| model-keyed token cache, native/fallback estimate, budget reserve | `@apollo-code/context` | `src/index.test.ts` — `includes model in token cache key and reserves budget` |
+| tool-pair and turn-boundary preservation | `@apollo-code/context` | `src/index.test.ts` — `keeps tool pairs and turn boundaries` |
+| asynchronous compaction hook veto | `@apollo-code/context` | `src/index.test.ts` — `respects preCompact veto` |
+
+## Section 7 — PromptComposer and untrusted content
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| register/compose/invalidate, stable priority, annotation separator | `@apollo-code/core` | `src/prompt-composer.test.ts` — `filters, sorts stably, annotates, interpolates and invalidates` |
+| priority-1000 builtin | `@apollo-code/core` | `src/prompt-composer.test.ts` — `provides the priority-1000 builtin` |
+| include path roots, permission, atomic open, non-md, sensitive, cycle, depth/limit, placeholder | `@apollo-code/storage` | `src/index.test.ts` — the three PromptLoader tests listed in section 5 |
+| source-traceable, injection-resistant untrusted wrapper | `@apollo-code/core` | `src/untrusted.test.ts` — `traces source and cannot be closed by injected content` |
+
+## Section 8 — terminal UI
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| alias/file picker semantics | `@apollo-code/ui` | `src/integration.test.ts` — `puts an alias before a same-named file and supports explicit file mode` |
+| serialized prompt handler | `@apollo-code/ui` | `src/integration.test.ts` — `serializes permission prompts` |
+| interrupted output withdrawn on restore | `@apollo-code/ui` | `src/integration.test.ts` — `restores a transcript without reviving withdrawn output`; `src/security.test.ts` — `marks interrupted output as withdrawn and records exit` |
+| SIGINT keeps session alive | `apollo-code` | `src/signals.test.ts` — `interrupts the current turn on SIGINT without ending the session` |
+| SIGTERM/SIGHUP flush and end | `apollo-code` | `src/signals.test.ts` — the SIGTERM and SIGHUP named tests |
+
+Static package-boundary rules are enforced by repository lint/config checks;
+they are not represented as runtime assertions in this table.
+
+## Sections 10–11 — CLI and onboarding
+
+| Requirement | Package | Test file and test name |
+| --- | --- | --- |
+| citty command surface and nested commands | `apollo-code` | `src/cli.test.ts` — `declares the complete L1 command surface` |
+| JSON doctor output and strict failure | `apollo-code` | `src/cli.test.ts` — `fails strict doctor and precisely lists unavailable integrations` |
+| cwd normalization | `apollo-code` | `src/cli.test.ts` — `normalizes --cwd before starting a session` |
+| dangerous flags emit once, confirm, and render warning | `apollo-code` | the three dangerous-mode tests listed in section 4 |
+| strict degraded sandbox exit 3 | `apollo-code` | `src/cli.test.ts` — `exits 3 when strict sandbox receives a degraded tier` |
+| privacy and sandbox disclosure before session/config writes | `@apollo-code/ui` | `src/security.test.ts` — `states the local-only telemetry default`; `discloses the probed tier and its limitations` |
+| resume command semantics | `apollo-code` | `src/cli.test.ts` — `resumes a persisted session through the session runtime port` |
+
+Manual onboarding gates remain manual and are tracked by APO-13. This document
+does not convert a manual observation or an unavailable integration into a unit
+test pass.
