@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { probeSandbox } from './sandbox.js'
+
+import { probeSandbox } from './sandbox.ts'
 
 describe('sandbox probe', () => {
   it('is frozen for the lifetime of the process', async () => {

@@ -15,4 +15,11 @@ export interface ExecOptions {
   permissions: { fs: { read: string[]; write: string[] }; net: boolean; env: { read: string[] } }
   env?: Record<string, string>
 }
-export interface ExecResult { stdout: string; stderr: string; exit_code: number; duration_ms: number; sandbox_tier: SandboxTier; sandbox_violations: string[] }
+export interface ExecResult {
+  stdout: string
+  stderr: string
+  exit_code: number
+  duration_ms: number
+  sandbox_tier: SandboxTier
+  sandbox_violations: string[]
+}

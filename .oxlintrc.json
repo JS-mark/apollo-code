@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
+  "env": {
+    "node": true
+  },
+  "ignorePatterns": ["**/dist/**", "**/build/**", "**/coverage/**", "**/node_modules/**"],
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "eqeqeq": ["error", "always"],
+    "no-debugger": "error",
+    "no-await-in-loop": "off",
+    "typescript/await-thenable": "warn",
+    "typescript/no-floating-promises": ["error", { "ignoreVoid": true }],
+    "typescript/no-misused-promises": "error",
+    "typescript/unbound-method": "warn",
+    "typescript/no-misused-spread": "warn",
+    "typescript/no-base-to-string": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "require-yield": "off"
+      }
+    }
+  ]
+}

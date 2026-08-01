@@ -1,8 +1,33 @@
 import type { JsonValue } from '@apollo-code/shared'
 
-export interface Usage { input: number; output: number; cacheRead?: number; cacheWrite?: number; costUSD?: number }
-export type ProviderErrorCategory = 'network' | 'auth' | 'rate_limit' | 'quota' | 'invalid_request' | 'content_filter' | 'model_not_found' | 'server' | 'context_length' | 'stream_truncated' | 'unknown'
-export interface ProviderError extends Error { provider: string; model?: string; status?: number; category: ProviderErrorCategory; retryable: boolean; retryAfterMs?: number; cause?: unknown }
+export interface Usage {
+  input: number
+  output: number
+  cacheRead?: number
+  cacheWrite?: number
+  costUSD?: number
+}
+export type ProviderErrorCategory =
+  | 'network'
+  | 'auth'
+  | 'rate_limit'
+  | 'quota'
+  | 'invalid_request'
+  | 'content_filter'
+  | 'model_not_found'
+  | 'server'
+  | 'context_length'
+  | 'stream_truncated'
+  | 'unknown'
+export interface ProviderError extends Error {
+  provider: string
+  model?: string
+  status?: number
+  category: ProviderErrorCategory
+  retryable: boolean
+  retryAfterMs?: number
+  cause?: unknown
+}
 export type AttachmentRef =
   | { kind: 'inline'; bytes: Uint8Array }
   | { kind: 'path'; absPath: string }
@@ -23,7 +48,11 @@ export interface Message {
   meta?: { provider?: string; model?: string; usage?: Usage; stopReason?: StopReason }
 }
 
-export interface ToolSchema { name: string; description: string; inputSchema: Record<string, JsonValue> }
+export interface ToolSchema {
+  name: string
+  description: string
+  inputSchema: Record<string, JsonValue>
+}
 export interface ProviderCapabilities {
   maxContextTokens: number
   maxOutputTokens: number
@@ -57,9 +86,21 @@ export interface ProviderRequest {
   rawMeta?: RawMeta
 }
 export interface RawMeta {
-  anthropic?: { cacheControl?: { type: 'ephemeral' }[]; metadata?: { user_id?: string }; computerUse?: { displayWidth: number; displayHeight: number } }
-  openai?: { logprobs?: boolean; seed?: number; reasoningEffort?: 'low' | 'medium' | 'high'; modalities?: ('text' | 'audio')[] }
-  gemini?: { safetySettings?: Array<{ category: string; threshold: string }>; candidateCount?: number }
+  anthropic?: {
+    cacheControl?: { type: 'ephemeral' }[]
+    metadata?: { user_id?: string }
+    computerUse?: { displayWidth: number; displayHeight: number }
+  }
+  openai?: {
+    logprobs?: boolean
+    seed?: number
+    reasoningEffort?: 'low' | 'medium' | 'high'
+    modalities?: ('text' | 'audio')[]
+  }
+  gemini?: {
+    safetySettings?: Array<{ category: string; threshold: string }>
+    candidateCount?: number
+  }
   ollama?: { keepAlive?: string; numCtx?: number }
 }
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error'
@@ -72,9 +113,16 @@ export type ProviderChunk =
   | { kind: 'tool_use.end'; id: string }
   | { kind: 'usage'; usage: Usage }
   | { kind: 'message.stop'; stopReason: StopReason }
-  | { kind: 'message.interrupted'; reason: string; partial?: { text?: string; toolUseIds?: string[] } }
+  | {
+      kind: 'message.interrupted'
+      reason: string
+      partial?: { text?: string; toolUseIds?: string[] }
+    }
   | { kind: 'error'; error: ProviderError }
-export interface ProviderResponse { message: Message; usage: Usage }
+export interface ProviderResponse {
+  message: Message
+  usage: Usage
+}
 export interface ProviderClient {
   readonly name: string
   readonly capabilities: ProviderCapabilities
@@ -84,8 +132,18 @@ export interface ProviderClient {
   dispose(): Promise<void>
 }
 
-export interface ContextConfig { compactionThreshold?: number; targetRatio?: number; reservedOutputTokens?: number; keepRecent?: number; maxTokens?: number }
-export interface ContextSessionSnapshot { messages: readonly Message[]; activeTurn?: string | null; turns?: readonly { id: string; status: string; startMessageId?: string; endMessageId?: string }[] }
+export interface ContextConfig {
+  compactionThreshold?: number
+  targetRatio?: number
+  reservedOutputTokens?: number
+  keepRecent?: number
+  maxTokens?: number
+}
+export interface ContextSessionSnapshot {
+  messages: readonly Message[]
+  activeTurn?: string | null
+  turns?: readonly { id: string; status: string; startMessageId?: string; endMessageId?: string }[]
+}
 export interface ContextCtx {
   readonly session: ContextSessionSnapshot
   readonly capabilities: ProviderCapabilities
@@ -94,8 +152,20 @@ export interface ContextCtx {
   readonly systemTokens?: number
   readonly toolSchemaTokens?: number
 }
-export interface ContextMessages { messages: readonly Message[]; removedMessageIds: string[]; estimatedTokens: number; hasSummary: boolean }
-export interface ContextSnapshot { messages: readonly Message[]; compactedMessageIds: string[]; beforeTokens: number; afterTokens: number; strategy: string; hookIntercepted: boolean }
+export interface ContextMessages {
+  messages: readonly Message[]
+  removedMessageIds: string[]
+  estimatedTokens: number
+  hasSummary: boolean
+}
+export interface ContextSnapshot {
+  messages: readonly Message[]
+  compactedMessageIds: string[]
+  beforeTokens: number
+  afterTokens: number
+  strategy: string
+  hookIntercepted: boolean
+}
 export interface ContextPolicy {
   readonly name: string
   shouldCompact(context: ContextCtx): boolean

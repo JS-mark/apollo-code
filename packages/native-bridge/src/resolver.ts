@@ -15,7 +15,10 @@ function packageTriple(): string | null {
 
 export async function resolveBinary(kind: BinaryKind): Promise<string | null> {
   const override = process.env[`APOLLO_NATIVE_${kind.toUpperCase()}_BINARY`]
-  if (override) { await access(override); return override }
+  if (override) {
+    await access(override)
+    return override
+  }
   const triple = packageTriple()
   if (!triple) return null
   try {
@@ -23,5 +26,7 @@ export async function resolveBinary(kind: BinaryKind): Promise<string | null> {
     const metadata = require(manifest) as { bin?: Record<string, string> }
     const relative = metadata.bin?.[`apollo-${kind}`]
     return relative ? join(dirname(manifest), relative) : null
-  } catch { return null }
+  } catch {
+    return null
+  }
 }

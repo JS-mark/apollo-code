@@ -1,6 +1,61 @@
-import { open, mkdir } from 'node:fs/promises';import { dirname } from 'node:path';import { v7 as uuidv7 } from 'uuid';import { sanitize,type JsonValue,type Logger } from '@apollo-code/shared'
-export interface TelemetryEvent{v:1;id:string;at:string;name:string;source:string;payload:Record<string,JsonValue>}
-export interface TelemetrySink{write(event:TelemetryEvent):Promise<void>}
-export class LocalTelemetrySink implements TelemetrySink{constructor(readonly path:string){}async write(event:TelemetryEvent){await mkdir(dirname(this.path),{recursive:true,mode:0o700});const file=await open(this.path,'a',0o600);try{await file.write(`${JSON.stringify(event)}\n`);await file.sync()}finally{await file.close()}}}
-export class Telemetry{constructor(readonly sink:TelemetrySink){}async emit(name:string,source:string,payload:Record<string,unknown>={}):Promise<void>{const clean=sanitize(payload) as Record<string,JsonValue>;await this.sink.write({v:1,id:uuidv7(),at:new Date().toISOString(),name,source,payload:clean})}}
-export class TelemetryLogger implements Logger{constructor(readonly telemetry:Telemetry,readonly source:string){}debug(m:string,c={}){void this.telemetry.emit('log.debug',this.source,{message:m,...c})}info(m:string,c={}){void this.telemetry.emit('log.info',this.source,{message:m,...c})}warn(m:string,c={}){void this.telemetry.emit('log.warn',this.source,{message:m,...c})}error(m:string,c={}){void this.telemetry.emit('log.error',this.source,{message:m,...c})}}
+import { open, mkdir } from 'node:fs/promises'
+import { dirname } from 'node:path'
+
+import { sanitize, type JsonValue, type Logger } from '@apollo-code/shared'
+import { v7 as uuidv7 } from 'uuid'
+export interface TelemetryEvent {
+  v: 1
+  id: string
+  at: string
+  name: string
+  source: string
+  payload: Record<string, JsonValue>
+}
+export interface TelemetrySink {
+  write(event: TelemetryEvent): Promise<void>
+}
+export class LocalTelemetrySink implements TelemetrySink {
+  constructor(readonly path: string) {}
+  async write(event: TelemetryEvent) {
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
+    const file = await open(this.path, 'a', 0o600)
+    try {
+      await file.write(`${JSON.stringify(event)}\n`)
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+  }
+}
+export class Telemetry {
+  constructor(readonly sink: TelemetrySink) {}
+  async emit(name: string, source: string, payload: Record<string, unknown> = {}): Promise<void> {
+    const clean = sanitize(payload) as Record<string, JsonValue>
+    await this.sink.write({
+      v: 1,
+      id: uuidv7(),
+      at: new Date().toISOString(),
+      name,
+      source,
+      payload: clean,
+    })
+  }
+}
+export class TelemetryLogger implements Logger {
+  constructor(
+    readonly telemetry: Telemetry,
+    readonly source: string,
+  ) {}
+  debug(m: string, c = {}) {
+    void this.telemetry.emit('log.debug', this.source, { message: m, ...c })
+  }
+  info(m: string, c = {}) {
+    void this.telemetry.emit('log.info', this.source, { message: m, ...c })
+  }
+  warn(m: string, c = {}) {
+    void this.telemetry.emit('log.warn', this.source, { message: m, ...c })
+  }
+  error(m: string, c = {}) {
+    void this.telemetry.emit('log.error', this.source, { message: m, ...c })
+  }
+}

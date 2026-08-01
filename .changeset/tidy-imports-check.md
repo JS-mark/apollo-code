@@ -2,4 +2,4 @@
 'apollo-code': patch
 ---
 
-Validate workspace TypeScript output directories and NodeNext relative import specifiers during typecheck.
+Add Oxlint and Oxfmt checks, validate workspace TypeScript output directories, and rewrite explicit TypeScript source imports to runtime JavaScript extensions during builds.

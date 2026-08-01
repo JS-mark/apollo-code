@@ -1,13 +1,37 @@
-import type { ContentPart } from '@apollo-code/provider-kit'
 import type { PermissionSpec } from '@apollo-code/permission'
+import type { ContentPart } from '@apollo-code/provider-kit'
 import type { JsonValue, Logger } from '@apollo-code/shared'
 
-export interface SessionSnapshot { id: string; cwd: string; turnId: string }
-export interface NativeBridge { execute(command: string, args: string[], signal: AbortSignal): Promise<unknown> }
-export interface ToolUiPort { requestInput(prompt: string): Promise<string> }
-export interface ToolContext { readonly abortSignal: AbortSignal; readonly session: SessionSnapshot; readonly native: NativeBridge; readonly logger: Logger; readonly ui: ToolUiPort }
-export interface ToolResultMeta { durationMs: number; bytesRead?: number; bytesWritten?: number; filesTouched?: string[]; costImpact?: 'safe' | 'moderate' | 'high' }
-export interface ToolResult { content: ContentPart[]; isError?: boolean; meta?: ToolResultMeta }
+export interface SessionSnapshot {
+  id: string
+  cwd: string
+  turnId: string
+}
+export interface NativeBridge {
+  execute(command: string, args: string[], signal: AbortSignal): Promise<unknown>
+}
+export interface ToolUiPort {
+  requestInput(prompt: string): Promise<string>
+}
+export interface ToolContext {
+  readonly abortSignal: AbortSignal
+  readonly session: SessionSnapshot
+  readonly native: NativeBridge
+  readonly logger: Logger
+  readonly ui: ToolUiPort
+}
+export interface ToolResultMeta {
+  durationMs: number
+  bytesRead?: number
+  bytesWritten?: number
+  filesTouched?: string[]
+  costImpact?: 'safe' | 'moderate' | 'high'
+}
+export interface ToolResult {
+  content: ContentPart[]
+  isError?: boolean
+  meta?: ToolResultMeta
+}
 export interface Tool<Input = unknown> {
   readonly name: string
   readonly description: string
@@ -22,14 +46,36 @@ export interface Tool<Input = unknown> {
 
 export class ToolRegistry {
   readonly #tools = new Map<string, Tool>()
-  register(tool: Tool, source: { kind: 'builtin' } | { kind: 'mcp'; server: string } | { kind: 'plugin'; plugin: string } = { kind: 'builtin' }): () => void {
-    if (source.kind === 'mcp' && !tool.name.startsWith(`mcp:${source.server}:`)) throw new Error('MCP tools require mcp:<server>: prefix')
-    if (source.kind === 'plugin' && !tool.name.startsWith(`plugin:${source.plugin}:`)) throw new Error('Plugin tools require plugin:<name>: prefix')
+  register(
+    tool: Tool,
+    source:
+      | { kind: 'builtin' }
+      | { kind: 'mcp'; server: string }
+      | { kind: 'plugin'; plugin: string } = { kind: 'builtin' },
+  ): () => void {
+    if (source.kind === 'mcp' && !tool.name.startsWith(`mcp:${source.server}:`))
+      throw new Error('MCP tools require mcp:<server>: prefix')
+    if (source.kind === 'plugin' && !tool.name.startsWith(`plugin:${source.plugin}:`))
+      throw new Error('Plugin tools require plugin:<name>: prefix')
     if (this.#tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`)
     this.#tools.set(tool.name, tool)
     return () => this.#tools.delete(tool.name)
   }
-  get(name: string): Tool | undefined { return this.#tools.get(name) }
-  list(): readonly Tool[] { return [...this.#tools.values()] }
-  forProvider(): Array<{ name: string; description: string; inputSchema: Record<string, JsonValue> }> { return this.list().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) }
+  get(name: string): Tool | undefined {
+    return this.#tools.get(name)
+  }
+  list(): readonly Tool[] {
+    return [...this.#tools.values()]
+  }
+  forProvider(): Array<{
+    name: string
+    description: string
+    inputSchema: Record<string, JsonValue>
+  }> {
+    return this.list().map(({ name, description, inputSchema }) => ({
+      name,
+      description,
+      inputSchema,
+    }))
+  }
 }

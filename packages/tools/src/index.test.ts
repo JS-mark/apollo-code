@@ -1,2 +1,43 @@
-import { describe,expect,it,vi } from 'vitest';import { PermissionManager } from '@apollo-code/permission';import { ReadTool,ToolExecutor,builtinTools,truncateToolResult } from './index.js'
-describe('L1 tools',()=>{it('registers seven tools and destructive tools require sandbox',()=>{const tools=builtinTools();expect(tools.map(x=>x.name)).toEqual(['Read','Write','Edit','Bash','Grep','Glob','Todo']);for(const name of ['Write','Edit','Bash'])expect((tools.find(x=>x.name===name) as unknown as {sandboxRequired:boolean}).sandboxRequired).toBe(true)});it('validates before permission',async()=>{const prompt=vi.fn(),manager=new PermissionManager();manager.setPromptHandler(prompt);const executor=new ToolExecutor(manager,signal=>({abortSignal:signal,session:{id:'s',cwd:process.cwd(),turnId:'t'},native:{execute:async()=>''},logger:{debug(){},info(){},warn(){},error(){}},ui:{requestInput:async()=>''}}));expect((await executor.execute(new ReadTool(),{},new AbortController().signal)).isError).toBe(true);expect(prompt).not.toHaveBeenCalled()});it('middle-truncates long output',()=>{const out=truncateToolResult([{type:'text',text:'x'.repeat(100)}],20)[0];expect(out?.type==='text'&&out.text).toContain('truncated')})})
+import { PermissionManager } from '@apollo-code/permission'
+import { describe, expect, it, vi } from 'vitest'
+
+import { ReadTool, ToolExecutor, builtinTools, truncateToolResult } from './index.ts'
+describe('L1 tools', () => {
+  it('registers seven tools and destructive tools require sandbox', () => {
+    const tools = builtinTools()
+    expect(tools.map((x) => x.name)).toEqual([
+      'Read',
+      'Write',
+      'Edit',
+      'Bash',
+      'Grep',
+      'Glob',
+      'Todo',
+    ])
+    for (const name of ['Write', 'Edit', 'Bash'])
+      expect(
+        (tools.find((x) => x.name === name) as unknown as { sandboxRequired: boolean })
+          .sandboxRequired,
+      ).toBe(true)
+  })
+  it('validates before permission', async () => {
+    const prompt = vi.fn(),
+      manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    const executor = new ToolExecutor(manager, (signal) => ({
+      abortSignal: signal,
+      session: { id: 's', cwd: process.cwd(), turnId: 't' },
+      native: { execute: async () => '' },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      ui: { requestInput: async () => '' },
+    }))
+    expect((await executor.execute(new ReadTool(), {}, new AbortController().signal)).isError).toBe(
+      true,
+    )
+    expect(prompt).not.toHaveBeenCalled()
+  })
+  it('middle-truncates long output', () => {
+    const out = truncateToolResult([{ type: 'text', text: 'x'.repeat(100) }], 20)[0]
+    expect(out?.type === 'text' && out.text).toContain('truncated')
+  })
+})

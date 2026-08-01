@@ -1,2 +1,15 @@
-import { describe,expect,it } from 'vitest';import { Telemetry,type TelemetryEvent } from './index.js'
-describe('telemetry',()=>{it('sanitizes every event before the local sink',async()=>{let event:TelemetryEvent|undefined;await new Telemetry({write:async value=>{event=value}}).emit('auth.test','auth',{token:'abc',url:'https://user:pass@example.com'});expect(JSON.stringify(event)).not.toContain('abc');expect(JSON.stringify(event)).not.toContain('user:pass')})})
+import { describe, expect, it } from 'vitest'
+
+import { Telemetry, type TelemetryEvent } from './index.ts'
+describe('telemetry', () => {
+  it('sanitizes every event before the local sink', async () => {
+    let event: TelemetryEvent | undefined
+    await new Telemetry({
+      write: async (value) => {
+        event = value
+      },
+    }).emit('auth.test', 'auth', { token: 'abc', url: 'https://user:pass@example.com' })
+    expect(JSON.stringify(event)).not.toContain('abc')
+    expect(JSON.stringify(event)).not.toContain('user:pass')
+  })
+})
