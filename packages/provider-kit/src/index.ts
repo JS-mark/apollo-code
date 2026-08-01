@@ -1,6 +1,8 @@
 import type { JsonValue } from '@apollo-code/shared'
 
 export interface Usage { input: number; output: number; cacheRead?: number; cacheWrite?: number; costUSD?: number }
+export type ProviderErrorCategory = 'network' | 'auth' | 'rate_limit' | 'quota' | 'invalid_request' | 'content_filter' | 'model_not_found' | 'server' | 'context_length' | 'stream_truncated' | 'unknown'
+export interface ProviderError extends Error { provider: string; model?: string; status?: number; category: ProviderErrorCategory; retryable: boolean; retryAfterMs?: number; cause?: unknown }
 export type AttachmentRef =
   | { kind: 'inline'; bytes: Uint8Array }
   | { kind: 'path'; absPath: string }
@@ -52,7 +54,13 @@ export interface ProviderRequest {
   responseFormat?: 'text' | 'json'
   reasoning?: { enabled: boolean; budgetTokens?: number }
   cache?: { strategy: 'ephemeral' | 'persistent' | 'off'; ttlSeconds?: number }
-  rawMeta?: Record<string, JsonValue>
+  rawMeta?: RawMeta
+}
+export interface RawMeta {
+  anthropic?: { cacheControl?: { type: 'ephemeral' }[]; metadata?: { user_id?: string }; computerUse?: { displayWidth: number; displayHeight: number } }
+  openai?: { logprobs?: boolean; seed?: number; reasoningEffort?: 'low' | 'medium' | 'high'; modalities?: ('text' | 'audio')[] }
+  gemini?: { safetySettings?: Array<{ category: string; threshold: string }>; candidateCount?: number }
+  ollama?: { keepAlive?: string; numCtx?: number }
 }
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error'
 export type ProviderChunk =
@@ -65,7 +73,7 @@ export type ProviderChunk =
   | { kind: 'usage'; usage: Usage }
   | { kind: 'message.stop'; stopReason: StopReason }
   | { kind: 'message.interrupted'; reason: string; partial?: { text?: string; toolUseIds?: string[] } }
-  | { kind: 'error'; error: Error }
+  | { kind: 'error'; error: ProviderError }
 export interface ProviderResponse { message: Message; usage: Usage }
 export interface ProviderClient {
   readonly name: string
