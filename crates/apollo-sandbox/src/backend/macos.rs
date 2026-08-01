@@ -18,14 +18,10 @@ pub fn escape_sbpl_string(value: &str) -> String {
 }
 
 fn profile(request: &ExecRequest) -> String {
-    let mut rules = vec![
-        "(version 1)",
-        "(deny default)",
-        "(allow process-exec)",
-        "(allow process-fork)",
-        "(allow sysctl-read)",
-        "(allow file-read-metadata)",
-    ];
+    const UPSTREAM_BASE_POLICY: &str = include_str!(
+        "../../../apollo-sandbox-vendor/upstream/sandboxing/src/seatbelt_base_policy.sbpl"
+    );
+    let mut rules = vec![UPSTREAM_BASE_POLICY, "(allow file-read-metadata)"];
     let mut dynamic = Vec::new();
     for path in &request.permissions.fs.read {
         dynamic.push(format!(
@@ -101,5 +97,20 @@ mod tests {
     #[test]
     fn escapes_sbpl_injection_characters() {
         assert_eq!(escape_sbpl_string("a\")\\\n(b"), "a\\\"\\)\\\\\\n\\(b");
+    }
+
+    #[test]
+    fn profile_uses_pinned_closed_by_default_upstream_policy() {
+        let request = ExecRequest {
+            command: "true".into(),
+            cwd: "/".into(),
+            timeout_ms: 1,
+            permissions: Default::default(),
+            env: Default::default(),
+        };
+        let generated = profile(&request);
+        assert!(generated.contains("(deny default)"));
+        assert!(generated.contains("(allow signal (target same-sandbox))"));
+        assert!(!generated.contains("(allow network*)"));
     }
 }

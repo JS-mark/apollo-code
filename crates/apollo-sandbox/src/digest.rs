@@ -59,4 +59,26 @@ mod tests {
             .contains("SHA256 mismatch"));
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn pinned_upstream_snapshots_match_reviewed_digests() {
+        let vendor =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../apollo-sandbox-vendor/upstream");
+        for (relative, expected) in [
+            (
+                "sandboxing/src/seatbelt_base_policy.sbpl",
+                "9a7a181ac5fab3e8fcecfeeec280f8b0d4fd60c852cf71cdf3b5c65d02401e0c",
+            ),
+            (
+                "linux-sandbox/src/bundled_bwrap.rs",
+                "a87780f4a20d8cc4efa507054bb9ac539084ed5bc404d53d87bc3f29c26eced5",
+            ),
+            (
+                "windows-sandbox-rs/src/lib.rs",
+                "4fa052f4b2c6953fb5a0f764e90d25b6c5efd25703b0be12148e752b0d27c655",
+            ),
+        ] {
+            verify_sha256(&vendor.join(relative), expected).unwrap();
+        }
+    }
 }
