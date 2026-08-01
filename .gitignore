@@ -1,0 +1,34 @@
+# ZCode agent workspace state (plans, session-local data)
+.zcode/
+
+# --- Node / pnpm ---
+node_modules/
+.pnpm-store/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Build outputs ---
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# --- Rust / Cargo ---
+target/
+**/*.rs.bk
+
+# --- Editor / OS ---
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+credentials.enc
