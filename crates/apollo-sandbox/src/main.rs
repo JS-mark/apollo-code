@@ -1,4 +1,4 @@
-use apollo_sandbox::{digest::verify_sha256, probe, run, ExecRequest};
+use apollo_sandbox::{bundled_bwrap, digest::verify_sha256, probe, run, ExecRequest};
 use std::io::Read;
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -11,11 +11,14 @@ fn main() {
         return;
     }
     if args.first().map(String::as_str) == Some("--verify-bwrap-digest") {
-        if args.len() != 3 {
-            eprintln!("usage: apollo-sandbox --verify-bwrap-digest <path> <sha256>");
-            std::process::exit(2);
-        }
-        match verify_sha256(std::path::Path::new(&args[1]), &args[2]) {
+        let verification = if args.len() == 1 {
+            bundled_bwrap::verify_embedded()
+        } else if args.len() == 3 {
+            verify_sha256(std::path::Path::new(&args[1]), &args[2])
+        } else {
+            Err("usage: apollo-sandbox --verify-bwrap-digest [path sha256]".into())
+        };
+        match verification {
             Ok(()) => {
                 println!("{{\"verified\":true}}");
                 return;

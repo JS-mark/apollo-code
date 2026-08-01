@@ -1,4 +1,5 @@
 use super::execute;
+use crate::bundled_bwrap;
 use crate::profile::{ExecRequest, ExecResult, ProbeInfo, SandboxTier};
 use std::{collections::BTreeMap, process::Command};
 
@@ -14,13 +15,8 @@ pub fn seccomp_arch() -> Result<SeccompArch, String> {
         arch => Err(format!("unsupported seccomp architecture: {arch}")),
     }
 }
-fn bwrap() -> Option<&'static str> {
-    ["/usr/bin/bwrap", "/bin/bwrap"]
-        .into_iter()
-        .find(|p| std::path::Path::new(p).exists())
-}
 pub fn probe() -> ProbeInfo {
-    let bwrap = bwrap().is_some();
+    let bwrap = bundled_bwrap::verify_embedded().is_ok();
     let seccomp = seccomp_arch().is_ok();
     ProbeInfo {
         platform: "linux".into(),
@@ -50,14 +46,15 @@ pub fn probe() -> ProbeInfo {
         known_limitations: if bwrap {
             vec!["seccomp filter installation is pending vendor integration".into()]
         } else {
-            vec!["bundled bwrap unavailable".into()]
+            vec!["bundled bwrap failed digest verification".into()]
         },
     }
 }
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
-    let path = bwrap().ok_or("Linux bwrap backend unavailable; refusing unsandboxed execution")?;
+    let bundled = bundled_bwrap::materialize()
+        .map_err(|error| format!("bundled bwrap unavailable; refusing execution: {error}"))?;
     seccomp_arch()?;
-    let mut command = Command::new(path);
+    let mut command = Command::new(bundled.path());
     command.args([
         "--die-with-parent",
         "--unshare-user",
@@ -95,5 +92,14 @@ mod tests {
             seccomp_arch(),
             Ok(SeccompArch::X86_64 | SeccompArch::Aarch64)
         ));
+    }
+
+    #[test]
+    fn runtime_selects_digest_verified_bundled_bwrap() {
+        let bundled = bundled_bwrap::materialize().expect("materialize reviewed payload");
+        assert!(bundled.path().starts_with("/proc/self/fd"));
+        assert_ne!(bundled.path(), std::path::Path::new("/usr/bin/bwrap"));
+        crate::digest::verify_sha256(bundled.path(), bundled_bwrap::SHA256)
+            .expect("runtime payload must match the architecture digest");
     }
 }
