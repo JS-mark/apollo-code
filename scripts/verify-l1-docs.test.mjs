@@ -76,3 +76,26 @@ void test('does not claim blocked release evidence', async () => {
   assert.match(signoff, /PENDING/)
   assert.doesNotMatch(`${dogfood}\n${signoff}`, /ANTHROPIC_API_KEY\s*=/)
 })
+
+void test('ships an auditable L1 final verification runbook', async () => {
+  const runbook = await readRepoFile('docs/releases/L1-FINAL-VERIFICATION.md')
+
+  for (const required of [
+    'Status: **PROCEDURE ONLY',
+    '## Roles and separation of duties',
+    '## Entry criteria',
+    '## Phase 1 — Freeze the candidate',
+    '## Phase 2 — Automated and target evidence',
+    '## Phase 3 — Real Anthropic dog-food',
+    '## Phase 4 — BDFL and security sign-off',
+    '## Phase 5 — Release decision and publication boundary',
+    '## Failure, retry, and rollback rules',
+    '## Evidence manifest',
+  ])
+    assert.match(runbook, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+
+  assert.match(runbook, /mock[^\n]*PRE-FLIGHT ONLY/i)
+  assert.match(runbook, /Closes APO-15/)
+  assert.match(runbook, /credential[^\n]*(must not|never|禁止)/i)
+  assert.match(runbook, /not published/i)
+})
