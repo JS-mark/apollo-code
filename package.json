@@ -8,7 +8,7 @@
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test",
+    "test": "turbo run test && node --test scripts/verify-l1-docs.test.mjs",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
