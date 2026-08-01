@@ -12,15 +12,17 @@ export function relativeSpecifierError(sourcePath, specifier, fileExists = exist
   if (!specifier.startsWith('./') && !specifier.startsWith('../')) return undefined
 
   const extension = extname(specifier)
-  if (['.js', '.mjs', '.cjs'].includes(extension))
-    return `uses emitted extension ${extension}; source imports must name their TypeScript extension`
   if (extension === '.json') return undefined
-  if (!sourceExtensions.has(extension)) return 'has no supported TypeScript source extension'
+  if (extension)
+    return `uses explicit ${extension} extension; TypeScript source imports must omit it`
 
   const target = resolve(dirname(sourcePath), specifier)
-  if (!fileExists(target)) {
-    return `does not map to a source file (${relative(root, target)})`
-  }
+  const candidates = [...sourceExtensions].flatMap((sourceExtension) => [
+    `${target}${sourceExtension}`,
+    join(target, `index${sourceExtension}`),
+  ])
+  if (!candidates.some(fileExists))
+    return `does not map to TypeScript source (${relative(root, target)})`
   return undefined
 }
 
@@ -93,6 +95,6 @@ if (isAbsolute(process.argv[1] ?? '') && resolve(process.argv[1]) === scriptPath
     console.error(errors.join('\n'))
     process.exitCode = 1
   } else {
-    console.log('TypeScript config and relative ESM specifiers are valid.')
+    console.log('TypeScript config and extensionless source specifiers are valid.')
   }
 }

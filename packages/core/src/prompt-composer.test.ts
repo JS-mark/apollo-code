@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DefaultPromptComposer, builtinPromptFragment } from './prompt-composer.ts'
+import { DefaultPromptComposer, builtinPromptFragment } from './prompt-composer'
 describe('PromptComposer', () => {
   it('filters, sorts stably, annotates, interpolates and invalidates', async () => {
     const composer = new DefaultPromptComposer()

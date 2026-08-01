@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { EncryptedCredentialStore } from './encrypted-store.ts'
+import { EncryptedCredentialStore } from './encrypted-store'
 const dirs: string[] = []
 afterEach(async () => {
   for (const d of dirs) await rm(d, { recursive: true, force: true })

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { PermissionManager } from './index.ts'
+import { PermissionManager } from './index'
 const req = (toolName = 'Write') => ({
   toolName,
   spec: { fs: { write: ['x'] } },

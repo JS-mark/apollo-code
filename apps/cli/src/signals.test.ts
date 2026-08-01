@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createSignalController } from './signals.ts'
+import { createSignalController } from './signals'
 
 describe('signal controller', () => {
   it('interrupts the current turn on SIGINT without ending the session', async () => {

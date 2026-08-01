@@ -13,9 +13,9 @@ import type { RouterDecision, RouterHint, RouterPolicy } from '@apollo-code/rout
 import type { JsonValue } from '@apollo-code/shared'
 import { v7 as uuidv7 } from 'uuid'
 
-import { EventBus } from './event-bus.ts'
-import type { PromptComposer } from './prompt-composer.ts'
-import { updateSession, type SessionState } from './session.ts'
+import { EventBus } from './event-bus'
+import type { PromptComposer } from './prompt-composer'
+import { updateSession, type SessionState } from './session'
 
 export interface ToolExecution {
   toolUseId: string

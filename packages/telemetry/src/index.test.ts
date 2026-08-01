@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Telemetry, type TelemetryEvent } from './index.ts'
+import { Telemetry, type TelemetryEvent } from './index'
 describe('telemetry', () => {
   it('sanitizes every event before the local sink', async () => {
     let event: TelemetryEvent | undefined

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import process from 'node:process'
 
-import { runCli } from './cli.ts'
-import { createProductionPorts } from './runtime.ts'
-import { createSignalController } from './signals.ts'
+import { runCli } from './cli'
+import { createProductionPorts } from './runtime'
+import { createSignalController } from './signals'
 const ports = createProductionPorts()
 const signals = createSignalController(ports.session)
 process.on('SIGINT', () => {

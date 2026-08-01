@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 
-import { workerPool } from './worker-pool.ts'
+import { workerPool } from './worker-pool'
 
 export async function computeDiff(before: string, after: string): Promise<string> {
   try {

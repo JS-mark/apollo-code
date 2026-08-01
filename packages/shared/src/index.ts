@@ -39,4 +39,4 @@ export function sanitize<T>(value: T): T {
   return visit(value) as T
 }
 
-export { validateWorkspacePath } from './path-guard.ts'
+export { validateWorkspacePath } from './path-guard'

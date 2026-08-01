@@ -1,7 +1,7 @@
 import { constants } from 'node:fs'
 import { access } from 'node:fs/promises'
 
-import type { ApolloPorts } from './ports.ts'
+import type { ApolloPorts } from './ports'
 export interface DoctorCheck {
   detail: string
   name: string

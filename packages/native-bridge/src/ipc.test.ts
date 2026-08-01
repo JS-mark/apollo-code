@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream'
 
 import { describe, expect, it } from 'vitest'
 
-import { RpcPeer } from './ipc.ts'
+import { RpcPeer } from './ipc'
 
 describe('RpcPeer', () => {
   it('rejects malformed protocol frames without losing later frames', async () => {

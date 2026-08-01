@@ -7,9 +7,9 @@ import {
 import type { DangerousMode } from '@apollo-code/ui'
 import { parseArgs, renderUsage } from 'citty'
 
-import { command } from './command.ts'
-import { runDoctor } from './doctor.ts'
-import type { ApolloPorts } from './ports.ts'
+import { command } from './command'
+import { runDoctor } from './doctor'
+import type { ApolloPorts } from './ports'
 
 export interface CliResult {
   exitCode: number

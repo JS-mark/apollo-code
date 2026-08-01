@@ -1,7 +1,7 @@
 import type { Message, ProviderCapabilities } from '@apollo-code/provider-kit'
 import { describe, expect, it } from 'vitest'
 
-import { SlidingWindowPolicy } from './index.ts'
+import { SlidingWindowPolicy } from './index'
 const msg = (id: string, role: Message['role'], text: string): Message => ({
   id,
   role,

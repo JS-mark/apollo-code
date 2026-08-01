@@ -4,7 +4,7 @@ import { join, parse } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { validateWorkspacePath } from './path-guard.ts'
+import { validateWorkspacePath } from './path-guard'
 
 const fixtures: string[] = []
 

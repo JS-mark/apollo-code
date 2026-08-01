@@ -1,8 +1,8 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'node:child_process'
 
-import { RpcPeer } from './ipc.ts'
-import { resolveBinary } from './resolver.ts'
+import { RpcPeer } from './ipc'
+import { resolveBinary } from './resolver'
 
 export type WorkerKind = 'search' | 'fs'
 type SpawnLike = (

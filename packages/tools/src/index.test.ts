@@ -1,7 +1,7 @@
 import { PermissionManager } from '@apollo-code/permission'
 import { describe, expect, it, vi } from 'vitest'
 
-import { ReadTool, ToolExecutor, builtinTools, truncateToolResult } from './index.ts'
+import { ReadTool, ToolExecutor, builtinTools, truncateToolResult } from './index'
 describe('L1 tools', () => {
   it('registers seven tools and destructive tools require sandbox', () => {
     const tools = builtinTools()

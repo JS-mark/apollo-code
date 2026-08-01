@@ -4,23 +4,20 @@ import { test } from 'node:test'
 
 import { relativeSpecifierError, outDirError } from './verify-typescript-config.mjs'
 
-test('accepts a .ts specifier when it maps to TypeScript source', () => {
+test('accepts an extensionless specifier when it maps to TypeScript source', () => {
   const source = resolve('repo', 'src', 'cli.ts')
   const target = resolve(dirname(source), 'ports.ts')
   assert.equal(
-    relativeSpecifierError(source, './ports.ts', (path) => path === target),
+    relativeSpecifierError(source, './ports', (path) => path === target),
     undefined,
   )
 })
 
-test('rejects emitted extensions, extensionless specifiers, and missing targets', () => {
-  assert.match(relativeSpecifierError('/repo/src/cli.ts', './ports.js'), /emitted extension/)
+test('rejects explicit source and emitted extensions plus missing targets', () => {
+  assert.match(relativeSpecifierError('/repo/src/cli.ts', './ports.js'), /must omit/)
+  assert.match(relativeSpecifierError('/repo/src/cli.ts', './ports.ts'), /must omit/)
   assert.match(
-    relativeSpecifierError('/repo/src/cli.ts', './ports'),
-    /no supported TypeScript source extension/,
-  )
-  assert.match(
-    relativeSpecifierError('/repo/src/cli.ts', './missing.ts', () => false),
+    relativeSpecifierError('/repo/src/cli.ts', './missing', () => false),
     /does not map/,
   )
 })

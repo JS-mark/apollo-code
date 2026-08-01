@@ -3,8 +3,8 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { runCli } from './cli.ts'
-import type { ApolloPorts } from './ports.ts'
+import { runCli } from './cli'
+import type { ApolloPorts } from './ports'
 
 const fixtures: string[] = []
 afterEach(async () =>

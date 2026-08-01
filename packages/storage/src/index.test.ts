@@ -6,7 +6,7 @@ import { DefaultPromptComposer } from '@apollo-code/core'
 import { PermissionManager } from '@apollo-code/permission'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { PromptLoader, SessionStore } from './index.ts'
+import { PromptLoader, SessionStore } from './index'
 const dirs: string[] = []
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })

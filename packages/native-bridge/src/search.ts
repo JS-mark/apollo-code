@@ -1,4 +1,4 @@
-import { workerPool } from './worker-pool.ts'
+import { workerPool } from './worker-pool'
 export interface SearchOptions {
   pattern: string
   cwd: string

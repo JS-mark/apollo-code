@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 
-import { resolveBinary } from './resolver.ts'
-import type { ExecOptions, ExecResult, SandboxInfo } from './types.ts'
+import { resolveBinary } from './resolver'
+import type { ExecOptions, ExecResult, SandboxInfo } from './types'
 
 const NONE: SandboxInfo = Object.freeze({
   platform: process.platform,
