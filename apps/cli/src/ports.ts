@@ -20,7 +20,16 @@ export interface SessionPort {
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
-  auth: { health(): Promise<DoctorHealth> }
+  auth: {
+    health(): Promise<DoctorHealth>
+    login(input: {
+      provider: string
+      credential?: string
+      flow: 'api-key' | 'stdin'
+      dangerouslySkipVerify: boolean
+    }): Promise<{ detail: string }>
+    logout(provider: string): Promise<{ detail: string }>
+  }
   config: { health(cwd: string): Promise<DoctorHealth> }
   telemetry: {
     securityEvent(name: string, payload: Record<string, boolean | string>): Promise<void>
@@ -40,7 +49,15 @@ export function unavailablePorts(): ApolloPorts {
       }),
       health: async () => ({ sandbox: false, search: false, fs: false }),
     },
-    auth: { health: async () => ({ configured: false, detail: 'auth port not connected' }) },
+    auth: {
+      health: async () => ({ configured: false, detail: 'auth port not connected' }),
+      login: async () => {
+        throw new Error('auth port not connected')
+      },
+      logout: async () => {
+        throw new Error('auth port not connected')
+      },
+    },
     config: { health: async () => ({ valid: false, detail: 'config port not connected' }) },
     telemetry: { securityEvent: async () => {} },
     confirmation: { confirmDangerousNoSandbox: async () => false },

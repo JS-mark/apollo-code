@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
-import { AuthManager } from '@apollo-code/auth'
+import { AuthManager, EncryptedCredentialStore } from '@apollo-code/auth'
 import { parseTomlFile } from '@apollo-code/config'
 import {
   builtinPromptFragment,
@@ -19,7 +19,7 @@ import type { RunnerToolPort, SessionState } from '@apollo-code/core'
 import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
-import { AnthropicClient } from '@apollo-code/provider-anthropic'
+import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { SingleProviderRouter } from '@apollo-code/router'
 import type { JsonValue } from '@apollo-code/shared'
@@ -141,7 +141,7 @@ export class NodeHttpPort implements HttpPort {
         },
       )
       req.once('error', reject)
-      req.end(JSON.stringify(input.body))
+      req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
     })
   }
 }
@@ -154,6 +154,32 @@ async function promptLine(question: string): Promise<string> {
   } finally {
     io.close()
   }
+}
+async function promptSecret(question: string): Promise<string> {
+  if (!stdin.isTTY || !stdout.isTTY || !stdin.setRawMode) return ''
+  stdout.write(question)
+  stdin.setRawMode(true)
+  stdin.resume()
+  return new Promise((resolve, reject) => {
+    let value = ''
+    const finish = (error?: Error) => {
+      stdin.off('data', onData)
+      stdin.setRawMode(false)
+      stdin.pause()
+      stdout.write('\n')
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const onData = (chunk: Buffer) => {
+      for (const byte of chunk) {
+        if (byte === 3) return finish(new Error('Credential input was cancelled'))
+        if (byte === 13 || byte === 10) return finish()
+        if (byte === 8 || byte === 127) value = value.slice(0, -1)
+        else if (byte >= 32) value += String.fromCharCode(byte)
+      }
+    }
+    stdin.on('data', onData)
+  })
 }
 async function permissionPrompt(request: PermissionRequest): Promise<PermissionDecision> {
   const answer = (
@@ -175,7 +201,21 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   const home = options.apolloHome ?? join(homedir(), '.apollo')
   const telemetry = new Telemetry(new LocalTelemetrySink(join(home, 'telemetry', 'events.jsonl')))
   const logger = new TelemetryLogger(telemetry, 'cli')
-  const auth = new AuthManager({ env: process.env, telemetry })
+  let cachedPassphrase: string | undefined
+  const passphrase = async () => {
+    if (cachedPassphrase) return cachedPassphrase
+    const value = await promptSecret('Credential-store passphrase: ')
+    if (!value) throw new Error('A credential-store passphrase is required')
+    cachedPassphrase = value
+    return value
+  }
+  const encrypted = new EncryptedCredentialStore(
+    join(home, 'credentials.enc'),
+    passphrase,
+    join(home, 'auth.state.json'),
+  )
+  const auth = new AuthManager({ encrypted, env: process.env, telemetry })
+  const http = new NodeHttpPort()
   const permissionOptions: { dangerouslySkip: boolean; logger: TelemetryLogger } = {
     dangerouslySkip: false,
     logger,
@@ -190,7 +230,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
         return value
       },
     },
-    http: new NodeHttpPort(),
+    http,
   })
   const client = {
     ...anthropic,
@@ -282,6 +322,21 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
             ? 'anthropic credential available'
             : 'anthropic credential unavailable',
         }
+      },
+      async login(input) {
+        const credential = input.credential ?? (await promptSecret('Anthropic API key: ')).trim()
+        if (!credential) throw new Error('Credential input was cancelled')
+        await auth.login(
+          input.provider,
+          credential,
+          (value) => verifyAnthropicCredential(http, value),
+          { flow: input.flow, dangerouslySkipVerify: input.dangerouslySkipVerify },
+        )
+        return { detail: `${input.provider} credential stored in encrypted credential store` }
+      },
+      async logout(provider) {
+        await auth.logout(provider)
+        return { detail: `${provider} credential removed` }
       },
     },
     config: {
