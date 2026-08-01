@@ -83,4 +83,15 @@ describe('PromptLoader', () => {
     })
     expect(await loader.load(resolve(dir, 'AGENT.md'))).toContain('DENIED (sensitive)')
   })
+  it('recognizes Windows separators in sensitive include paths', async () => {
+    const dir = await temp()
+    const loader = new PromptLoader({
+      cwd: dir,
+      apolloHome: resolve(dir, '.apollo'),
+      permissions: new PermissionManager(),
+    })
+    expect(await loader.load(`${dir.replaceAll('/', '\\')}\\.env.md`)).toContain(
+      'DENIED (sensitive)',
+    )
+  })
 })

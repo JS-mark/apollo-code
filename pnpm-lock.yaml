@@ -27,6 +27,9 @@ catalogs:
     oxlint-tsgolint:
       specifier: ^7.0.2001
       version: 7.0.2001
+    rolldown:
+      specifier: ^1.2.1
+      version: 1.2.1
     turbo:
       specifier: ^2.10.7
       version: 2.10.7
@@ -123,6 +126,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.2
+      rolldown:
+        specifier: 'catalog:'
+        version: 1.2.1
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -223,6 +229,43 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+    optionalDependencies:
+      '@apollo-code/native-fs-darwin-arm64':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-darwin-arm64
+      '@apollo-code/native-fs-darwin-x64':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-darwin-x64
+      '@apollo-code/native-fs-linux-arm64-gnu':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-linux-arm64-gnu
+      '@apollo-code/native-fs-linux-x64-gnu':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-linux-x64-gnu
+      '@apollo-code/native-sandbox-darwin-arm64':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-darwin-arm64
+      '@apollo-code/native-sandbox-darwin-x64':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-darwin-x64
+      '@apollo-code/native-sandbox-linux-arm64-gnu':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-linux-arm64-gnu
+      '@apollo-code/native-sandbox-linux-x64-gnu':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-linux-x64-gnu
+      '@apollo-code/native-search-darwin-arm64':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-darwin-arm64
+      '@apollo-code/native-search-darwin-x64':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-darwin-x64
+      '@apollo-code/native-search-linux-arm64-gnu':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-linux-arm64-gnu
+      '@apollo-code/native-search-linux-x64-gnu':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-linux-x64-gnu
 
   packages/permission:
     dependencies:
@@ -416,6 +459,30 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+
+  platforms/native-fs-darwin-arm64: {}
+
+  platforms/native-fs-darwin-x64: {}
+
+  platforms/native-fs-linux-arm64-gnu: {}
+
+  platforms/native-fs-linux-x64-gnu: {}
+
+  platforms/native-sandbox-darwin-arm64: {}
+
+  platforms/native-sandbox-darwin-x64: {}
+
+  platforms/native-sandbox-linux-arm64-gnu: {}
+
+  platforms/native-sandbox-linux-x64-gnu: {}
+
+  platforms/native-search-darwin-arm64: {}
+
+  platforms/native-search-darwin-x64: {}
+
+  platforms/native-search-linux-arm64-gnu: {}
+
+  platforms/native-search-linux-x64-gnu: {}
 
 packages:
 

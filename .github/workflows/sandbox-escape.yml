@@ -20,9 +20,22 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - if: matrix.verification == 'partial-verified'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo sed -i '/^Components:/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+          echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe' | sudo tee /etc/apt/sources.list.d/arm64.list
+          echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe' | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-arm64-cross libcap2:arm64
+          sudo cp -a /usr/lib/aarch64-linux-gnu/libcap.so.2* /usr/aarch64-linux-gnu/lib/
       - if: matrix.verification == 'partial-verified'
-        run: echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - if: matrix.verification == 'partial-verified'
+        run: |
+          echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+          echo 'QEMU_LD_PREFIX=/usr/aarch64-linux-gnu' >> "$GITHUB_ENV"
       - if: runner.os == 'Linux' && matrix.verification == 'native'
         run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
@@ -30,17 +43,37 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - if: matrix.verification == 'native'
-        run: cargo test -p apollo-sandbox
+        run: cargo test -p apollo-sandbox --target ${{ matrix.target }}
+      - run: cargo build -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
       - if: matrix.verification == 'native'
-        run: cargo build -p apollo-sandbox --bin apollo-sandbox
-      - if: matrix.verification == 'native'
-        run: bash crates/apollo-sandbox/tests/escape/run.sh target/debug/apollo-sandbox
+        name: Run upstream-derived sandbox smoke and escape suite
+        run: bash crates/apollo-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/apollo-sandbox
       - if: matrix.verification == 'partial-verified'
+        name: Exercise QEMU binary and verify the documented namespace limitation
         run: |
-          cargo build -p apollo-sandbox --target aarch64-unknown-linux-gnu
-          echo 'Cross-build and embedded payload digest compile-time verified; syscall isolation requires a real arm64 runner.' | tee escape-verification.txt
+          binary=target/${{ matrix.target }}/debug/apollo-sandbox
+          "$binary" --verify-bwrap-digest
+          "$binary" --probe > qemu-probe.json
+          set +e
+          output=$(bash crates/apollo-sandbox/tests/escape/run.sh "$binary" 2>&1)
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F 'Creating new namespace failed' <<<"$output"
+          printf '%s\n' "$output" > qemu-escape-attempt.txt
+      - name: Record verification evidence
+        run: |
+          printf 'target=%s\nverification=%s\nrunner=%s\n' '${{ matrix.target }}' '${{ matrix.verification }}' '${{ runner.name }}' > escape-verification.txt
+          if [ '${{ matrix.verification }}' = partial-verified ]; then
+            printf 'status=qemu-runtime-limited\n' >> escape-verification.txt
+            printf 'limitation=QEMU user-mode is not real arm64 hardware; stable release still requires the checklist hardware gate.\n' >> escape-verification.txt
+          else
+            printf 'status=passed\n' >> escape-verification.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: escape-${{ matrix.target }}
-          path: escape-verification.txt
-          if-no-files-found: ignore
+          path: |
+            escape-verification.txt
+            qemu-probe.json
+            qemu-escape-attempt.txt
