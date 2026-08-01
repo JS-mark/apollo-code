@@ -77,4 +77,5 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   )
   assert.match(windowsFoundation, /\$PSNativeCommandUseErrorActionPreference = \$false/)
   assert.match(windowsFoundation, /if \(\$exitCode -eq 0\)/)
+  assert.match(windowsFoundation, /exit 0\s*$/)
 })

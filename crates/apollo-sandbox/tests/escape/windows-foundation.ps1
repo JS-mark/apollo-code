@@ -12,3 +12,4 @@ try {
   $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
 }
 if ($exitCode -eq 0) { throw 'Windows foundation executed a command without an active sandbox' }
+exit 0
