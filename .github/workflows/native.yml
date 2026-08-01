@@ -33,6 +33,8 @@ jobs:
         run: echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
       - run: cargo check --workspace --target ${{ matrix.target }}
       - run: cargo build --workspace --release --target ${{ matrix.target }}
+      - if: runner.os == 'Linux' && matrix.verification == 'native'
+        run: target/${{ matrix.target }}/release/apollo-sandbox --verify-bwrap-digest
       - if: matrix.verification == 'native'
         run: cargo test --workspace --target ${{ matrix.target }}
       - run: echo '${{ matrix.verification }}' > native-verification.txt
@@ -44,3 +46,11 @@ jobs:
             target/${{ matrix.target }}/release/apollo-search*
             target/${{ matrix.target }}/release/apollo-fs*
             native-verification.txt
+  bwrap-reproducibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - run: crates/apollo-sandbox/scripts/rebuild-bwrap.sh --check

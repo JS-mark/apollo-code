@@ -17,8 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        with:
+          targets: ${{ matrix.target }}
+      - if: matrix.verification == 'partial-verified'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - if: matrix.verification == 'partial-verified'
+        run: echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
       - if: matrix.verification == 'native'
         run: cargo test -p apollo-sandbox
       - if: matrix.verification == 'native'
@@ -26,7 +30,9 @@ jobs:
       - if: matrix.verification == 'native'
         run: bash crates/apollo-sandbox/tests/escape/run.sh target/debug/apollo-sandbox
       - if: matrix.verification == 'partial-verified'
-        run: echo 'Cross-build only; syscall isolation requires a real arm64 runner.' | tee escape-verification.txt
+        run: |
+          cargo build -p apollo-sandbox --target aarch64-unknown-linux-gnu
+          echo 'Cross-build and embedded payload digest compile-time verified; syscall isolation requires a real arm64 runner.' | tee escape-verification.txt
       - uses: actions/upload-artifact@v4
         with:
           name: escape-${{ matrix.target }}
