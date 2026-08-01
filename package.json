@@ -2,7 +2,9 @@
   "name": "apollo-code",
   "private": true,
   "packageManager": "pnpm@11.10.0",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",

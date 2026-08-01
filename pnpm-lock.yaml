@@ -12,6 +12,9 @@ catalogs:
     '@types/node':
       specifier: ^26.1.2
       version: 26.1.2
+    citty:
+      specifier: ^0.2.2
+      version: 0.2.2
     immer:
       specifier: ^11.1.15
       version: 11.1.15
@@ -50,6 +53,31 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+
+  apps/cli:
+    dependencies:
+      '@apollo-code/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@apollo-code/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@apollo-code/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      citty:
+        specifier: 'catalog:'
+        version: 0.2.2
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(vite@7.3.6(@types/node@26.1.2))
 
   packages/core:
     dependencies:
@@ -179,6 +207,22 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+
+  packages/ui:
+    dependencies:
+      '@apollo-code/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(vite@7.3.6(@types/node@26.1.2))
 
 packages:
 
@@ -623,6 +667,9 @@ packages:
 
   chardet@2.2.0:
     resolution: {integrity: sha512-rddelWYNPRrXq6PtNEN2S3f6t9ILzvqaN5pVgi4kqt9jHQaXIial9PznB5iSPVlQSLNaaH22ItWz3EJtQ10+OA==}
+
+  citty@0.2.2:
+    resolution: {integrity: sha512-+6vJA3L98yv+IdfKGZHBNiGW5KHn22e/JwID0Strsz8h4S/csAu/OuICwxrg44k5MRiZHWIo8XXuJgQTriRP4w==}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -1578,6 +1625,8 @@ snapshots:
   chai@6.2.2: {}
 
   chardet@2.2.0: {}
+
+  citty@0.2.2: {}
 
   convert-source-map@2.0.0: {}
 
