@@ -15,7 +15,7 @@ function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
     config: { health: vi.fn(async () => ({ valid: true, detail: 'valid' })) },
     telemetry: { securityEvent: vi.fn(async () => {}) },
     confirmation: { confirmDangerousNoSandbox: vi.fn(async () => false) },
-    session: { start: vi.fn(async () => ({ id: 'session-1' })), interrupt: vi.fn(async () => {}), end: vi.fn(async () => {}) },
+    session: { start: vi.fn(async () => ({ id: 'session-1' })), resume: vi.fn(async id => ({ id })), interrupt: vi.fn(async () => {}), end: vi.fn(async () => {}) },
     ...overrides,
   }
 }
@@ -69,5 +69,12 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain('I understand the risk')
     expect(testPorts.session.start).not.toHaveBeenCalled()
+  })
+
+  it('resumes a persisted session through the session runtime port', async () => {
+    const testPorts = ports()
+    const result = await runCli(['resume', 'session-42'], testPorts)
+    expect(result.exitCode).toBe(0)
+    expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
   })
 })

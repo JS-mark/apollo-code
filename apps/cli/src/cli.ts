@@ -46,6 +46,12 @@ export async function runCli(rawArgs: string[], ports: ApolloPorts): Promise<Cli
   if (subcommand === 'version') return { exitCode: 0, stdout: `${stdout}${ports.version}\n`, stderr }
   if (subcommand === 'help') return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list') return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
+  if (subcommand === 'resume') {
+    const id = args._[1]
+    if (!id) return { exitCode: 2, stdout, stderr: 'resume requires a session id' }
+    await ports.session.resume(id)
+    return { exitCode: 0, stdout, stderr }
+  }
   if (subcommand !== undefined && subcommand !== 'chat') return { exitCode: 2, stdout, stderr: `${subcommand} integration port is not connected in the L1 shell.` }
   const prompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ') || undefined
   await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })

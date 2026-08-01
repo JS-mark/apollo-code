@@ -2,7 +2,7 @@ import type { SandboxDisclosure } from '@apollo-code/ui'
 
 export interface DoctorHealth { detail: string; valid?: boolean; configured?: boolean }
 export interface NativeHealth { sandbox: boolean; search: boolean; fs: boolean }
-export interface SessionPort { start(input: { cwd: string; prompt?: string }): Promise<{ id: string }>; interrupt(): Promise<void>; end(): Promise<void> }
+export interface SessionPort { start(input: { cwd: string; prompt?: string }): Promise<{ id: string }>; resume(id: string): Promise<{ id: string }>; interrupt(): Promise<void>; end(): Promise<void> }
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
@@ -20,6 +20,6 @@ export function unavailablePorts(): ApolloPorts {
     config: { health: async () => ({ valid: false, detail: 'config port not connected' }) },
     telemetry: { securityEvent: async () => {} },
     confirmation: { confirmDangerousNoSandbox: async () => false },
-    session: { start: async () => ({ id: 'unconnected-session' }), interrupt: async () => {}, end: async () => {} },
+    session: { start: async () => ({ id: 'unconnected-session' }), resume: async id => ({ id }), interrupt: async () => {}, end: async () => {} },
   }
 }
