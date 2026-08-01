@@ -3,7 +3,7 @@ import { createSignalController } from './signals.js'
 
 describe('signal controller', () => {
   it('interrupts the current turn on SIGINT without ending the session', async () => {
-    const session = { start: vi.fn(), interrupt: vi.fn(async () => {}), end: vi.fn(async () => {}) }
+    const session = { start: vi.fn(), resume: vi.fn(), interrupt: vi.fn(async () => {}), end: vi.fn(async () => {}) }
     const controller = createSignalController(session)
     expect(await controller.handle('SIGINT')).toBe(130)
     expect(session.interrupt).toHaveBeenCalledOnce()
@@ -11,7 +11,7 @@ describe('signal controller', () => {
   })
 
   it.each(['SIGTERM', 'SIGHUP'] as const)('gracefully ends on %s', async (signal) => {
-    const session = { start: vi.fn(), interrupt: vi.fn(async () => {}), end: vi.fn(async () => {}) }
+    const session = { start: vi.fn(), resume: vi.fn(), interrupt: vi.fn(async () => {}), end: vi.fn(async () => {}) }
     const controller = createSignalController(session)
     expect(await controller.handle(signal)).toBe(0)
     expect(session.end).toHaveBeenCalledOnce()
