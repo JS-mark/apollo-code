@@ -10,6 +10,7 @@
     "typecheck": "vitepress build"
   },
   "devDependencies": {
-    "vitepress": "catalog:"
+    "vitepress": "catalog:",
+    "vue": "catalog:"
   }
 }

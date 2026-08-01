@@ -4,7 +4,7 @@ import { test } from 'node:test'
 
 import { relativeSpecifierError, outDirError } from './verify-typescript-config.mjs'
 
-test('accepts an extensionless specifier when it maps to TypeScript source', () => {
+void test('accepts an extensionless specifier when it maps to TypeScript source', () => {
   const source = resolve('repo', 'src', 'cli.ts')
   const target = resolve(dirname(source), 'ports.ts')
   assert.equal(
@@ -13,7 +13,7 @@ test('accepts an extensionless specifier when it maps to TypeScript source', () 
   )
 })
 
-test('rejects explicit source and emitted extensions plus missing targets', () => {
+void test('rejects explicit source and emitted extensions plus missing targets', () => {
   assert.match(relativeSpecifierError('/repo/src/cli.ts', './ports.js'), /must omit/)
   assert.match(relativeSpecifierError('/repo/src/cli.ts', './ports.ts'), /must omit/)
   assert.match(
@@ -22,7 +22,13 @@ test('rejects explicit source and emitted extensions plus missing targets', () =
   )
 })
 
-test('requires each workspace to own its dist directory', () => {
+void test('allows explicit extensions for Vite assets and Vue components', () => {
+  assert.equal(relativeSpecifierError('/repo/src/theme.ts', './custom.css'), undefined)
+  assert.equal(relativeSpecifierError('/repo/src/theme.ts', './Home.vue'), undefined)
+  assert.equal(relativeSpecifierError('/repo/src/theme.ts', './logo.svg'), undefined)
+})
+
+void test('requires each workspace to own its dist directory', () => {
   assert.equal(outDirError('dist'), undefined)
   assert.match(outDirError('../../dist'), /own dist directory/)
 })
