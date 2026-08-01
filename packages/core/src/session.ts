@@ -1,7 +1,7 @@
 import { produce } from 'immer'
 import type { Message, Usage } from '@apollo-code/provider-kit'
 
-export interface Turn { id: string; startMessageId: string; endMessageId?: string; status: 'streaming' | 'awaiting_tool' | 'awaiting_user' | 'done' | 'aborted' | 'error'; parentTurnId?: string; parentDepth: number; agentType?: string; stickyProvider?: string }
+export interface Turn { id: string; startMessageId: string; endMessageId?: string; status: 'streaming' | 'compacting' | 'awaiting_tool' | 'awaiting_user' | 'done' | 'aborted' | 'error'; parentTurnId?: string; parentDepth: number; agentType?: string; stickyProvider?: string }
 export interface SessionState {
   id: string; cwd: string; createdAt: number; version: number
   messages: readonly Message[]; turns: readonly Turn[]; activeTurn: string | null

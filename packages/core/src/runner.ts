@@ -1,12 +1,12 @@
 import { v7 as uuidv7 } from 'uuid'
-import type { ContentPart, Message, ProviderChunk, ProviderClient, ProviderError, StopReason, ToolSchema, Usage } from '@apollo-code/provider-kit'
+import type { ContentPart, ContextPolicy, Message, ProviderChunk, ProviderClient, ProviderError, StopReason, ToolSchema, Usage } from '@apollo-code/provider-kit'
 import type { RouterDecision, RouterHint, RouterPolicy } from '@apollo-code/router'
 import type { JsonValue } from '@apollo-code/shared'
 import { EventBus } from './event-bus.js'
 import type { PromptComposer } from './prompt-composer.js'
 import { updateSession, type SessionState } from './session.js'
 
-export interface ToolExecution { toolUseId: string; content: ContentPart[]; isError?: boolean }
+export interface ToolExecution { toolUseId: string; toolName?: string; content: ContentPart[]; isError?: boolean }
 export interface RunnerToolPort { schemas(provider: ProviderClient): ToolSchema[]; execute(toolUse: Extract<ContentPart, { type: 'tool_use' }>, signal: AbortSignal): Promise<ToolExecution> }
 export interface RunnerOptions { maxToolLoopsPerTurn?: number }
 interface InProgress { text: string; thinking: string; tools: Map<string, { id: string; name: string; args: string }>; usage?: Usage; stopReason?: StopReason }
@@ -14,7 +14,7 @@ interface InProgress { text: string; thinking: string; tools: Map<string, { id: 
 export class Runner {
   #state: SessionState
   #turnAbort?: AbortController
-  constructor(state: SessionState, readonly router: RouterPolicy, readonly promptComposer: PromptComposer, readonly tools: RunnerToolPort, readonly events = new EventBus(), readonly options: RunnerOptions = {}) { this.#state = state }
+  constructor(state: SessionState, readonly router: RouterPolicy, readonly promptComposer: PromptComposer, readonly tools: RunnerToolPort, readonly events = new EventBus(), readonly options: RunnerOptions = {}, readonly contextPolicy?: ContextPolicy) { this.#state = state }
   get state(): SessionState { return this.#state }
   interrupt(): void { this.#state = updateSession(this.#state, draft => { draft.pendingInterrupt = true }); this.#turnAbort?.abort() }
   async run(text: string, hint?: RouterHint): Promise<SessionState> {
@@ -28,9 +28,20 @@ export class Runner {
       loops += 1
       decision = retryDecision ?? (sticky ? { provider: sticky, model: decision?.model ?? '', reason: 'sticky-provider' } : await this.router.pick(this.routerContext(turnId, attempts), hint)); retryDecision = undefined
       const system = await this.promptComposer.compose({ cwd: this.#state.cwd, model: decision.model, provider: decision.provider.name })
+      let requestMessages = this.#state.messages
+      if (this.contextPolicy) {
+        const context = { session: this.#state, capabilities: decision.provider.capabilities, turnId, model: decision.model, systemTokens: this.contextPolicy.estimateTokens(system, decision.model), toolSchemaTokens: Math.ceil(JSON.stringify(this.tools.schemas(decision.provider)).length / 3.5) }
+        if (this.contextPolicy.shouldCompact(context)) {
+          this.#state = updateSession(this.#state, draft => { const turn = draft.turns.find(item => item.id === turnId); if (turn) turn.status = 'compacting' })
+          const snapshot = await this.contextPolicy.compact(context)
+          this.#state = updateSession(this.#state, draft => { draft.messages = [...snapshot.messages]; const turn = draft.turns.find(item => item.id === turnId); if (turn) turn.status = 'streaming' })
+          await this.emit('context.compacted', turnId, { strategy: snapshot.strategy, beforeTokens: snapshot.beforeTokens, afterTokens: snapshot.afterTokens, compactedCount: snapshot.compactedMessageIds.length, hookIntercepted: snapshot.hookIntercepted })
+        }
+        requestMessages = this.contextPolicy.buildPrompt({ ...context, session: this.#state }).messages
+      }
       await this.emit('stream.started', turnId, { provider: decision.provider.name, model: decision.model })
       const current: InProgress = { text: '', thinking: '', tools: new Map() }; let interrupted = false
-      for await (const chunk of decision.provider.stream({ model: decision.model, messages: this.#state.messages, system, tools: this.tools.schemas(decision.provider) }, signal)) {
+      for await (const chunk of decision.provider.stream({ model: decision.model, messages: requestMessages, system, tools: this.tools.schemas(decision.provider) }, signal)) {
         if (signal.aborted) break outer
         if (chunk.kind === 'tool_use.start') sticky ??= decision.provider
         if (chunk.kind === 'message.interrupted') {
@@ -49,7 +60,7 @@ export class Runner {
       const toolUses = assistant.content.filter((part): part is Extract<ContentPart, { type: 'tool_use' }> => part.type === 'tool_use')
       if (toolUses.length === 0) break
       const results = await Promise.all(toolUses.map(tool => this.tools.execute(tool, signal)))
-      for (const result of results) { const message = this.message('user', [{ type: 'tool_result', toolUseId: result.toolUseId, content: result.content, ...(result.isError === undefined ? {} : { isError: result.isError }) }]); this.append(message); await this.emit('message.appended', turnId, { messageId: message.id }) }
+      for (const result of results) { const message = this.message('user', [{ type: 'tool_result', toolUseId: result.toolUseId, content: wrapUntrusted(result.content, `tool:${result.toolName ?? 'unknown'}`, result.toolUseId), ...(result.isError === undefined ? {} : { isError: result.isError }) }]); this.append(message); await this.emit('message.appended', turnId, { messageId: message.id }) }
     }
     const aborted = failed || signal.aborted || this.#state.pendingInterrupt
     this.#state = updateSession(this.#state, draft => { draft.activeTurn = null; const turn = draft.turns.find(item => item.id === turnId); if (turn) turn.status = aborted ? 'aborted' : 'done' })
@@ -73,4 +84,11 @@ export class Runner {
     for (const tool of current.tools.values()) { let input: JsonValue; try { input = JSON.parse(tool.args) as JsonValue } catch { input = { parseError: true, raw: tool.args } }; content.push({ type: 'tool_use', id: tool.id, name: tool.name, input }) }
     const message = this.message('assistant', content); message.meta = { provider: decision.provider.name, model: decision.model, ...(current.usage ? { usage: current.usage } : {}), ...(current.stopReason ? { stopReason: current.stopReason } : {}) }; return message
   }
+}
+
+export function wrapUntrusted(parts: ContentPart[], source: string, toolUseId?: string): ContentPart[] {
+  const escape = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  const body = parts.map(part => part.type === 'text' ? part.text : JSON.stringify(part)).join('\n')
+  const id = toolUseId ? ` toolUseId="${escape(toolUseId)}"` : ''
+  return [{ type: 'text', text: `<untrusted source="${escape(source)}"${id}>\n${escape(body)}\n</untrusted>` }]
 }

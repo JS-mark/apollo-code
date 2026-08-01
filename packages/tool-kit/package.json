@@ -5,6 +5,6 @@
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "files": ["dist"],
   "scripts": { "build": "tsc -p tsconfig.json", "test": "vitest run --passWithNoTests --exclude='dist/**'", "typecheck": "tsc -p tsconfig.json --noEmit" },
-  "dependencies": { "@apollo-code/provider-kit": "workspace:*", "@apollo-code/shared": "workspace:*" },
+  "dependencies": { "@apollo-code/permission": "workspace:*", "@apollo-code/provider-kit": "workspace:*", "@apollo-code/shared": "workspace:*" },
   "devDependencies": { "@types/node": "catalog:", "typescript": "catalog:", "vitest": "catalog:" }
 }
