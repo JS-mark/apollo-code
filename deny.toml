@@ -1,0 +1,14 @@
+[licenses]
+allow = ["Apache-2.0", "MIT", "BSD-3-Clause", "Unicode-DFS-2016"]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+  { name = "codex-*", reason = "Codex workspace dependencies may only decrease; vendored snapshots are audited separately" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
