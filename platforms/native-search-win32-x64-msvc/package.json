@@ -1,0 +1,20 @@
+{
+  "name": "@apollo-code/native-search-win32-x64-msvc",
+  "version": "0.0.0",
+  "description": "Apollo search native binary for win32-x64-msvc",
+  "license": "Apache-2.0",
+  "bin": {
+    "apollo-search": "bin/apollo-search.exe"
+  },
+  "files": [
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

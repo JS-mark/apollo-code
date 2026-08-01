@@ -3,18 +3,18 @@
   "version": "0.0.0",
   "description": "Apollo sandbox native binary for darwin-arm64",
   "license": "Apache-2.0",
-  "os": [
-    "darwin"
-  ],
-  "cpu": [
-    "arm64"
-  ],
+  "bin": {
+    "apollo-sandbox": "bin/apollo-sandbox"
+  },
   "files": [
     "bin",
     "LICENSE",
     "NOTICE"
   ],
-  "bin": {
-    "apollo-sandbox": "bin/apollo-sandbox"
-  }
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ]
 }

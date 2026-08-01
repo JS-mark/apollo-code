@@ -254,9 +254,21 @@ importers:
       '@apollo-code/native-fs-linux-arm64-gnu':
         specifier: workspace:*
         version: link:../../platforms/native-fs-linux-arm64-gnu
+      '@apollo-code/native-fs-linux-arm64-musl':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-linux-arm64-musl
       '@apollo-code/native-fs-linux-x64-gnu':
         specifier: workspace:*
         version: link:../../platforms/native-fs-linux-x64-gnu
+      '@apollo-code/native-fs-linux-x64-musl':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-linux-x64-musl
+      '@apollo-code/native-fs-win32-arm64-msvc':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-win32-arm64-msvc
+      '@apollo-code/native-fs-win32-x64-msvc':
+        specifier: workspace:*
+        version: link:../../platforms/native-fs-win32-x64-msvc
       '@apollo-code/native-sandbox-darwin-arm64':
         specifier: workspace:*
         version: link:../../platforms/native-sandbox-darwin-arm64
@@ -266,9 +278,21 @@ importers:
       '@apollo-code/native-sandbox-linux-arm64-gnu':
         specifier: workspace:*
         version: link:../../platforms/native-sandbox-linux-arm64-gnu
+      '@apollo-code/native-sandbox-linux-arm64-musl':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-linux-arm64-musl
       '@apollo-code/native-sandbox-linux-x64-gnu':
         specifier: workspace:*
         version: link:../../platforms/native-sandbox-linux-x64-gnu
+      '@apollo-code/native-sandbox-linux-x64-musl':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-linux-x64-musl
+      '@apollo-code/native-sandbox-win32-arm64-msvc':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-win32-arm64-msvc
+      '@apollo-code/native-sandbox-win32-x64-msvc':
+        specifier: workspace:*
+        version: link:../../platforms/native-sandbox-win32-x64-msvc
       '@apollo-code/native-search-darwin-arm64':
         specifier: workspace:*
         version: link:../../platforms/native-search-darwin-arm64
@@ -278,9 +302,21 @@ importers:
       '@apollo-code/native-search-linux-arm64-gnu':
         specifier: workspace:*
         version: link:../../platforms/native-search-linux-arm64-gnu
+      '@apollo-code/native-search-linux-arm64-musl':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-linux-arm64-musl
       '@apollo-code/native-search-linux-x64-gnu':
         specifier: workspace:*
         version: link:../../platforms/native-search-linux-x64-gnu
+      '@apollo-code/native-search-linux-x64-musl':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-linux-x64-musl
+      '@apollo-code/native-search-win32-arm64-msvc':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-win32-arm64-msvc
+      '@apollo-code/native-search-win32-x64-msvc':
+        specifier: workspace:*
+        version: link:../../platforms/native-search-win32-x64-msvc
 
   packages/permission:
     dependencies:
@@ -519,7 +555,15 @@ importers:
 
   platforms/native-fs-linux-arm64-gnu: {}
 
+  platforms/native-fs-linux-arm64-musl: {}
+
   platforms/native-fs-linux-x64-gnu: {}
+
+  platforms/native-fs-linux-x64-musl: {}
+
+  platforms/native-fs-win32-arm64-msvc: {}
+
+  platforms/native-fs-win32-x64-msvc: {}
 
   platforms/native-sandbox-darwin-arm64: {}
 
@@ -527,7 +571,15 @@ importers:
 
   platforms/native-sandbox-linux-arm64-gnu: {}
 
+  platforms/native-sandbox-linux-arm64-musl: {}
+
   platforms/native-sandbox-linux-x64-gnu: {}
+
+  platforms/native-sandbox-linux-x64-musl: {}
+
+  platforms/native-sandbox-win32-arm64-msvc: {}
+
+  platforms/native-sandbox-win32-x64-msvc: {}
 
   platforms/native-search-darwin-arm64: {}
 
@@ -535,7 +587,15 @@ importers:
 
   platforms/native-search-linux-arm64-gnu: {}
 
+  platforms/native-search-linux-arm64-musl: {}
+
   platforms/native-search-linux-x64-gnu: {}
+
+  platforms/native-search-linux-x64-musl: {}
+
+  platforms/native-search-win32-arm64-msvc: {}
+
+  platforms/native-search-win32-x64-msvc: {}
 
 packages:
 

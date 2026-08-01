@@ -1,10 +1,10 @@
 {
-  "name": "@apollo-code/native-fs-darwin-x64",
+  "name": "@apollo-code/native-fs-win32-x64-msvc",
   "version": "0.0.0",
-  "description": "Apollo fs native binary for darwin-x64",
+  "description": "Apollo fs native binary for win32-x64-msvc",
   "license": "Apache-2.0",
   "bin": {
-    "apollo-fs": "bin/apollo-fs"
+    "apollo-fs": "bin/apollo-fs.exe"
   },
   "files": [
     "bin",
@@ -12,7 +12,7 @@
     "NOTICE"
   ],
   "os": [
-    "darwin"
+    "win32"
   ],
   "cpu": [
     "x64"

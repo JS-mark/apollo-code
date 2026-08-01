@@ -5,6 +5,8 @@ use std::{collections::BTreeMap, process::Command, time::Instant};
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
 
 pub fn probe() -> ProbeInfo {
     #[cfg(target_os = "macos")]
@@ -14,6 +16,10 @@ pub fn probe() -> ProbeInfo {
     #[cfg(target_os = "linux")]
     {
         return linux::probe();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::probe();
     }
     #[allow(unreachable_code)]
     ProbeInfo {
@@ -36,6 +42,10 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
     #[cfg(target_os = "linux")]
     {
         return linux::run(request);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::run(request);
     }
     #[allow(unreachable_code)]
     Err("sandbox unavailable on this L1 platform".into())
