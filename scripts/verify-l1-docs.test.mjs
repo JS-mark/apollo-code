@@ -20,8 +20,13 @@ const requiredPages = [
   'apps/docs/docs/troubleshooting/common-errors.md',
 ]
 
+const requiredChinesePages = [
+  'apps/docs/zh/index.md',
+  ...requiredPages.slice(1).map((page) => page.replace('apps/docs/', 'apps/docs/zh/')),
+]
+
 void test('ships every required L1 documentation page', async () => {
-  await Promise.all(requiredPages.map(readRepoFile))
+  await Promise.all([...requiredPages, ...requiredChinesePages].map(readRepoFile))
 })
 
 void test('keeps the docs site private and buildable', async () => {
@@ -44,7 +49,17 @@ void test('ships a branded responsive home instead of the default feature grid',
   assert.match(theme, /HomeLanding/)
   assert.match(styles, /prefers-reduced-motion/)
   assert.match(styles, /@media \(max-width: 760px\)/)
+  assert.match(styles, /html:not\(\.dark\)/)
   assert.match(logo, /<svg/)
+})
+
+void test('configures bilingual GitHub Pages deployment under the custom subpath', async () => {
+  const config = await readRepoFile('apps/docs/.vitepress/config.mts')
+  assert.match(config, /base: '\/apollo-code\/'/)
+  assert.match(config, /hostname: 'https:\/\/js-mark\.com'/)
+  assert.match(config, /url: `\/apollo-code\/\$\{item\.url\}`/)
+  assert.match(config, /lang: 'zh-CN'/)
+  assert.match(config, /label: '简体中文'/)
 })
 
 void test('documents the prompt-injection trust boundary', async () => {

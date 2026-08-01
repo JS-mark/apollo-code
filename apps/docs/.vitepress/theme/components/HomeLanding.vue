@@ -1,32 +1,125 @@
+<script setup>
+import { withBase } from 'vitepress'
+import { computed } from 'vue'
+
+const props = defineProps({ locale: { type: String, default: 'en' } })
+const isZh = computed(() => props.locale === 'zh')
+const localizedPath = (path) => withBase(`${isZh.value ? '/zh' : ''}${path}`)
+
+const copy = {
+  en: {
+    release: 'L1 release candidate · open source',
+    title: 'Code at the',
+    titleAccent: 'speed of thought.',
+    lede: 'Apollo is a model-agnostic coding agent for your terminal. Bring the provider. Keep the context. Approve every side effect.',
+    docs: 'Read the docs',
+    source: 'View source',
+    preRelease: 'pre-release',
+    principles: ['Any model', 'Local context', 'Explicit permissions', 'Rust sandbox'],
+    controlLabel: 'THE CONTROL PLANE',
+    controlTitle: 'One agent.\nNo black box.',
+    controlBody:
+      'Apollo separates reasoning from execution. Models can propose. The permission layer decides. The sandbox contains. Every step stays visible in your terminal.',
+    securityLink: 'Explore the security model →',
+    rail: [
+      ['YOU', 'intent'],
+      ['APOLLO', 'context + loop'],
+      ['ROUTER', 'your provider'],
+      ['SANDBOX', 'controlled action'],
+    ],
+    featureLabel: 'BUILT FOR THE TERMINAL',
+    featureTitle: 'The parts that matter\nare yours.',
+    features: [
+      [
+        'Provider-neutral',
+        'Route through a stable contract. Change the model without changing how you work.',
+      ],
+      [
+        'Permission-first',
+        'Writes, commands, and network access ask before they happen. Denial is a normal path.',
+      ],
+      [
+        'Local by default',
+        'Sessions and diagnostics remain on your machine unless you explicitly opt in.',
+      ],
+      [
+        'Open end to end',
+        'TypeScript orchestration and a Rust safety core. Read it, audit it, extend it.',
+      ],
+    ],
+    startLabel: 'START WITH CONTEXT',
+    startTitle: 'Your repo.\nYour rules.',
+    startBody: 'Read the five-minute guide, inspect every permission, and make one small change.',
+    startAction: 'Run the first task ↗',
+    footer: 'Open source · Apache-2.0 · Telemetry local by default',
+    footerDocs: 'Docs',
+    footerSecurity: 'Security',
+  },
+  zh: {
+    release: 'L1 发布候选 · 开源',
+    title: '让代码跟上',
+    titleAccent: '思考的速度。',
+    lede: 'Apollo 是运行在终端中的模型无关编程智能体。自选模型，保留上下文，每一个副作用都由你确认。',
+    docs: '阅读文档',
+    source: '查看源码',
+    preRelease: '预发布',
+    principles: ['任意模型', '本地上下文', '显式权限', 'Rust 沙箱'],
+    controlLabel: '控制平面',
+    controlTitle: '一个智能体。\n没有黑箱。',
+    controlBody:
+      'Apollo 将推理与执行分离：模型负责提出方案，权限层负责决策，沙箱负责隔离。每一步都清晰呈现在终端中。',
+    securityLink: '了解安全模型 →',
+    rail: [
+      ['你', '任务意图'],
+      ['APOLLO', '上下文 + 循环'],
+      ['路由器', '你的模型'],
+      ['沙箱', '受控执行'],
+    ],
+    featureLabel: '为终端而生',
+    featureTitle: '重要的部分，\n都属于你。',
+    features: [
+      ['模型无关', '使用稳定的统一契约切换模型，不必改变工作方式。'],
+      ['权限优先', '写文件、执行命令与访问网络都会先询问；拒绝是正常流程。'],
+      ['默认本地', '会话与诊断默认保留在本机，只有明确选择才会发送。'],
+      ['全链路开源', 'TypeScript 编排配合 Rust 安全内核，可阅读、可审计、可扩展。'],
+    ],
+    startLabel: '从上下文开始',
+    startTitle: '你的仓库。\n你的规则。',
+    startBody: '阅读五分钟教程，检查每一项权限，然后完成一个小而明确的改动。',
+    startAction: '运行第一个任务 ↗',
+    footer: '开源 · Apache-2.0 · 遥测默认保留在本地',
+    footerDocs: '文档',
+    footerSecurity: '安全',
+  },
+}
+
+const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
+</script>
+
 <template>
   <main class="apollo-home">
     <section class="hero-grid" aria-labelledby="hero-title">
       <div class="hero-copy">
         <div class="release-kicker">
           <span class="status-dot" aria-hidden="true"></span>
-          L1 release candidate · open source
+          {{ t.release }}
         </div>
-
-        <h1 id="hero-title">Code at the<br /><span>speed of thought.</span></h1>
-
-        <p class="hero-lede">
-          Apollo is a model-agnostic coding agent for your terminal. Bring the provider. Keep the
-          context. Approve every side effect.
-        </p>
-
+        <h1 id="hero-title">
+          {{ t.title }}<br /><span>{{ t.titleAccent }}</span>
+        </h1>
+        <p class="hero-lede">{{ t.lede }}</p>
         <div class="hero-actions">
-          <a class="primary-action" href="/docs/getting-started/install">
-            Read the docs <span aria-hidden="true">↗</span>
+          <a class="primary-action" :href="localizedPath('/docs/getting-started/install')">
+            {{ t.docs }} <span aria-hidden="true">↗</span>
           </a>
           <a class="text-action" href="https://github.com/JS-mark/apollo-code">
-            View source <span aria-hidden="true">→</span>
+            {{ t.source }} <span aria-hidden="true">→</span>
           </a>
         </div>
-
         <div class="install-command" aria-label="Installation command">
           <span class="prompt-mark">$</span>
           <code>npm install --global apollo-code</code>
-          <span class="command-note">pre-release</span>
+          <span class="command-note">{{ t.preRelease }}</span>
         </div>
       </div>
 
@@ -39,7 +132,6 @@
             <span>apollo · ~/workspace</span>
             <span class="terminal-tier">TIER / FULL</span>
           </div>
-
           <div class="terminal-body">
             <p>
               <span class="term-muted">14:08:31</span>
@@ -51,10 +143,7 @@
             <p><span class="term-accent">→</span> I found the regression in the stream decoder.</p>
             <p>The final UTF-8 boundary is flushed before the abort state.</p>
             <div class="permission-row">
-              <div>
-                <small>PERMISSION REQUEST</small>
-                <strong>write · src/stream.ts</strong>
-              </div>
+              <div><small>PERMISSION REQUEST</small><strong>write · src/stream.ts</strong></div>
               <span>review</span>
             </div>
             <p class="term-system">◆ Patch applied <span>+8 −3</span></p>
@@ -66,103 +155,68 @@
     </section>
 
     <section class="signal-strip" aria-label="Product principles">
-      <p><span>01</span> Any model</p>
-      <p><span>02</span> Local context</p>
-      <p><span>03</span> Explicit permissions</p>
-      <p><span>04</span> Rust sandbox</p>
+      <p v-for="(principle, index) in t.principles" :key="principle">
+        <span>0{{ index + 1 }}</span> {{ principle }}
+      </p>
     </section>
 
     <section class="control-section" aria-labelledby="control-title">
       <div class="section-intro">
-        <span class="eyebrow">THE CONTROL PLANE</span>
-        <h2 id="control-title">One agent.<br />No black box.</h2>
+        <span class="eyebrow">{{ t.controlLabel }}</span>
+        <h2 id="control-title">{{ t.controlTitle }}</h2>
       </div>
-
       <div class="control-copy">
-        <p>
-          Apollo separates reasoning from execution. Models can propose. The permission layer
-          decides. The sandbox contains. Every step stays visible in your terminal.
-        </p>
-        <a href="/docs/concepts/security-model">Explore the security model →</a>
+        <p>{{ t.controlBody }}</p>
+        <a :href="localizedPath('/docs/concepts/security-model')">{{ t.securityLink }}</a>
       </div>
-
       <div class="architecture-rail" role="img" aria-label="Apollo Code system flow">
-        <div class="rail-node rail-user">
-          <span>01</span>
-          <strong>YOU</strong>
-          <small>intent</small>
-        </div>
-        <div class="rail-line"><i></i></div>
-        <div class="rail-node">
-          <span>02</span>
-          <strong>APOLLO</strong>
-          <small>context + loop</small>
-        </div>
-        <div class="rail-line"><i></i></div>
-        <div class="rail-node">
-          <span>03</span>
-          <strong>ROUTER</strong>
-          <small>your provider</small>
-        </div>
-        <div class="rail-line"><i></i></div>
-        <div class="rail-node rail-sandbox">
-          <span>04</span>
-          <strong>SANDBOX</strong>
-          <small>controlled action</small>
-        </div>
+        <template v-for="(node, index) in t.rail" :key="node[0]">
+          <div class="rail-node" :class="{ 'rail-user': index === 0, 'rail-sandbox': index === 3 }">
+            <span>0{{ index + 1 }}</span
+            ><strong>{{ node[0] }}</strong
+            ><small>{{ node[1] }}</small>
+          </div>
+          <div v-if="index < 3" class="rail-line"><i></i></div>
+        </template>
       </div>
     </section>
 
     <section class="feature-ledger" aria-labelledby="feature-title">
       <div class="ledger-heading">
-        <span class="eyebrow">BUILT FOR THE TERMINAL</span>
-        <h2 id="feature-title">The parts that matter<br />are yours.</h2>
+        <span class="eyebrow">{{ t.featureLabel }}</span>
+        <h2 id="feature-title">{{ t.featureTitle }}</h2>
       </div>
-
-      <article>
-        <span class="feature-index">A / 01</span>
-        <h3>Provider-neutral</h3>
-        <p>Route through a stable contract. Change the model without changing how you work.</p>
-      </article>
-      <article>
-        <span class="feature-index">A / 02</span>
-        <h3>Permission-first</h3>
-        <p>Writes, commands, and network access ask before they happen. Denial is a normal path.</p>
-      </article>
-      <article>
-        <span class="feature-index">A / 03</span>
-        <h3>Local by default</h3>
-        <p>Sessions and diagnostics remain on your machine unless you explicitly opt in.</p>
-      </article>
-      <article>
-        <span class="feature-index">A / 04</span>
-        <h3>Open end to end</h3>
-        <p>TypeScript orchestration and a Rust safety core. Read it, audit it, extend it.</p>
+      <article v-for="(feature, index) in t.features" :key="feature[0]">
+        <span class="feature-index">A / 0{{ index + 1 }}</span>
+        <h3>{{ feature[0] }}</h3>
+        <p>{{ feature[1] }}</p>
       </article>
     </section>
 
     <section class="closing-callout">
       <div>
-        <span class="eyebrow">START WITH CONTEXT</span>
-        <h2>Your repo.<br />Your rules.</h2>
+        <span class="eyebrow">{{ t.startLabel }}</span>
+        <h2>{{ t.startTitle }}</h2>
       </div>
       <div>
-        <p>Read the five-minute guide, inspect every permission, and make one small change.</p>
-        <a class="primary-action" href="/docs/getting-started/5min-tutorial"
-          >Run the first task ↗</a
-        >
+        <p>{{ t.startBody }}</p>
+        <a class="primary-action" :href="localizedPath('/docs/getting-started/5min-tutorial')">
+          {{ t.startAction }}
+        </a>
       </div>
     </section>
 
     <footer class="apollo-footer">
-      <a class="footer-brand" href="/">
-        <img src="/apollo-mark.svg" alt="" width="28" height="28" />
+      <a class="footer-brand" :href="localizedPath('/')">
+        <img :src="withBase('/apollo-mark.svg')" alt="" width="28" height="28" />
         <span>APOLLO CODE</span>
       </a>
-      <p>Open source · Apache-2.0 · Telemetry local by default</p>
+      <p>{{ t.footer }}</p>
       <div>
-        <a href="/docs/getting-started/install">Docs</a>
-        <a href="https://github.com/JS-mark/apollo-code/blob/main/SECURITY.md">Security</a>
+        <a :href="localizedPath('/docs/getting-started/install')">{{ t.footerDocs }}</a>
+        <a href="https://github.com/JS-mark/apollo-code/blob/main/SECURITY.md">{{
+          t.footerSecurity
+        }}</a>
         <a href="https://github.com/JS-mark/apollo-code">GitHub</a>
       </div>
     </footer>
