@@ -17,5 +17,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
+      # Type-aware Oxlint resolves workspace package exports from dist declarations.
+      - run: pnpm turbo run build
       - run: pnpm lint
-      - run: pnpm turbo run typecheck test build
+      - run: pnpm turbo run typecheck test
