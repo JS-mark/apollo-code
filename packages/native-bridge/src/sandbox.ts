@@ -9,10 +9,14 @@ function invoke(binary: string, args: string[], input: string | undefined, signa
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'pipe'], signal })
     const stdout: Buffer[] = []; const stderr: Buffer[] = []
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 5_000)
     child.stdout.on('data', chunk => stdout.push(chunk))
     child.stderr.on('data', chunk => stderr.push(chunk))
-    child.on('error', reject)
-    child.on('close', code => code === 0 ? resolve(Buffer.concat(stdout).toString('utf8')) : reject(new Error(Buffer.concat(stderr).toString('utf8') || `sandbox exited ${code}`)))
+    child.on('error', error => { clearTimeout(timeout); reject(error) })
+    child.on('close', code => {
+      clearTimeout(timeout)
+      code === 0 ? resolve(Buffer.concat(stdout).toString('utf8')) : reject(new Error(Buffer.concat(stderr).toString('utf8') || `sandbox exited ${code}`))
+    })
     child.stdin.end(input)
   })
 }
