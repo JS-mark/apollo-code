@@ -81,6 +81,12 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
         .map_err(|error| format!("create output directory: {error}"))?;
     let stdout_path = output_dir.join("stdout.txt");
     let stderr_path = output_dir.join("stderr.txt");
+    let command_path = output_dir.join("command.cmd");
+    std::fs::write(
+        &command_path,
+        format!("@echo off\r\n{}\r\n", request.command),
+    )
+    .map_err(|error| format!("write command script: {error}"))?;
     let result = unsafe { run_restricted(request, &output_dir, &stdout_path, &stderr_path) };
     let stdout = std::fs::read_to_string(&stdout_path).unwrap_or_default();
     let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
@@ -154,9 +160,9 @@ unsafe fn run_restricted(
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows\System32\cmd.exe"));
     let shell_command = format!(
-        "\"{}\" /D /S /C \"{} 1>\"{}\" 2>\"{}\"\"",
+        "\"{}\" /D /S /C call \"{}\" 1>\"{}\" 2>\"{}\"",
         command_processor.display(),
-        request.command,
+        output_dir.join("command.cmd").display(),
         stdout_path.display(),
         stderr_path.display()
     );
