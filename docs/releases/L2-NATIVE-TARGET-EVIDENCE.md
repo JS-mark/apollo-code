@@ -10,18 +10,23 @@ This table describes the verification implemented by the repository. It is not a
 | `aarch64-unknown-linux-gnu`  | cross/QEMU                | partial-verified            | probe-derived                                         | real arm64 hardware escape run                                               |
 | `x86_64-unknown-linux-musl`  | zig cross, host execution | cross-verified              | probe-derived                                         | Alpine compatibility run                                                     |
 | `aarch64-unknown-linux-musl` | zig cross/QEMU            | partial-verified            | probe-derived                                         | real arm64 Alpine hardware escape run                                        |
-| `x86_64-pc-windows-msvc`     | native                    | foundation-verified refusal | None                                                  | Tier 1/2 implementation, native escape suite, Authenticode signature         |
-| `aarch64-pc-windows-msvc`    | native                    | foundation-verified refusal | None                                                  | Tier 1/2 implementation, Windows-on-ARM escape suite, Authenticode signature |
+| `x86_64-pc-windows-msvc`     | native                    | native Tier 2               | Partial                                               | Production Authenticode certificate and trusted-publisher signature          |
+| `aarch64-pc-windows-msvc`    | native                    | native Tier 2               | Partial                                               | Production Authenticode certificate and trusted-publisher signature          |
 
-Windows x64 and arm64 now exercise Tier 1 natively: commands run under a
-maximum-privilege-stripped restricted token and a kill-on-close Job Object with
-process-count and memory limits. The native escape test checks sensitive-token
-privileges and rejects a grandchild process. This is accurately reported as
-Weak: filesystem and network isolation are unavailable until Tier 2
-AppContainer ACL grant/rollback is implemented and verified. Windows Tier 3/WFP
-is outside L2.
+Windows x64 and arm64 exercise Tier 2 natively. Commands retain the Tier 1
+restricted token and Job Object limits, and additionally run in an ephemeral
+AppContainer. Canonical allowlisted paths receive SID-specific inherited ACEs;
+the handle revokes them on every normal or error exit. A durable journal lets a
+later invocation remove ACEs and profiles orphaned by a crash without touching
+active concurrent sandboxes. Native escape tests verify denied reads outside
+the allowlist, allowed writes, exact ACL rollback, stripped privileges, and
+grandchild rejection. This is accurately reported as Partial because Tier 3
+per-host WFP filtering is outside L2.
 
-No Authenticode signature or macOS notarization is claimed by this repository change. Those require release-candidate artifacts, certificate credentials, and the platform services; a stable L2 release remains blocked until those gates produce real evidence.
+No production Authenticode signature or macOS notarization is claimed by this
+repository change. Those require release-candidate artifacts, certificate
+credentials, and the platform services; a stable L2 release remains gated until
+those gates produce real evidence.
 
 ## Signing evidence semantics
 
@@ -36,4 +41,4 @@ The macOS lane records whether the three notarization credentials are available,
 | macOS native |             required fixture executes on both architectures |               2/2 | Partial tier; notarization blocked externally                                          |
 | Linux x64    |            GNU and musl fixtures execute on the host kernel |               2/2 | Full only when runtime probe confirms bwrap/user namespaces                            |
 | Linux arm64  |              binaries and QEMU-limited behavior are checked | 0/2 real hardware | Partial-verified; stable release blocked on hardware                                   |
-| Windows      | fail-closed foundation checks execute on both architectures |      0/2 Tier 1/2 | Weak/Partial must not be claimed; Authenticode production signature blocked externally |
+| Windows      |               Tier 2 escape tests execute on native runners | 2/2 native Tier 2 | Partial; production Authenticode signature remains an external release gate             |

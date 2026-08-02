@@ -30,12 +30,12 @@ jobs:
           - {
               runner: windows-2022,
               target: x86_64-pc-windows-msvc,
-              verification: native-tier1,
+              verification: native-tier2,
             }
           - {
               runner: windows-11-arm,
               target: aarch64-pc-windows-msvc,
-              verification: native-tier1,
+              verification: native-tier2,
             }
     runs-on: ${{ matrix.runner }}
     steps:
@@ -76,10 +76,10 @@ jobs:
         run: cargo build -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
         run: cargo zigbuild -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
-      - if: matrix.verification == 'native-tier1'
-        name: Run Windows Tier 1 restricted-token and Job Object escape suite
+      - if: matrix.verification == 'native-tier2'
+        name: Run Windows Tier 2 AppContainer, ACL rollback, and escape suite
         shell: pwsh
-        run: ./crates/apollo-sandbox/tests/escape/windows-tier1.ps1 "target/${{ matrix.target }}/debug/apollo-sandbox.exe"
+        run: ./crates/apollo-sandbox/tests/escape/windows-tier2.ps1 "target/${{ matrix.target }}/debug/apollo-sandbox.exe"
       - if: matrix.verification == 'cross-verified'
         name: Run musl x64 escape suite on the host kernel
         run: bash crates/apollo-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/apollo-sandbox
@@ -106,9 +106,9 @@ jobs:
           if [ '${{ matrix.verification }}' = partial-verified ]; then
             printf 'status=qemu-runtime-limited\n' >> escape-verification.txt
             printf 'limitation=QEMU user-mode is not real arm64 hardware; stable release still requires the checklist hardware gate.\n' >> escape-verification.txt
-          elif [ '${{ matrix.verification }}' = native-tier1 ]; then
-            printf 'status=windows-tier1-passed\n' >> escape-verification.txt
-            printf 'limitation=Weak tier: Job Object and Restricted Token do not isolate filesystem or network; Tier 2 AppContainer remains required.\n' >> escape-verification.txt
+          elif [ '${{ matrix.verification }}' = native-tier2 ]; then
+            printf 'status=windows-tier2-passed\n' >> escape-verification.txt
+            printf 'limitation=Partial tier: AppContainer isolates filesystem access, but per-host network filtering remains a Tier 3 capability.\n' >> escape-verification.txt
           else
             printf 'status=passed\n' >> escape-verification.txt
           fi

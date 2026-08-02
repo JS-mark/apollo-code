@@ -94,7 +94,10 @@ impl ExecRequest {
                 return Err(format!("permission path must be absolute: {path}"));
             }
         }
-        if self.permissions.fs.write.iter().any(|p| p == "/") {
+        if self.permissions.fs.write.iter().any(|path| {
+            let candidate = std::path::Path::new(path);
+            candidate.is_absolute() && candidate.parent().is_none()
+        }) {
             return Err("refusing writable filesystem root".into());
         }
         if cwd.as_os_str().is_empty() {
@@ -168,5 +171,22 @@ mod tests {
         };
         assert!(!widened.is_subset_of(&declared));
         assert!(declared.is_subset_of(&declared));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn refuses_profile_that_writes_windows_drive_root() {
+        let mut request = ExecRequest {
+            command: "echo safe".into(),
+            cwd: r"C:\".into(),
+            timeout_ms: 1,
+            permissions: Permissions::default(),
+            env: BTreeMap::new(),
+        };
+        request.permissions.fs.write.push(r"C:\".into());
+        assert!(request
+            .validate()
+            .unwrap_err()
+            .contains("writable filesystem root"));
     }
 }
