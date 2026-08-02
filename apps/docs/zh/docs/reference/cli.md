@@ -1,5 +1,9 @@
 # CLI 参考
 
+## Context 自进化（L2）
+
+`apollo evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`apollo evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。`~/.apollo/config.toml` 中设置 `[evolution] enabled = false` 后，新会话使用内置 context 默认值。
+
 | 命令                           | 用途                               |
 | ------------------------------ | ---------------------------------- |
 | `apollo` / `apollo chat`       | 启动交互式或单次编程会话。         |

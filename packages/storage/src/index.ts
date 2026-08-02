@@ -21,6 +21,7 @@ import { createInterface } from 'node:readline'
 import type { CoreEvent, EventBus, PromptComposer } from '@apollo-code/core'
 import type { PermissionManager } from '@apollo-code/permission'
 import { sanitize, type JsonValue } from '@apollo-code/shared'
+export * from './evolution-store'
 export interface StoredEvent {
   v: 1
   id: string

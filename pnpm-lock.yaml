@@ -92,6 +92,9 @@ importers:
       '@apollo-code/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@apollo-code/context':
+        specifier: workspace:*
+        version: link:../../packages/context
       '@apollo-code/core':
         specifier: workspace:*
         version: link:../../packages/core

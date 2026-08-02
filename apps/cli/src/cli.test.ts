@@ -46,7 +46,7 @@ function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
 }
 
 describe('runCli', () => {
-  it('declares the complete L1 command surface', () => {
+  it('declares the implemented command surface', () => {
     expect(Object.keys(command.subCommands ?? {})).toEqual([
       'chat',
       'resume',
@@ -56,11 +56,30 @@ describe('runCli', () => {
       'config',
       'history',
       'context',
+      'evolution',
       'doctor',
       'hook',
       'version',
       'help',
     ])
+  })
+
+  it('shows and rolls back evolution audit records through one port', async () => {
+    const evolution = {
+      show: vi.fn(async () => [{ namespace: 'context', param: 'target_ratio' }]),
+      rollback: vi.fn(async () => [{ param: 'target_ratio' }]),
+    }
+    const shown = await runCli(
+      ['evolution', 'show', '--namespace', 'context', '--json'],
+      ports({ evolution }),
+    )
+    expect(shown.stdout).toContain('target_ratio')
+    const rolled = await runCli(
+      ['evolution', 'rollback', '--namespace', 'context'],
+      ports({ evolution }),
+    )
+    expect(rolled.stdout).toContain('1 parameter')
+    expect(evolution.rollback).toHaveBeenCalledWith({ namespace: 'context' })
   })
 
   it('exposes context show, keep, compact and policy control through one port', async () => {

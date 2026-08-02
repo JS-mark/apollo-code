@@ -1,5 +1,9 @@
 # CLI reference
 
+## Context evolution (L2)
+
+`apollo evolution show [--namespace context] [--since <date>]` displays the sanitized, append-only local tuning audit. `apollo evolution rollback [--namespace context] [--to <timestamp>]` restores context parameters to the preceding or selected point. Setting `[evolution] enabled = false` in `~/.apollo/config.toml` makes new sessions use built-in context defaults.
+
 | Command                        | Purpose                                                                   |
 | ------------------------------ | ------------------------------------------------------------------------- |
 | `apollo` / `apollo chat`       | Start an interactive or one-shot coding session.                          |

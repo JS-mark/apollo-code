@@ -30,6 +30,9 @@ const argsDefinition = {
   skipVerify: { type: 'boolean' as const },
   dangerous: { type: 'boolean' as const },
   dryRun: { type: 'boolean' as const },
+  namespace: { type: 'string' as const },
+  since: { type: 'string' as const },
+  to: { type: 'string' as const },
 }
 export interface CliIo {
   readStdin(): Promise<string>
@@ -167,6 +170,35 @@ export async function runCli(
       return { exitCode: 0, stdout, stderr }
     }
     return { exitCode: 2, stdout, stderr: `Unknown context action: ${action}` }
+  }
+  if (subcommand === 'evolution') {
+    if (!ports.evolution)
+      return { exitCode: 2, stdout, stderr: 'evolution integration port is not connected' }
+    const action = args._[1] ?? 'show'
+    const namespace = args.namespace ? String(args.namespace) : undefined
+    if (namespace && namespace !== 'context')
+      return { exitCode: 2, stdout, stderr: `Unsupported L2 evolution namespace: ${namespace}` }
+    if (action === 'show') {
+      const records = await ports.evolution.show({
+        ...(namespace ? { namespace } : {}),
+        ...(args.since ? { since: new Date(String(args.since)) } : {}),
+      })
+      stdout += args.json
+        ? `${records.map((record) => JSON.stringify(record)).join('\n')}${records.length ? '\n' : ''}`
+        : records.length
+          ? `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
+          : 'No evolution adjustments recorded.\n'
+      return { exitCode: 0, stdout, stderr }
+    }
+    if (action === 'rollback') {
+      const records = await ports.evolution.rollback({
+        namespace: 'context',
+        ...(args.to ? { to: new Date(String(args.to)) } : {}),
+      })
+      stdout += `Rolled back ${records.length} parameter(s).\n`
+      return { exitCode: 0, stdout, stderr }
+    }
+    return { exitCode: 2, stdout, stderr: `Unknown evolution action: ${action}` }
   }
   if (subcommand === 'resume') {
     const id = args._[1]
