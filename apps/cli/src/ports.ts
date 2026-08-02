@@ -52,6 +52,12 @@ export interface ApolloPorts {
   }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   session: SessionPort
+  restore?: {
+    restore(
+      sessionId: string,
+      options: { dryRun: boolean },
+    ): Promise<{ restored: string[]; conflicts: string[]; missing: boolean; dryRun: boolean }>
+  }
   context?: ContextPort
 }
 export function unavailablePorts(): ApolloPorts {

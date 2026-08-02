@@ -50,6 +50,7 @@ describe('runCli', () => {
     expect(Object.keys(command.subCommands ?? {})).toEqual([
       'chat',
       'resume',
+      'restore',
       'login',
       'logout',
       'config',
@@ -168,6 +169,21 @@ describe('runCli', () => {
     const result = await runCli(['resume', 'session-42'], testPorts)
     expect(result.exitCode).toBe(0)
     expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
+  })
+
+  it('supports restore dry-runs and reports conflicts without writing', async () => {
+    const restore = {
+      restore: vi.fn(async () => ({
+        restored: ['/work/a.ts'],
+        conflicts: [],
+        missing: false,
+        dryRun: true,
+      })),
+    }
+    const result = await runCli(['restore', 'session-42', '--dry-run'], ports({ restore }))
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(result.stdout).toContain('Would restore 1 file(s)')
+    expect(restore.restore).toHaveBeenCalledWith('session-42', { dryRun: true })
   })
 
   it('connects stdin login without including the credential in output', async () => {
