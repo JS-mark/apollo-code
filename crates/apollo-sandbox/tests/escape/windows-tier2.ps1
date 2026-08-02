@@ -33,14 +33,14 @@ Set-Content (Join-Path $denied 'secret.txt') 'must-not-leak'
 $aclBefore = (Get-Acl $allowed).Sddl
 $fsPermissions = @{ fs = @{ read = @($allowed); write = @($allowed) } }
 $allowedFile = Join-Path $allowed 'written.txt'
-$writeCommand = 'echo allowed>"{0}"' -f $allowedFile
+$writeCommand = 'echo allowed>{0}' -f $allowedFile
 $write = Invoke-Sandbox $writeCommand $fsPermissions
-if ($write.exit_code -ne 0 -or -not (Test-Path (Join-Path $allowed 'written.txt'))) { throw 'AppContainer could not write an allowed path' }
+if ($write.exit_code -ne 0 -or -not (Test-Path $allowedFile)) { throw "AppContainer could not write an allowed path: $($write | ConvertTo-Json -Compress)" }
 $aclAfter = (Get-Acl $allowed).Sddl
 if ($aclAfter -ne $aclBefore) { throw 'AppContainer ACE was not rolled back after process exit' }
 
 $deniedFile = Join-Path $denied 'secret.txt'
-$readCommand = 'type "{0}"' -f $deniedFile
+$readCommand = 'type {0}' -f $deniedFile
 $readDenied = Invoke-Sandbox $readCommand
 if ($readDenied.exit_code -eq 0 -or $readDenied.stdout -match 'must-not-leak') { throw 'AppContainer read a path outside the filesystem allowlist' }
 Remove-Item -Recurse -Force $fixture
