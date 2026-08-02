@@ -5,6 +5,7 @@ export const command = defineCommand({
   subCommands: {
     chat: leaf('chat', 'Start a one-shot chat'),
     resume: leaf('resume', 'Resume a saved session'),
+    restore: leaf('restore', 'Restore files changed by a saved session'),
     login: leaf('login', 'Configure provider credentials'),
     logout: leaf('logout', 'Remove provider credentials'),
     config: leaf('config', 'Inspect configuration'),

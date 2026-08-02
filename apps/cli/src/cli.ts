@@ -29,6 +29,7 @@ const argsDefinition = {
   apiKeyStdin: { type: 'boolean' as const },
   skipVerify: { type: 'boolean' as const },
   dangerous: { type: 'boolean' as const },
+  dryRun: { type: 'boolean' as const },
 }
 export interface CliIo {
   readStdin(): Promise<string>
@@ -172,6 +173,28 @@ export async function runCli(
     if (!id) return { exitCode: 2, stdout, stderr: 'resume requires a session id' }
     await ports.session.resume(id)
     return { exitCode: 0, stdout, stderr }
+  }
+  if (subcommand === 'restore') {
+    const id = args._[1]
+    if (!id) return { exitCode: 2, stdout, stderr: 'restore requires a session id' }
+    if (!ports.restore)
+      return { exitCode: 2, stdout, stderr: 'restore integration port is not connected' }
+    try {
+      const restored = await ports.restore.restore(id, { dryRun: Boolean(args.dryRun) })
+      if (restored.missing)
+        return { exitCode: 1, stdout, stderr: `No backups found for session: ${id}` }
+      if (restored.conflicts.length)
+        return {
+          exitCode: 1,
+          stdout,
+          stderr: `Restore refused because files changed after the session:\n${restored.conflicts.join('\n')}`,
+        }
+      stdout += `${restored.dryRun ? 'Would restore' : 'Restored'} ${restored.restored.length} file(s)\n`
+      for (const path of restored.restored) stdout += `${path}\n`
+      return { exitCode: 0, stdout, stderr }
+    } catch (error) {
+      return { exitCode: 1, stdout, stderr: error instanceof Error ? error.message : String(error) }
+    }
   }
   if (subcommand === 'login') {
     const provider = args._[1] ?? 'anthropic'

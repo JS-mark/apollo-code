@@ -1,6 +1,19 @@
 import { createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
-import { open, mkdir, readFile, realpath } from 'node:fs/promises'
+import {
+  copyFile,
+  lstat,
+  open,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, extname, isAbsolute, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -209,4 +222,294 @@ export async function sourceHash(path: string): Promise<string> {
 }
 export function sanitizeSession<T>(value: T): T {
   return sanitize(value)
+}
+
+export interface BackupRecord {
+  path: string
+  existed: boolean
+  beforeHash?: string
+  afterHash: string
+  backupPath?: string
+  createdAt: string
+}
+
+interface BackupManifest {
+  v: 1
+  sessionId: string
+  records: BackupRecord[]
+}
+
+export interface RestoreResult {
+  restored: string[]
+  conflicts: string[]
+  missing: boolean
+  dryRun: boolean
+}
+
+export interface BackupStoreOptions {
+  retentionMs?: number
+  maxBytes?: number
+  now?: () => number
+}
+
+export class BackupStore {
+  readonly retentionMs: number
+  readonly maxBytes: number
+  readonly now: () => number
+  constructor(
+    readonly root: string,
+    options: BackupStoreOptions = {},
+  ) {
+    this.retentionMs = options.retentionMs ?? 7 * 24 * 60 * 60 * 1000
+    this.maxBytes = options.maxBytes ?? 500 * 1024 * 1024
+    this.now = options.now ?? Date.now
+  }
+  async prepare(sessionId: string, inputPaths: string[]) {
+    validateSessionId(sessionId)
+    const paths = [...new Set(inputPaths)]
+    const captures = await Promise.all(
+      paths.map(async (path) => {
+        try {
+          const info = await lstat(path)
+          if (!info.isFile()) throw new Error(`Backup target is not a regular file: ${path}`)
+          const beforeHash = await sourceHash(path)
+          const backupPath = resolve(this.root, sessionId, 'objects', beforeHash)
+          await mkdir(dirname(backupPath), { recursive: true, mode: 0o700 })
+          try {
+            await copyFile(path, backupPath, constants.COPYFILE_EXCL)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+          }
+          return { path, existed: true as const, beforeHash, backupPath }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+            return { path, existed: false as const }
+          throw error
+        }
+      }),
+    )
+    let settled = false
+    return {
+      commit: async () => {
+        if (settled) return
+        const createdAt = new Date(this.now()).toISOString()
+        const records: BackupRecord[] = await Promise.all(
+          captures.map(async (capture) => ({
+            ...capture,
+            afterHash: await sourceHash(capture.path),
+            createdAt,
+          })),
+        )
+        await this.appendRecords(sessionId, records)
+        settled = true
+        await this.gc()
+      },
+      rollback: async () => {
+        if (settled) return
+        for (const capture of [...captures].reverse()) {
+          if (capture.existed) await copyFile(capture.backupPath, capture.path)
+          else await rm(capture.path, { force: true })
+        }
+        settled = true
+      },
+    }
+  }
+  async restore(sessionId: string, options: { dryRun?: boolean } = {}): Promise<RestoreResult> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    if (!manifest)
+      return { restored: [], conflicts: [], missing: true, dryRun: Boolean(options.dryRun) }
+    const latest = new Map<string, BackupRecord>()
+    const original = new Map<string, BackupRecord>()
+    for (const record of manifest.records) {
+      if (!latest.has(record.path)) latest.set(record.path, record)
+      original.set(record.path, record)
+    }
+    const releases: Array<() => Promise<void>> = []
+    try {
+      for (const path of [...latest.keys()].toSorted())
+        releases.push(await acquireFileLock(`${path}.apollolock`, `restore ${sessionId}`))
+      const conflicts: string[] = []
+      for (const record of latest.values()) {
+        const initial = original.get(record.path)!
+        try {
+          const currentHash = await sourceHash(record.path)
+          if (currentHash !== record.afterHash && currentHash !== initial.beforeHash)
+            conflicts.push(record.path)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || initial.existed)
+            conflicts.push(record.path)
+        }
+      }
+      if (conflicts.length)
+        return { restored: [], conflicts, missing: false, dryRun: Boolean(options.dryRun) }
+      const restored = [...latest.keys()]
+      if (!options.dryRun) {
+        const rollbackDir = resolve(this.root, sessionId, `.restore-${randomUUID()}`)
+        const current: Array<{ path: string; copy?: string; existed: boolean }> = []
+        try {
+          await mkdir(rollbackDir, { recursive: true, mode: 0o700 })
+          for (const [index, record] of [...latest.values()].entries()) {
+            try {
+              const copy = resolve(rollbackDir, String(index))
+              await copyFile(record.path, copy)
+              current.push({ path: record.path, copy, existed: true })
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+              current.push({ path: record.path, existed: false })
+            }
+          }
+          for (const record of [...original.values()].toReversed()) {
+            if (record.existed && record.backupPath) {
+              assertWithin(resolve(this.root, sessionId), record.backupPath)
+              await mkdir(dirname(record.path), { recursive: true })
+              await copyFile(record.backupPath, record.path)
+            } else await rm(record.path, { force: true })
+          }
+        } catch (error) {
+          for (const snapshot of current.toReversed()) {
+            if (snapshot.existed && snapshot.copy) await copyFile(snapshot.copy, snapshot.path)
+            else await rm(snapshot.path, { force: true })
+          }
+          throw error
+        } finally {
+          await rm(rollbackDir, { recursive: true, force: true })
+        }
+      }
+      return { restored, conflicts: [], missing: false, dryRun: Boolean(options.dryRun) }
+    } finally {
+      for (const release of releases.toReversed()) await release()
+    }
+  }
+  async gc(): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 })
+    const lockPath = resolve(this.root, '.gc.lock')
+    let lock
+    try {
+      lock = await open(lockPath, 'wx', 0o600)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return
+      throw error
+    }
+    try {
+      const manifestsRoot = this.root
+      let entries
+      try {
+        entries = await readdir(manifestsRoot, { withFileTypes: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw error
+      }
+      const manifests = await Promise.all(
+        entries
+          .filter((entry) => entry.isDirectory())
+          .map(async (entry) => {
+            const path = resolve(manifestsRoot, entry.name)
+            let info
+            try {
+              info = await stat(resolve(path, 'manifest.json'))
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+              info = await stat(path)
+            }
+            return { path, mtimeMs: info.mtimeMs, size: await directorySize(path) }
+          }),
+      )
+      const oldestFirst = manifests.toSorted((a, b) => a.mtimeMs - b.mtimeMs)
+      let total = oldestFirst.reduce((sum, entry) => sum + entry.size, 0)
+      for (const entry of oldestFirst) {
+        if (this.now() - entry.mtimeMs <= this.retentionMs && total <= this.maxBytes) continue
+        await rm(entry.path, { force: true, recursive: true })
+        total -= entry.size
+      }
+    } finally {
+      await lock.close()
+      await rm(lockPath, { force: true })
+    }
+  }
+  private manifestPath(sessionId: string): string {
+    return resolve(this.root, sessionId, 'manifest.json')
+  }
+  private async readManifest(sessionId: string): Promise<BackupManifest | undefined> {
+    try {
+      const parsed = JSON.parse(
+        await readFile(this.manifestPath(sessionId), 'utf8'),
+      ) as BackupManifest
+      if (parsed.v !== 1 || parsed.sessionId !== sessionId || !Array.isArray(parsed.records))
+        throw new Error('Backup manifest is corrupt')
+      for (const record of parsed.records) {
+        if (
+          !record ||
+          typeof record.path !== 'string' ||
+          typeof record.existed !== 'boolean' ||
+          typeof record.afterHash !== 'string' ||
+          (record.existed &&
+            (typeof record.beforeHash !== 'string' || typeof record.backupPath !== 'string'))
+        )
+          throw new Error('Backup manifest is corrupt')
+      }
+      return parsed
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      if (error instanceof SyntaxError)
+        throw new Error('Backup manifest is corrupt', { cause: error })
+      throw error
+    }
+  }
+  private async appendRecords(sessionId: string, records: BackupRecord[]): Promise<void> {
+    const path = this.manifestPath(sessionId)
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+    const release = await acquireFileLock(`${path}.lock`, `manifest ${sessionId}`)
+    const temporary = `${path}.${randomUUID()}.tmp`
+    try {
+      const current = (await this.readManifest(sessionId)) ?? { v: 1, sessionId, records: [] }
+      await writeFile(
+        temporary,
+        `${JSON.stringify({ ...current, records: [...records, ...current.records] })}\n`,
+        { encoding: 'utf8', flag: 'wx', mode: 0o600 },
+      )
+      await rename(temporary, path)
+    } finally {
+      await rm(temporary, { force: true })
+      await release()
+    }
+  }
+}
+
+function validateSessionId(sessionId: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error('Invalid session id')
+}
+
+function assertWithin(root: string, path: string): void {
+  const rel = relative(resolve(root), resolve(path))
+  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Backup manifest path escapes store')
+}
+
+async function directorySize(path: string): Promise<number> {
+  let total = 0
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    const child = resolve(path, entry.name)
+    total += entry.isDirectory() ? await directorySize(child) : (await stat(child)).size
+  }
+  return total
+}
+
+async function acquireFileLock(lockPath: string, owner: string): Promise<() => Promise<void>> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const handle = await open(lockPath, 'wx', 0o600)
+      await handle.writeFile(`${process.pid} ${owner}\n`)
+      return async () => {
+        await handle.close()
+        await rm(lockPath, { force: true })
+      }
+    } catch (error) {
+      lastError = error
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if (attempt === 3) throw new Error(`File lock unavailable: ${lockPath}`, { cause: error })
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50))
+    }
+  }
+  throw new Error(`File lock unavailable: ${lockPath}`, { cause: lastError })
 }

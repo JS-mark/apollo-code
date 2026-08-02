@@ -23,7 +23,7 @@ import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provide
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { SingleProviderRouter } from '@apollo-code/router'
 import type { JsonValue } from '@apollo-code/shared'
-import { SessionStore } from '@apollo-code/storage'
+import { BackupStore, SessionStore } from '@apollo-code/storage'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
@@ -199,6 +199,7 @@ export interface ProductionOptions {
 }
 export function createProductionPorts(options: ProductionOptions = {}): ApolloPorts {
   const home = options.apolloHome ?? join(homedir(), '.apollo')
+  const backups = new BackupStore(join(home, 'backups'))
   const telemetry = new Telemetry(new LocalTelemetrySink(join(home, 'telemetry', 'events.jsonl')))
   const logger = new TelemetryLogger(telemetry, 'cli')
   let cachedPassphrase: string | undefined
@@ -249,7 +250,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
     const registry = new ToolRegistry()
-    for (const tool of builtinTools()) registry.register(tool)
+    for (const tool of builtinTools({ backups })) registry.register(tool)
     let runner: Runner
     const native = {
       async execute(command: string, args: string[], signal: AbortSignal) {
@@ -308,6 +309,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   return {
     version: options.version ?? '0.0.0',
     session,
+    restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     telemetry: { securityEvent: (name, payload) => telemetry.emit(name, 'security', payload) },
     confirmation: {
       confirmDangerousNoSandbox: async (sentence) =>

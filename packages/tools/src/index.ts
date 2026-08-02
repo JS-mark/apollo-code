@@ -1,4 +1,15 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import {
+  open,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 
 import type { PermissionManager, PermissionSpec } from '@apollo-code/permission'
@@ -22,6 +33,117 @@ function pathInCwd(cwd: string, input: string): string {
   const rel = relative(resolve(cwd), path)
   if (rel.startsWith('..')) throw new Error('Path escapes working directory')
   return path
+}
+
+export interface FileMutationTransaction {
+  commit(): Promise<void>
+  rollback(): Promise<void>
+}
+
+export interface FileBackupPort {
+  prepare(sessionId: string, paths: string[]): Promise<FileMutationTransaction>
+}
+
+export interface BuiltinToolsOptions {
+  backups?: FileBackupPort
+}
+
+async function safeMutationPath(cwd: string, input: string): Promise<string> {
+  const path = pathInCwd(cwd, input)
+  const root = await realpath(cwd)
+  const parent = await realpath(resolve(path, '..'))
+  const rel = relative(root, parent)
+  if (rel.startsWith('..')) throw new Error('Path escapes working directory through a symlink')
+  try {
+    if ((await lstat(path)).isSymbolicLink()) throw new Error('Refusing to mutate a symbolic link')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  return path
+}
+
+async function atomicWrite(path: string, content: string): Promise<void> {
+  await mkdir(resolve(path, '..'), { recursive: true })
+  const temporary = resolve(path, `.${randomUUID()}.apollo-tmp`)
+  try {
+    await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+    await rename(temporary, path)
+  } finally {
+    await rm(temporary, { force: true })
+  }
+}
+
+async function mutateFiles(
+  sessionId: string,
+  updates: Array<{ path: string; content: string }>,
+  backups?: FileBackupPort,
+): Promise<void> {
+  const releases: Array<() => Promise<void>> = []
+  const paths = [...new Set(updates.map((update) => update.path))].toSorted()
+  let transaction: FileMutationTransaction | undefined
+  try {
+    for (const path of paths) releases.push(await acquireMutationLock(path, sessionId))
+    transaction = backups
+      ? await backups.prepare(sessionId, paths)
+      : await prepareEphemeralTransaction(paths)
+    for (const update of updates) await atomicWrite(update.path, update.content)
+    await transaction?.commit()
+  } catch (error) {
+    await transaction?.rollback().catch(() => undefined)
+    throw error
+  } finally {
+    for (const release of releases.toReversed()) await release()
+  }
+}
+
+async function prepareEphemeralTransaction(paths: string[]): Promise<FileMutationTransaction> {
+  const snapshots = await Promise.all(
+    paths.map(async (path) => {
+      try {
+        return { path, content: await readFile(path), existed: true as const }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          return { path, existed: false as const }
+        throw error
+      }
+    }),
+  )
+  let settled = false
+  return {
+    async commit() {
+      settled = true
+    },
+    async rollback() {
+      if (settled) return
+      for (const snapshot of snapshots.toReversed()) {
+        if (snapshot.existed) await writeFile(snapshot.path, snapshot.content)
+        else await rm(snapshot.path, { force: true })
+      }
+      settled = true
+    },
+  }
+}
+
+async function acquireMutationLock(path: string, sessionId: string): Promise<() => Promise<void>> {
+  const lockPath = `${path}.apollolock`
+  let lastError: unknown
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const handle = await open(lockPath, 'wx', 0o600)
+      await handle.writeFile(`${process.pid} ${sessionId}\n`)
+      return async () => {
+        await handle.close()
+        await rm(lockPath, { force: true })
+      }
+    } catch (error) {
+      lastError = error
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if (attempt === 3)
+        throw new Error('File locked by another apollo session; retry later', { cause: error })
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
+    }
+  }
+  throw new Error('File locked by another apollo session; retry later', { cause: lastError })
 }
 
 export class ReadTool implements Tool<{ path: string; offset?: number; limit?: number }> {
@@ -60,6 +182,7 @@ export class ReadTool implements Tool<{ path: string; offset?: number; limit?: n
   }
 }
 export class WriteTool implements Tool<{ path: string; content: string }> {
+  constructor(readonly backups?: FileBackupPort) {}
   readonly name = 'Write'
   readonly description = 'Create or overwrite a file'
   readonly inputSchema = objectSchema({ path: stringProp, content: { type: 'string' } }, [
@@ -73,8 +196,8 @@ export class WriteTool implements Tool<{ path: string; content: string }> {
   async invoke(i: { path: string; content: string }, c: ToolContext) {
     const s = Date.now()
     try {
-      const p = pathInCwd(c.session.cwd, i.path)
-      await writeFile(p, i.content, { encoding: 'utf8', flag: 'w' })
+      const p = await safeMutationPath(c.session.cwd, i.path)
+      await mutateFiles(c.session.id, [{ path: p, content: i.content }], this.backups)
       return result('File written', {
         durationMs: Date.now() - s,
         bytesWritten: Buffer.byteLength(i.content),
@@ -86,6 +209,7 @@ export class WriteTool implements Tool<{ path: string; content: string }> {
   }
 }
 export class EditTool implements Tool<{ path: string; oldText: string; newText: string }> {
+  constructor(readonly backups?: FileBackupPort) {}
   readonly name = 'Edit'
   readonly description = 'Replace one exact string in a file'
   readonly inputSchema = objectSchema(
@@ -99,12 +223,12 @@ export class EditTool implements Tool<{ path: string; oldText: string; newText: 
   async invoke(i: { path: string; oldText: string; newText: string }, c: ToolContext) {
     const s = Date.now()
     try {
-      const p = pathInCwd(c.session.cwd, i.path),
+      const p = await safeMutationPath(c.session.cwd, i.path),
         old = await readFile(p, 'utf8'),
         count = old.split(i.oldText).length - 1
       if (count !== 1) throw new Error(`Expected exactly one match, found ${count}`)
       const next = old.replace(i.oldText, i.newText)
-      await writeFile(p, next, 'utf8')
+      await mutateFiles(c.session.id, [{ path: p, content: next }], this.backups)
       return result('File edited', {
         durationMs: Date.now() - s,
         bytesWritten: Buffer.byteLength(next),
@@ -112,6 +236,68 @@ export class EditTool implements Tool<{ path: string; oldText: string; newText: 
       })
     } catch (e) {
       return failure(e, s)
+    }
+  }
+}
+
+export interface MultiEditInput {
+  edits: Array<{ path: string; oldText: string; newText: string }>
+}
+
+export class MultiEditTool implements Tool<MultiEditInput> {
+  constructor(readonly backups?: FileBackupPort) {}
+  readonly name = 'MultiEdit'
+  readonly description = 'Atomically apply exact replacements across multiple files'
+  readonly inputSchema = objectSchema(
+    {
+      edits: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['path', 'oldText', 'newText'],
+          properties: { path: stringProp, oldText: stringProp, newText: { type: 'string' } },
+        },
+      },
+    },
+    ['edits'],
+  )
+  readonly sandboxRequired = true
+  readonly parallelSafe = false
+  permissionSpec(input: MultiEditInput): PermissionSpec {
+    const paths = [...new Set(input.edits.map((edit) => edit.path))]
+    return { fs: { read: paths, write: paths } }
+  }
+  async invoke(input: MultiEditInput, context: ToolContext): Promise<ToolResult> {
+    const started = Date.now()
+    try {
+      const grouped = new Map<string, Array<{ oldText: string; newText: string }>>()
+      for (const edit of input.edits) {
+        const path = await safeMutationPath(context.session.cwd, edit.path)
+        grouped.set(path, [...(grouped.get(path) ?? []), edit])
+      }
+      const updates: Array<{ path: string; content: string }> = []
+      for (const [path, edits] of grouped) {
+        let content = await readFile(path, 'utf8')
+        for (const edit of edits) {
+          const count = content.split(edit.oldText).length - 1
+          if (count !== 1)
+            throw new Error(
+              `Expected exactly one match in ${relative(context.session.cwd, path)}, found ${count}`,
+            )
+          content = content.replace(edit.oldText, edit.newText)
+        }
+        updates.push({ path, content })
+      }
+      await mutateFiles(context.session.id, updates, this.backups)
+      return result(`Edited ${updates.length} file(s)`, {
+        durationMs: Date.now() - started,
+        bytesWritten: updates.reduce((sum, update) => sum + Buffer.byteLength(update.content), 0),
+        filesTouched: updates.map((update) => update.path),
+      })
+    } catch (error) {
+      return failure(error, started)
     }
   }
 }
@@ -232,10 +418,11 @@ export class TodoTool implements Tool<{
   }
 }
 
-export const builtinTools = (): Tool[] => [
+export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new ReadTool(),
-  new WriteTool(),
-  new EditTool(),
+  new WriteTool(options.backups),
+  new EditTool(options.backups),
+  new MultiEditTool(options.backups),
   new BashTool(),
   new GrepTool(),
   new GlobTool(),
