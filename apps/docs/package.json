@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vitepress build",
+    "build": "pnpm --dir ../.. docs:api && vitepress build",
     "dev": "vitepress dev",
     "preview": "vitepress preview",
     "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
     "typecheck": "vitepress build"
   },
   "devDependencies": {
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.12.0",
+    "typescript": "5.9.3",
     "vitepress": "catalog:",
     "vue": "catalog:"
   }

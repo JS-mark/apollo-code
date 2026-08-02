@@ -35,7 +35,7 @@ void test('keeps the docs site private and buildable', async () => {
     readRepoFile('turbo.json').then(JSON.parse),
   ])
   assert.equal(manifest.private, true)
-  assert.equal(manifest.scripts.build, 'vitepress build')
+  assert.match(manifest.scripts.build, /docs:api && vitepress build/)
   assert.ok(
     turbo.tasks.typecheck.dependsOn.includes('build'),
     'typecheck must wait for the same package build to avoid concurrent VitePress temp writes',

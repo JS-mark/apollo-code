@@ -3,12 +3,16 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "docs:api": "pnpm --filter @apollo-code/docs exec typedoc --options ../../typedoc.json",
+    "release:status": "changeset status",
+    "release:version:dry-run": "changeset version --snapshot dry-run",
+    "release": "changeset publish",
     "check:typescript-config": "node --test scripts/verify-typescript-config.test.mjs scripts/rewrite-esm-specifiers.test.mjs && node scripts/verify-typescript-config.mjs",
     "format": "oxfmt apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test && node --test scripts/verify-l1-docs.test.mjs scripts/verify-native-platforms.test.mjs",
+    "test": "turbo run test && node --test scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "tsconfig": "tsconfig.typedoc.json",
+  "entryPoints": [
+    "packages/auth/src/index.ts",
+    "packages/config/src/index.ts",
+    "packages/context/src/index.ts",
+    "packages/core/src/index.ts",
+    "packages/native-bridge/src/index.ts",
+    "packages/permission/src/index.ts",
+    "packages/provider-anthropic/src/index.ts",
+    "packages/provider-kit/src/index.ts",
+    "packages/provider-openai/src/index.ts",
+    "packages/router/src/index.ts",
+    "packages/shared/src/index.ts",
+    "packages/skills-runtime/src/index.ts",
+    "packages/storage/src/index.ts",
+    "packages/telemetry/src/index.ts",
+    "packages/tool-kit/src/index.ts",
+    "packages/tools/src/index.ts",
+    "packages/ui/src/index.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "plugin": ["typedoc-plugin-markdown"],
+  "out": "apps/docs/api",
+  "readme": "none",
+  "githubPages": false,
+  "disableSources": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "cleanOutputDir": true
+}

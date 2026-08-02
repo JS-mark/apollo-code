@@ -5,5 +5,11 @@
   "singleQuote": true,
   "trailingComma": "all",
   "sortImports": true,
-  "ignorePatterns": ["**/dist/**", "**/build/**", "**/coverage/**", "**/node_modules/**"]
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/node_modules/**",
+    "apps/docs/api/**"
+  ]
 }
