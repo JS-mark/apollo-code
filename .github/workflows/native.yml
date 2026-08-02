@@ -8,9 +8,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check licenses bans
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check licenses bans
   native:
     needs: license
     strategy:
