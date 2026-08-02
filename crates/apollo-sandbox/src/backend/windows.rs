@@ -26,7 +26,9 @@ use windows_sys::Win32::{
         PSECURITY_DESCRIPTOR, PSID, SECURITY_CAPABILITIES, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
         TOKEN_ALL_ACCESS,
     },
-    Storage::FileSystem::{DELETE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE},
+    Storage::FileSystem::{
+        DELETE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TRAVERSE,
+    },
     System::{
         JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -273,7 +275,7 @@ impl AppContainerLease {
             ));
         }
 
-        let mut grants = BTreeMap::<String, u32>::new();
+        let mut grants = BTreeMap::<String, GrantSpec>::new();
         add_grant(
             &mut grants,
             &request.cwd,
@@ -314,8 +316,8 @@ impl AppContainerLease {
             paths,
             journal_path,
         };
-        for (path, access) in grants {
-            if let Err(error) = grant_path(&path, lease.sid, access) {
+        for (path, grant) in grants {
+            if let Err(error) = grant_path(&path, lease.sid, grant) {
                 drop(lease);
                 return Err(error);
             }
@@ -424,7 +426,17 @@ unsafe fn process_is_alive(pid: u32) -> bool {
     GetExitCodeProcess(handle.0, &mut exit_code) != 0 && exit_code == 259
 }
 
-fn add_grant(grants: &mut BTreeMap<String, u32>, path: &str, access: u32) -> Result<(), String> {
+#[derive(Clone, Copy)]
+struct GrantSpec {
+    access: u32,
+    inherit: bool,
+}
+
+fn add_grant(
+    grants: &mut BTreeMap<String, GrantSpec>,
+    path: &str,
+    access: u32,
+) -> Result<(), String> {
     if path.contains('*') {
         return Err(format!(
             "Windows AppContainer does not accept glob permission paths: {path}"
@@ -432,23 +444,46 @@ fn add_grant(grants: &mut BTreeMap<String, u32>, path: &str, access: u32) -> Res
     }
     let canonical = std::fs::canonicalize(path)
         .map_err(|error| format!("canonicalize AppContainer permission path {path}: {error}"))?;
+    let inherit = canonical.is_dir();
+    for ancestor in canonical.ancestors().skip(1) {
+        if ancestor.parent().is_none() {
+            continue;
+        }
+        let ancestor = ancestor.to_string_lossy().into_owned();
+        grants
+            .entry(ancestor)
+            .and_modify(|existing| existing.access |= FILE_TRAVERSE)
+            .or_insert(GrantSpec {
+                access: FILE_TRAVERSE,
+                inherit: false,
+            });
+    }
     let canonical = canonical.to_string_lossy().into_owned();
     grants
         .entry(canonical)
-        .and_modify(|existing| *existing |= access)
-        .or_insert(access);
+        .and_modify(|existing| {
+            existing.access |= access;
+            existing.inherit |= inherit;
+        })
+        .or_insert(GrantSpec { access, inherit });
     Ok(())
 }
 
-unsafe fn grant_path(path: &str, sid: PSID, access: u32) -> Result<(), String> {
-    update_path_acl(path, sid, GRANT_ACCESS, access)
+unsafe fn grant_path(path: &str, sid: PSID, grant: GrantSpec) -> Result<(), String> {
+    update_path_acl(path, sid, GRANT_ACCESS, grant.access, grant.inherit)
 }
 
 unsafe fn revoke_path(path: &str, sid: PSID) -> Result<(), String> {
-    update_path_acl(path, sid, REVOKE_ACCESS, 0)
+    update_path_acl(path, sid, REVOKE_ACCESS, 0, false)
 }
 
-unsafe fn update_path_acl(path: &str, sid: PSID, mode: i32, access: u32) -> Result<(), String> {
+unsafe fn update_path_acl(
+    path: &str,
+    sid: PSID,
+    mode: i32,
+    access: u32,
+    inherit: bool,
+) -> Result<(), String> {
     let path_wide = wide_null(path);
     let mut old_dacl: *mut ACL = null_mut();
     let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
@@ -466,7 +501,7 @@ unsafe fn update_path_acl(path: &str, sid: PSID, mode: i32, access: u32) -> Resu
         return Err(format!("read ACL for {path}: Windows error {status}"));
     }
     let descriptor = OwnedLocal(descriptor);
-    let inheritance = if Path::new(path).is_dir() {
+    let inheritance = if inherit {
         SUB_CONTAINERS_AND_OBJECTS_INHERIT
     } else {
         NO_INHERITANCE
