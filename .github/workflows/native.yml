@@ -163,6 +163,7 @@ jobs:
     name: Authenticode self-sign smoke (non-production)
     needs: native
     runs-on: windows-2022
+    timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -171,19 +172,27 @@ jobs:
       - name: Self-sign and verify Windows binaries
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Apollo Code CI (NON-PRODUCTION)' -CertStoreLocation Cert:\CurrentUser\My
           $cerPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.cer'
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.pfx'
+          $pfxPasswordText = [Guid]::NewGuid().ToString()
+          $pfxPassword = ConvertTo-SecureString $pfxPasswordText -AsPlainText -Force
           Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+          Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pfxPassword | Out-Null
           Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
           Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signTool) { throw 'Windows SDK signtool.exe was not found' }
           $binaries = @(Get-ChildItem artifact -Recurse -Filter 'apollo-*.exe')
           if ($binaries.Count -ne 3) { throw "Expected 3 Windows binaries, found $($binaries.Count)" }
           $binaries | ForEach-Object {
-            Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert -HashAlgorithm SHA256 | Out-Null
-            $signature = Get-AuthenticodeSignature -FilePath $_.FullName
-            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
-              throw "Self-sign verification failed for $($_.FullName): $($signature.Status)"
-            }
+            & $signTool sign /fd SHA256 /f $pfxPath /p $pfxPasswordText $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool sign failed for $($_.FullName)" }
+            & $signTool verify /pa /all $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed for $($_.FullName)" }
           }
           'verification=self-signed-flow-only' | Set-Content authenticode-evidence.txt
           'production_signature=false' | Add-Content authenticode-evidence.txt
