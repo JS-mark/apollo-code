@@ -513,7 +513,27 @@ fn environment_block(request: &ExecRequest) -> Vec<u16> {
         .filter(|(name, _)| request.permissions.env.read.contains(name))
         .map(|(name, value)| format!("{name}={value}"))
         .collect::<Vec<_>>();
-    for required in ["COMSPEC", "SYSTEMROOT"] {
+    // CreateProcessAsUser/AppContainer initialization consumes these system
+    // variables before user code starts. They carry paths, not credentials,
+    // and are included independently of the caller's env allowlist.
+    for required in [
+        "ALLUSERSPROFILE",
+        "APPDATA",
+        "COMSPEC",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "PATH",
+        "PATHEXT",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "SYSTEMDRIVE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    ] {
         if let Ok(value) = std::env::var(required) {
             entries.push(format!("{required}={value}"));
         }
