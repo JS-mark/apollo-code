@@ -173,15 +173,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Apollo Code CI (NON-PRODUCTION)' -CertStoreLocation Cert:\CurrentUser\My
-          $cerPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.cer'
+          $keyPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.key'
+          $cerPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.pem'
           $pfxPath = Join-Path $env:RUNNER_TEMP 'apollo-code-ci.pfx'
           $pfxPasswordText = [Guid]::NewGuid().ToString()
-          $pfxPassword = ConvertTo-SecureString $pfxPasswordText -AsPlainText -Force
-          Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
-          Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pfxPassword | Out-Null
-          Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-          Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 -subj '/CN=Apollo Code CI (NON-PRODUCTION)' -addext 'extendedKeyUsage=codeSigning' -keyout $keyPath -out $cerPath
+          if ($LASTEXITCODE -ne 0) { throw 'openssl certificate generation failed' }
+          openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $cerPath -passout "pass:$pfxPasswordText"
+          if ($LASTEXITCODE -ne 0) { throw 'openssl PFX export failed' }
+          certutil -user -addstore Root $cerPath
+          if ($LASTEXITCODE -ne 0) { throw 'Root certificate import failed' }
+          certutil -user -addstore TrustedPublisher $cerPath
+          if ($LASTEXITCODE -ne 0) { throw 'TrustedPublisher certificate import failed' }
           $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName -Descending |
             Select-Object -First 1 -ExpandProperty FullName
