@@ -13,7 +13,13 @@ This table describes the verification implemented by the repository. It is not a
 | `x86_64-pc-windows-msvc`     | native                    | foundation-verified refusal | None                                                  | Tier 1/2 implementation, native escape suite, Authenticode signature         |
 | `aarch64-pc-windows-msvc`    | native                    | foundation-verified refusal | None                                                  | Tier 1/2 implementation, Windows-on-ARM escape suite, Authenticode signature |
 
-The Windows foundation deliberately refuses command execution. It must not be described as Weak or Partial until Job Object + Restricted Token (Tier 1) and AppContainer ACL rollback (Tier 2) are implemented and verified. Windows Tier 3/WFP is outside L2.
+Windows x64 and arm64 now exercise Tier 1 natively: commands run under a
+maximum-privilege-stripped restricted token and a kill-on-close Job Object with
+process-count and memory limits. The native escape test checks sensitive-token
+privileges and rejects a grandchild process. This is accurately reported as
+Weak: filesystem and network isolation are unavailable until Tier 2
+AppContainer ACL grant/rollback is implemented and verified. Windows Tier 3/WFP
+is outside L2.
 
 No Authenticode signature or macOS notarization is claimed by this repository change. Those require release-candidate artifacts, certificate credentials, and the platform services; a stable L2 release remains blocked until those gates produce real evidence.
 

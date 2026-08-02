@@ -58,14 +58,11 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
     /taiki-e\/install-action@cargo-deny[\s\S]*cargo deny check licenses bans/,
   )
   assert.doesNotMatch(nativeWorkflow, /EmbarkStudios\/cargo-deny-action/)
-  assert.match(nativeWorkflow, /if: runner\.os != 'Windows'[\s\S]*doctor --strict --json/)
   assert.match(
     nativeWorkflow,
-    /if: runner\.os == 'Windows'[\s\S]*Windows Tier 1\/2 isolation is not active in this build; execution is refused/,
+    /Run strict doctor against sandbox-capable target artifacts[\s\S]*doctor --strict --json/,
   )
-  assert.match(nativeWorkflow, /"name":"native sandbox","ok":false/)
-  assert.match(nativeWorkflow, /"name":"native search","ok":true/)
-  assert.match(nativeWorkflow, /"name":"native fs","ok":true/)
+  assert.doesNotMatch(nativeWorkflow, /if: runner\.os != 'Windows'/)
 
   const escapeWorkflow = await readFile(
     new URL('.github/workflows/sandbox-escape.yml', root),
@@ -77,13 +74,14 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   )
   assert.match(escapeWorkflow, /name: Record verification evidence\s+shell: bash\s+run:/)
 
-  const windowsFoundation = await readFile(
-    new URL('crates/apollo-sandbox/tests/escape/windows-foundation.ps1', root),
+  const windowsTier1 = await readFile(
+    new URL('crates/apollo-sandbox/tests/escape/windows-tier1.ps1', root),
     'utf8',
   )
-  assert.match(windowsFoundation, /\$PSNativeCommandUseErrorActionPreference = \$false/)
-  assert.match(windowsFoundation, /if \(\$exitCode -eq 0\)/)
-  assert.match(windowsFoundation, /exit 0\s*$/)
+  assert.match(escapeWorkflow, /verification: native-tier1/)
+  assert.match(windowsTier1, /tier -ne 'weak'/)
+  assert.match(windowsTier1, /SeDebugPrivilege\|SeShutdownPrivilege\|SeTakeOwnershipPrivilege/)
+  assert.match(windowsTier1, /grandchild escape/)
 
   assert.match(nativeWorkflow, /Authenticode self-sign smoke \(non-production\)/)
   assert.match(nativeWorkflow, /timeout-minutes: 5/)
