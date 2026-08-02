@@ -30,9 +30,16 @@ void test('ships every required L1 documentation page', async () => {
 })
 
 void test('keeps the docs site private and buildable', async () => {
-  const manifest = JSON.parse(await readRepoFile('apps/docs/package.json'))
+  const [manifest, turbo] = await Promise.all([
+    readRepoFile('apps/docs/package.json').then(JSON.parse),
+    readRepoFile('turbo.json').then(JSON.parse),
+  ])
   assert.equal(manifest.private, true)
   assert.equal(manifest.scripts.build, 'vitepress build')
+  assert.ok(
+    turbo.tasks.typecheck.dependsOn.includes('build'),
+    'typecheck must wait for the same package build to avoid concurrent VitePress temp writes',
+  )
 })
 
 void test('ships a branded responsive home instead of the default feature grid', async () => {
