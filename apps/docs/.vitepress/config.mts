@@ -75,6 +75,7 @@ export default defineConfig({
                 { text: 'Security model', link: '/docs/concepts/security-model' },
               ],
             },
+            { text: 'API reference', link: '/api/README' },
             { text: 'CLI reference', link: '/docs/reference/cli' },
             {
               text: 'Troubleshooting',
@@ -121,6 +122,7 @@ export default defineConfig({
                 { text: '安全模型', link: '/zh/docs/concepts/security-model' },
               ],
             },
+            { text: 'API 参考', link: '/api/README' },
             { text: 'CLI 参考', link: '/zh/docs/reference/cli' },
             {
               text: '故障排查',

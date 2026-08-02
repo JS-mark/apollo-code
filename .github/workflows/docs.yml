@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'apps/docs/**'
+      - 'packages/*/src/**'
+      - 'typedoc.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/docs.yml'
@@ -11,6 +13,8 @@ on:
     branches: [main]
     paths:
       - 'apps/docs/**'
+      - 'packages/*/src/**'
+      - 'typedoc.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/docs.yml'
