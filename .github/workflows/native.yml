@@ -179,7 +179,7 @@ jobs:
           $pfxPasswordText = [Guid]::NewGuid().ToString()
           openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 -subj '/CN=Apollo Code CI (NON-PRODUCTION)' -addext 'extendedKeyUsage=codeSigning' -keyout $keyPath -out $cerPath
           if ($LASTEXITCODE -ne 0) { throw 'openssl certificate generation failed' }
-          openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $cerPath -passout "pass:$pfxPasswordText"
+          openssl pkcs12 -export -out $pfxPath -inkey $keyPath -in $cerPath -passout "pass:$pfxPasswordText"
           if ($LASTEXITCODE -ne 0) { throw 'openssl PFX export failed' }
           certutil -user -addstore Root $cerPath
           if ($LASTEXITCODE -ne 0) { throw 'Root certificate import failed' }
