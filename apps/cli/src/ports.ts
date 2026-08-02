@@ -33,6 +33,10 @@ export interface ContextPort {
   getPolicy(): Promise<{ name: string; params: Record<string, boolean | number | string> }>
   setPolicy(name: string, params: Record<string, string>): Promise<void>
 }
+export interface EvolutionPort {
+  show(options: { namespace?: string; since?: Date }): Promise<unknown[]>
+  rollback(options: { namespace?: 'context'; to?: Date }): Promise<unknown[]>
+}
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
@@ -59,6 +63,7 @@ export interface ApolloPorts {
     ): Promise<{ restored: string[]; conflicts: string[]; missing: boolean; dryRun: boolean }>
   }
   context?: ContextPort
+  evolution?: EvolutionPort
 }
 export function unavailablePorts(): ApolloPorts {
   return {

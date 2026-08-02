@@ -7,11 +7,13 @@ import { createInterface } from 'node:readline/promises'
 
 import { AuthManager, EncryptedCredentialStore } from '@apollo-code/auth'
 import { parseTomlFile } from '@apollo-code/config'
+import { SlidingWindowPolicy } from '@apollo-code/context'
 import {
   builtinPromptFragment,
   createSession,
   DefaultPromptComposer,
   EventBus,
+  EvolutionEngine,
   Runner,
   updateSession,
 } from '@apollo-code/core'
@@ -24,7 +26,13 @@ import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-
 import { SingleProviderRouter } from '@apollo-code/router'
 import type { JsonValue } from '@apollo-code/shared'
 import { SkillsRuntime } from '@apollo-code/skills-runtime'
-import { AttachmentStore, BackupStore, PromptLoader, SessionStore } from '@apollo-code/storage'
+import {
+  AttachmentStore,
+  BackupStore,
+  EvolutionStore,
+  PromptLoader,
+  SessionStore,
+} from '@apollo-code/storage'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
@@ -201,6 +209,7 @@ export interface ProductionOptions {
 export function createProductionPorts(options: ProductionOptions = {}): ApolloPorts {
   const home = options.apolloHome ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
+  const evolution = new EvolutionStore(join(home, 'tuning'))
   const telemetry = new Telemetry(new LocalTelemetrySink(join(home, 'telemetry', 'events.jsonl')))
   const logger = new TelemetryLogger(telemetry, 'cli')
   let cachedPassphrase: string | undefined
@@ -225,6 +234,22 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   const permissions = new PermissionManager({}, permissionOptions)
   permissions.setPromptHandler(permissionPrompt)
   const createRunner: RunnerFactory = async (state, events) => {
+    let evolutionEnabled = true
+    try {
+      const config = await parseTomlFile(join(home, 'config.toml'))
+      const section = config.evolution
+      if (section && typeof section === 'object' && !Array.isArray(section))
+        evolutionEnabled = section.enabled !== false
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        logger.warn('Unable to read evolution config')
+    }
+    const tuned = await new EvolutionEngine(evolution, { enabled: evolutionEnabled }).values()
+    const contextPolicy = new SlidingWindowPolicy({
+      compactionThreshold: tuned.compaction_threshold,
+      targetRatio: tuned.target_ratio,
+      keepRecent: tuned.keep_recent,
+    })
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
     const promptLoader = new PromptLoader({ cwd: state.cwd, apolloHome: home, permissions })
@@ -344,6 +369,8 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       composer,
       tools,
       events,
+      {},
+      contextPolicy,
     )
     return runner
   }
@@ -354,6 +381,11 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     version: options.version ?? '0.0.0',
     session,
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
+    evolution: {
+      show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
+      rollback: (rollbackOptions) =>
+        evolution.rollback(rollbackOptions.namespace, rollbackOptions.to),
+    },
     telemetry: { securityEvent: (name, payload) => telemetry.emit(name, 'security', payload) },
     confirmation: {
       confirmDangerousNoSandbox: async (sentence) =>

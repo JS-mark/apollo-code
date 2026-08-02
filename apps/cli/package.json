@@ -16,6 +16,7 @@
   "dependencies": {
     "@apollo-code/auth": "workspace:*",
     "@apollo-code/config": "workspace:*",
+    "@apollo-code/context": "workspace:*",
     "@apollo-code/core": "workspace:*",
     "@apollo-code/native-bridge": "workspace:*",
     "@apollo-code/permission": "workspace:*",
