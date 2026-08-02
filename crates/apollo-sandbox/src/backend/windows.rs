@@ -35,7 +35,7 @@ use windows_sys::Win32::{
             JOB_OBJECT_LIMIT_PROCESS_MEMORY,
         },
         Threading::{
-            CreateProcessWithTokenW, DeleteProcThreadAttributeList, GetCurrentProcess,
+            CreateProcessAsUserW, DeleteProcThreadAttributeList, GetCurrentProcess,
             GetExitCodeProcess, InitializeProcThreadAttributeList, OpenProcess, OpenProcessToken,
             ResumeThread, UpdateProcThreadAttribute, WaitForSingleObject, CREATE_SUSPENDED,
             CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION,
@@ -192,11 +192,13 @@ unsafe fn run_restricted(
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
     startup.lpAttributeList = attributes.0;
     let mut process = PROCESS_INFORMATION::default();
-    if CreateProcessWithTokenW(
+    if CreateProcessAsUserW(
         restricted_token.0,
-        0,
         application.as_ptr(),
         command_line.as_mut_ptr(),
+        null(),
+        null(),
+        0,
         CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
         environment.as_ptr() as *const c_void,
         cwd.as_ptr(),

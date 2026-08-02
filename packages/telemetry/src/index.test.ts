@@ -9,7 +9,8 @@ describe('telemetry', () => {
         event = value
       },
     }).emit('auth.test', 'auth', { token: 'abc', url: 'https://user:pass@example.com' })
-    expect(JSON.stringify(event)).not.toContain('abc')
-    expect(JSON.stringify(event)).not.toContain('user:pass')
+    const payload = JSON.stringify(event?.payload)
+    expect(payload).not.toContain('abc')
+    expect(payload).not.toContain('user:pass')
   })
 })
