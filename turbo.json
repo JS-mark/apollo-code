@@ -4,6 +4,9 @@
     "//#check:typescript-config": { "outputs": [] },
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".vitepress/dist/**"] },
     "test": { "dependsOn": ["^build"], "outputs": [] },
-    "typecheck": { "dependsOn": ["^build", "//#check:typescript-config"], "outputs": [] }
+    "typecheck": {
+      "dependsOn": ["build", "^build", "//#check:typescript-config"],
+      "outputs": []
+    }
   }
 }
