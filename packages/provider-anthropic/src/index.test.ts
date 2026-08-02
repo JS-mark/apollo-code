@@ -17,6 +17,24 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return result
 }
 describe('Anthropic adapter', () => {
+  it('rejects unsupported image MIME before constructing a provider request', async () => {
+    await expect(
+      toAnthropicMessages([
+        {
+          id: 'u',
+          role: 'user',
+          createdAt: 0,
+          content: [
+            {
+              type: 'image',
+              mime: 'image/svg+xml',
+              source: { kind: 'inline', bytes: new Uint8Array([1]) },
+            },
+          ],
+        },
+      ]),
+    ).rejects.toThrow('Unsupported Anthropic image MIME')
+  })
   it('verifies credentials only for a successful models response with a valid schema', async () => {
     const http = {
       request: vi.fn(async () => ({

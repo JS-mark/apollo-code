@@ -64,7 +64,7 @@ export class Runner {
     })
     this.#turnAbort?.abort()
   }
-  async run(text: string, hint?: RouterHint): Promise<SessionState> {
+  async run(input: string | readonly ContentPart[], hint?: RouterHint): Promise<SessionState> {
     const turnId = uuidv7()
     this.#turnAbort = new AbortController()
     const signal = this.#turnAbort.signal
@@ -77,7 +77,10 @@ export class Runner {
       ]
     })
     await this.emit('turn.started', turnId, {})
-    const user = this.message('user', [{ type: 'text', text }])
+    const user = this.message(
+      'user',
+      typeof input === 'string' ? [{ type: 'text', text: input }] : [...input],
+    )
     this.append(user)
     await this.emit('message.appended', turnId, { messageId: user.id })
     let sticky: ProviderClient | undefined
@@ -103,6 +106,10 @@ export class Runner {
         model: decision.model,
         provider: decision.provider.name,
       })
+      if (this.#state.systemPromptSnapshot !== system)
+        this.#state = updateSession(this.#state, (draft) => {
+          draft.systemPromptSnapshot = system
+        })
       let requestMessages = this.#state.messages
       if (this.contextPolicy) {
         const context = {
@@ -139,6 +146,11 @@ export class Runner {
           session: this.#state,
         }).messages
       }
+      requestMessages = messagesForCapabilities(
+        requestMessages,
+        decision.provider.name,
+        decision.provider.capabilities,
+      )
       await this.emit('stream.started', turnId, {
         provider: decision.provider.name,
         model: decision.model,
@@ -286,6 +298,39 @@ export class Runner {
     }
     return message
   }
+}
+
+export function messagesForCapabilities(
+  messages: readonly Message[],
+  provider: string,
+  capabilities: ProviderClient['capabilities'],
+): readonly Message[] {
+  let changed = false
+  const mapped = messages.map((message) => {
+    const content = message.content.flatMap((part): ContentPart[] => {
+      if (part.type === 'image' && capabilities.vision === false) {
+        changed = true
+        return [
+          {
+            type: 'text',
+            text: `[Attachment omitted: provider ${provider} does not support vision (${part.mime})]`,
+          },
+        ]
+      }
+      if (part.type === 'file' && capabilities.files === false) {
+        changed = true
+        return [
+          {
+            type: 'text',
+            text: `[Attachment omitted: provider ${provider} does not support files (${part.filename}, ${part.mime})]`,
+          },
+        ]
+      }
+      return [part]
+    })
+    return content === message.content ? message : { ...message, content }
+  })
+  return changed ? mapped : messages
 }
 
 export function wrapUntrusted(

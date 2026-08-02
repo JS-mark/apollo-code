@@ -6,7 +6,7 @@ import { DefaultPromptComposer } from '@apollo-code/core'
 import { PermissionManager } from '@apollo-code/permission'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { BackupStore, PromptLoader, SessionStore } from './index'
+import { AttachmentStore, BackupStore, PromptLoader, SessionStore } from './index'
 const dirs: string[] = []
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
@@ -53,6 +53,60 @@ describe('SessionStore', () => {
         payload: { bytes: new Uint8Array([1]) } as never,
       }),
     ).rejects.toThrow('Binary')
+  })
+  it('persists and resumes attachment handles without binary data', async () => {
+    const path = resolve(await temp(), 's.jsonl')
+    const store = new SessionStore(path)
+    await store.append({
+      v: 1,
+      id: 'image',
+      type: 'session.snapshot',
+      sessionId: 's',
+      at: 'now',
+      payload: {
+        content: [
+          {
+            type: 'image',
+            mime: 'image/png',
+            source: { kind: 'handle', handle: `${'a'.repeat(64)}.png` },
+          },
+        ],
+      },
+    })
+    expect(await store.resume()).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ content: [expect.objectContaining({ type: 'image' })] }),
+      }),
+    ])
+    expect(await readFile(path, 'utf8')).not.toContain('bytes')
+  })
+})
+describe('AttachmentStore', () => {
+  it('stages content-addressed images and reloads handle references', async () => {
+    const dir = await temp()
+    const store = new AttachmentStore(resolve(dir, 'attachments'))
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+    const staged = await store.stage(bytes, 'image/png')
+    expect(staged.handle).toMatch(/^[a-f0-9]{64}\.png$/)
+    expect(await store.read({ kind: 'handle', handle: staged.handle })).toEqual(bytes)
+    expect(
+      await new AttachmentStore(resolve(dir, 'attachments')).read({
+        kind: 'handle',
+        handle: staged.handle,
+      }),
+    ).toEqual(bytes)
+  })
+  it('rejects corrupt, unsupported, oversized, and forged handle inputs', async () => {
+    const store = new AttachmentStore(resolve(await temp(), 'attachments'), 4)
+    await expect(store.stage(Uint8Array.from([1]), 'image/png')).rejects.toThrow('match MIME')
+    await expect(store.stage(Uint8Array.from([1]), 'image/svg+xml')).rejects.toThrow('Unsupported')
+    await expect(
+      store.stage(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1]), 'image/png'),
+    ).rejects.toThrow('size limit')
+    await expect(store.read({ kind: 'handle', handle: '../secret.png' })).rejects.toThrow('Invalid')
+    await expect(store.read({ kind: 'path', absPath: import.meta.filename })).rejects.toThrow(
+      'outside allowed roots',
+    )
   })
 })
 describe('BackupStore', () => {

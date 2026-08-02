@@ -224,6 +224,63 @@ export function sanitizeSession<T>(value: T): T {
   return sanitize(value)
 }
 
+const imageSignatures: Array<{ mime: string; bytes: number[]; extension: string }> = [
+  { mime: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47], extension: 'png' },
+  { mime: 'image/jpeg', bytes: [0xff, 0xd8, 0xff], extension: 'jpg' },
+  { mime: 'image/gif', bytes: [0x47, 0x49, 0x46, 0x38], extension: 'gif' },
+  { mime: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46], extension: 'webp' },
+]
+export interface StagedAttachment {
+  handle: string
+  mime: string
+  size: number
+}
+export class AttachmentStore {
+  constructor(
+    readonly root: string,
+    readonly maxBytes = 20 * 1024 * 1024,
+    readonly allowedPathRoots: readonly string[] = [],
+  ) {}
+  async stage(bytes: Uint8Array, mime: string): Promise<StagedAttachment> {
+    if (bytes.byteLength === 0) throw new TypeError('Attachment is empty')
+    if (bytes.byteLength > this.maxBytes) throw new RangeError('Attachment exceeds size limit')
+    const signature = imageSignatures.find((item) => item.mime === mime)
+    if (!signature) throw new TypeError(`Unsupported attachment MIME: ${mime}`)
+    if (!signature.bytes.every((byte, index) => bytes[index] === byte))
+      throw new TypeError(`Attachment bytes do not match MIME: ${mime}`)
+    if (mime === 'image/webp' && String.fromCharCode(...bytes.slice(8, 12)) !== 'WEBP')
+      throw new TypeError('Attachment bytes do not match MIME: image/webp')
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const handle = `${digest}.${signature.extension}`
+    await mkdir(this.root, { recursive: true })
+    const path = resolve(this.root, handle)
+    try {
+      await writeFile(path, bytes, { flag: 'wx' })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+    return { handle, mime, size: bytes.byteLength }
+  }
+  async read(source: import('@apollo-code/provider-kit').AttachmentRef): Promise<Uint8Array> {
+    if (source.kind === 'inline') return source.bytes
+    if (source.kind === 'path') {
+      const target = await realpath(source.absPath)
+      const allowed = await Promise.all(
+        this.allowedPathRoots.map(async (root) => {
+          const rel = relative(await realpath(root), target)
+          return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+        }),
+      )
+      if (!allowed.some(Boolean) || sensitive(target))
+        throw new TypeError('Attachment path is outside allowed roots')
+      return new Uint8Array(await readFile(target))
+    }
+    if (!/^[a-f0-9]{64}\.(?:png|jpg|gif|webp)$/.test(source.handle))
+      throw new TypeError('Invalid attachment handle')
+    return new Uint8Array(await readFile(resolve(this.root, source.handle)))
+  }
+}
+
 export interface BackupRecord {
   path: string
   existed: boolean

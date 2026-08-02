@@ -23,7 +23,8 @@ import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provide
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { SingleProviderRouter } from '@apollo-code/router'
 import type { JsonValue } from '@apollo-code/shared'
-import { BackupStore, SessionStore } from '@apollo-code/storage'
+import { SkillsRuntime } from '@apollo-code/skills-runtime'
+import { AttachmentStore, BackupStore, PromptLoader, SessionStore } from '@apollo-code/storage'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
@@ -31,7 +32,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import type { ApolloPorts, SessionPort } from './ports'
 
-export type RunnerFactory = (state: SessionState, events: EventBus) => Runner
+export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
 const terminalStatuses = new Set(['done', 'aborted', 'error'])
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -102,7 +103,7 @@ export class RuntimeSessionPort implements SessionPort {
     store.attach(events)
     this.#events = events
     this.#store = store
-    this.#runner = this.createRunner(state, events)
+    this.#runner = await this.createRunner(state, events)
     await events.emit({
       type: resumed ? 'session.resumed' : 'session.started',
       version: state.version,
@@ -223,34 +224,77 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   }
   const permissions = new PermissionManager({}, permissionOptions)
   permissions.setPromptHandler(permissionPrompt)
-  const anthropic = new AnthropicClient({
-    credentials: {
-      async getCredential() {
-        const value = await auth.getCredential('anthropic')
-        if (!value) throw new Error('Anthropic credential unavailable')
-        return value
-      },
-    },
-    http,
-  })
-  const client = {
-    ...anthropic,
-    name: anthropic.name,
-    capabilities: anthropic.capabilities,
-    dispose: () => anthropic.dispose(),
-    async *stream(request: Parameters<AnthropicClient['stream']>[0], signal: AbortSignal) {
-      for await (const chunk of anthropic.stream(request, signal)) {
-        if (chunk.kind === 'text.delta') stdout.write(chunk.text)
-        yield chunk
-      }
-      stdout.write('\n')
-    },
-  }
-  const createRunner: RunnerFactory = (state, events) => {
+  const createRunner: RunnerFactory = async (state, events) => {
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
+    const promptLoader = new PromptLoader({ cwd: state.cwd, apolloHome: home, permissions })
+    await promptLoader.registerProject(composer)
+    const skills = new SkillsRuntime({
+      skillsDir: join(home, 'skills'),
+      apolloVersion: options.version ?? '0.0.0',
+      composer,
+      onWarning: (message) => logger.warn(message),
+    })
+    await skills.discover()
+    await skills.registerIndex()
+    await skills.activateAutomatic(state.cwd)
+    const attachments = new AttachmentStore(
+      join(home, 'sessions', state.id, 'attachments'),
+      20 * 1024 * 1024,
+      [state.cwd],
+    )
+    const anthropic = new AnthropicClient({
+      credentials: {
+        async getCredential() {
+          const value = await auth.getCredential('anthropic')
+          if (!value) throw new Error('Anthropic credential unavailable')
+          return value
+        },
+      },
+      http,
+      attachments,
+    })
+    const client = {
+      ...anthropic,
+      name: anthropic.name,
+      capabilities: anthropic.capabilities,
+      dispose: () => anthropic.dispose(),
+      async *stream(request: Parameters<AnthropicClient['stream']>[0], signal: AbortSignal) {
+        for await (const chunk of anthropic.stream(request, signal)) {
+          if (chunk.kind === 'text.delta') stdout.write(chunk.text)
+          yield chunk
+        }
+        stdout.write('\n')
+      },
+    }
     const registry = new ToolRegistry()
     for (const tool of builtinTools({ backups })) registry.register(tool)
+    registry.register({
+      name: 'Skill.activate',
+      description: 'Activate an installed prompt skill for the current session',
+      readonly: true,
+      parallelSafe: true,
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name'],
+        properties: { name: { type: 'string' } },
+      },
+      permissionSpec: () => ({}),
+      async invoke(input: unknown) {
+        const name = (input as { name: string }).name
+        const activated = await skills.activate(name)
+        return {
+          content: [
+            {
+              type: 'text',
+              text: activated ? `Activated skill: ${name}` : `Skill already active: ${name}`,
+            },
+          ],
+          meta: { durationMs: 0, costImpact: 'safe' },
+        }
+      },
+    })
     let runner: Runner
     const native = {
       async execute(command: string, args: string[], signal: AbortSignal) {

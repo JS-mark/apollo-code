@@ -19,6 +19,24 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 const bytes = (value: string) => new TextEncoder().encode(value)
 
 describe('OpenAI adapter', () => {
+  it('rejects unsupported image MIME before constructing a provider request', async () => {
+    await expect(
+      toOpenAIMessages([
+        {
+          id: 'u',
+          role: 'user',
+          createdAt: 0,
+          content: [
+            {
+              type: 'image',
+              mime: 'image/svg+xml',
+              source: { kind: 'inline', bytes: new Uint8Array([1]) },
+            },
+          ],
+        },
+      ]),
+    ).rejects.toThrow('Unsupported OpenAI image MIME')
+  })
   it('converts system, vision, tool use, and tool results with pairing preserved', async () => {
     const converted = await toOpenAIMessages(
       [

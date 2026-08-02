@@ -57,10 +57,23 @@ export const openaiCapabilities: ProviderCapabilities = {
   interleavedThinking: false,
 }
 
-async function attachmentData(source: AttachmentRef, port?: AttachmentPort): Promise<string> {
-  if (source.kind === 'inline') return Buffer.from(source.bytes).toString('base64')
+async function attachmentBytes(source: AttachmentRef, port?: AttachmentPort): Promise<Uint8Array> {
+  if (source.kind === 'inline') return source.bytes
   if (!port) throw new TypeError('Non-inline attachments require an AttachmentPort')
-  return Buffer.from(await port.read(source)).toString('base64')
+  return port.read(source)
+}
+async function imageData(
+  source: AttachmentRef,
+  mime: string,
+  attachments?: AttachmentPort,
+): Promise<string> {
+  const vision = openaiCapabilities.vision
+  if (vision === false || !vision.formats.includes(mime))
+    throw new TypeError(`Unsupported OpenAI image MIME: ${mime}`)
+  const bytes = await attachmentBytes(source, attachments)
+  if (bytes.byteLength > vision.maxSizeMB * 1024 * 1024)
+    throw new RangeError(`OpenAI image exceeds ${vision.maxSizeMB}MB limit`)
+  return Buffer.from(bytes).toString('base64')
 }
 
 async function userContent(part: ContentPart, attachments?: AttachmentPort): Promise<unknown> {
@@ -69,7 +82,7 @@ async function userContent(part: ContentPart, attachments?: AttachmentPort): Pro
     return {
       type: 'image_url',
       image_url: {
-        url: `data:${part.mime};base64,${await attachmentData(part.source, attachments)}`,
+        url: `data:${part.mime};base64,${await imageData(part.source, part.mime, attachments)}`,
       },
     }
   if (part.type === 'file')
