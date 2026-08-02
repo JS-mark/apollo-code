@@ -22,6 +22,7 @@
     "@apollo-code/provider-anthropic": "workspace:*",
     "@apollo-code/router": "workspace:*",
     "@apollo-code/shared": "workspace:*",
+    "@apollo-code/skills-runtime": "workspace:*",
     "@apollo-code/storage": "workspace:*",
     "@apollo-code/telemetry": "workspace:*",
     "@apollo-code/tool-kit": "workspace:*",

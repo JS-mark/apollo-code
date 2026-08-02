@@ -84,10 +84,19 @@ export const anthropicCapabilities: ProviderCapabilities = {
   interleavedThinking: true,
 }
 
-async function attachmentData(source: AttachmentRef, port?: AttachmentPort): Promise<string> {
-  if (source.kind === 'inline') return Buffer.from(source.bytes).toString('base64')
-  if (!port) throw new TypeError('Non-inline attachments require an AttachmentPort')
-  return Buffer.from(await port.read(source)).toString('base64')
+async function attachmentData(
+  source: AttachmentRef,
+  mime: string,
+  port?: AttachmentPort,
+): Promise<string> {
+  const vision = anthropicCapabilities.vision
+  if (vision === false || !vision.formats.includes(mime))
+    throw new TypeError(`Unsupported Anthropic image MIME: ${mime}`)
+  const bytes = source.kind === 'inline' ? source.bytes : await port?.read(source)
+  if (!bytes) throw new TypeError('Non-inline attachments require an AttachmentPort')
+  if (bytes.byteLength > vision.maxSizeMB * 1024 * 1024)
+    throw new RangeError(`Anthropic image exceeds ${vision.maxSizeMB}MB limit`)
+  return Buffer.from(bytes).toString('base64')
 }
 async function content(
   part: ContentPart,
@@ -106,19 +115,10 @@ async function content(
       source: {
         type: 'base64',
         media_type: part.mime,
-        data: await attachmentData(part.source, attachments),
+        data: await attachmentData(part.source, part.mime, attachments),
       },
     }
-  if (part.type === 'file')
-    return {
-      type: 'document',
-      source: {
-        type: 'base64',
-        media_type: part.mime,
-        data: await attachmentData(part.source, attachments),
-      },
-      title: part.filename,
-    }
+  if (part.type === 'file') throw new TypeError('Anthropic adapter does not support file parts')
   if (part.type === 'tool_use')
     return { type: 'tool_use', id: part.id, name: part.name, input: part.input }
   return {

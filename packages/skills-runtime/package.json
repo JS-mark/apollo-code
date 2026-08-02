@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/storage",
+  "name": "@apollo-code/skills-runtime",
   "version": "0.0.0",
   "files": [
     "dist"
@@ -18,10 +18,8 @@
   },
   "dependencies": {
     "@apollo-code/core": "workspace:*",
-    "@apollo-code/permission": "workspace:*",
-    "@apollo-code/provider-kit": "workspace:*",
     "@apollo-code/shared": "workspace:*",
-    "uuid": "catalog:"
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

@@ -48,6 +48,9 @@ catalogs:
     vue:
       specifier: ^3.5.40
       version: 3.5.40
+    yaml:
+      specifier: ^2.8.1
+      version: 2.9.0
     zod:
       specifier: ^4.4.3
       version: 4.4.3
@@ -79,7 +82,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   apps/cli:
     dependencies:
@@ -107,6 +110,9 @@ importers:
       '@apollo-code/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@apollo-code/skills-runtime':
+        specifier: workspace:*
+        version: link:../../packages/skills-runtime
       '@apollo-code/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -140,7 +146,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   apps/docs:
     devDependencies:
@@ -168,7 +174,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/config:
     dependencies:
@@ -184,7 +190,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/context:
     dependencies:
@@ -200,7 +206,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/core:
     dependencies:
@@ -231,7 +237,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/native-bridge:
     devDependencies:
@@ -243,7 +249,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
     optionalDependencies:
       '@apollo-code/native-fs-darwin-arm64':
         specifier: workspace:*
@@ -332,7 +338,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/provider-anthropic:
     dependencies:
@@ -351,7 +357,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/provider-contract-tests:
     dependencies:
@@ -370,7 +376,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/provider-kit:
     dependencies:
@@ -386,7 +392,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/provider-openai:
     dependencies:
@@ -405,7 +411,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/router:
     dependencies:
@@ -421,7 +427,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/shared:
     dependencies:
@@ -437,7 +443,29 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
+
+  packages/skills-runtime:
+    dependencies:
+      '@apollo-code/core':
+        specifier: workspace:*
+        version: link:../core
+      '@apollo-code/shared':
+        specifier: workspace:*
+        version: link:../shared
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/storage:
     dependencies:
@@ -447,6 +475,9 @@ importers:
       '@apollo-code/permission':
         specifier: workspace:*
         version: link:../permission
+      '@apollo-code/provider-kit':
+        specifier: workspace:*
+        version: link:../provider-kit
       '@apollo-code/shared':
         specifier: workspace:*
         version: link:../shared
@@ -462,7 +493,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/telemetry:
     dependencies:
@@ -481,7 +512,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/tool-kit:
     dependencies:
@@ -503,7 +534,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/tools:
     dependencies:
@@ -531,7 +562,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   packages/ui:
     dependencies:
@@ -547,7 +578,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2))
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
   platforms/native-fs-darwin-arm64: {}
 
@@ -2645,6 +2676,11 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  yaml@2.9.0:
+    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -3520,13 +3556,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.1
 
-  '@vitest/mocker@4.1.10(vite@8.2.0(@types/node@26.1.2))':
+  '@vitest/mocker@4.1.10(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.10
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.2.0(@types/node@26.1.2)
+      vite: 8.2.0(@types/node@26.1.2)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -4379,7 +4415,7 @@ snapshots:
       fsevents: 2.3.3
       lightningcss: 1.33.0
 
-  vite@8.2.0(@types/node@26.1.2):
+  vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -4389,6 +4425,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 26.1.2
       fsevents: 2.3.3
+      yaml: 2.9.0
 
   vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.2)(lightningcss@1.33.0)(postcss@8.5.25)(search-insights@2.17.3)(typescript@7.0.2):
     dependencies:
@@ -4440,10 +4477,10 @@ snapshots:
       - typescript
       - universal-cookie
 
-  vitest@4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)):
+  vitest@4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.2.0(@types/node@26.1.2))
+      '@vitest/mocker': 4.1.10(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.10
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
@@ -4460,7 +4497,7 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.1
-      vite: 8.2.0(@types/node@26.1.2)
+      vite: 8.2.0(@types/node@26.1.2)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 26.1.2
@@ -4485,6 +4522,8 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  yaml@2.9.0: {}
 
   zod@4.4.3: {}
 

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { EventBus } from './event-bus'
 import { DefaultPromptComposer } from './prompt-composer'
-import { Runner } from './runner'
+import { messagesForCapabilities, Runner } from './runner'
 import { createSession } from './session'
 
 function provider(streams: ProviderChunk[][], name = 'p'): ProviderClient {
@@ -60,6 +60,32 @@ function router(
 }
 
 describe('Runner', () => {
+  it('accepts referenced images and degrades them for providers without vision', () => {
+    const messages = [
+      {
+        id: 'u',
+        role: 'user' as const,
+        createdAt: 0,
+        content: [
+          {
+            type: 'image' as const,
+            mime: 'image/png',
+            source: { kind: 'handle' as const, handle: 'h' },
+          },
+        ],
+      },
+    ]
+    const mapped = messagesForCapabilities(messages, 'text-only', {
+      ...provider([]).capabilities,
+      vision: false,
+    })
+    expect(mapped[0]?.content).toEqual([
+      {
+        type: 'text',
+        text: '[Attachment omitted: provider text-only does not support vision (image/png)]',
+      },
+    ])
+  })
   beforeEach(() => {
     tools.execute.mockClear()
   })
@@ -135,8 +161,9 @@ describe('Runner', () => {
   it('injects composed system prompt', async () => {
     const client = provider([[{ kind: 'message.stop', stopReason: 'end_turn' }]])
     const spy = vi.spyOn(client, 'stream')
-    await new Runner(context(), router(client), composer, tools).run('hi')
+    const state = await new Runner(context(), router(client), composer, tools).run('hi')
     expect(spy.mock.calls[0]?.[0].system).toBe('<!-- source: builtin, priority: 1000 -->\nsystem')
+    expect(state.systemPromptSnapshot).toBe('<!-- source: builtin, priority: 1000 -->\nsystem')
   })
   it('uses the router retry decision before sticky lock without picking again', async () => {
     const first = provider(
