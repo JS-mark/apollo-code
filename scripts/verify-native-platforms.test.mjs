@@ -83,6 +83,8 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   assert.match(nativeWorkflow, /Authenticode self-sign smoke \(non-production\)/)
   assert.match(nativeWorkflow, /timeout-minutes: 5/)
   assert.match(nativeWorkflow, /openssl req -x509/)
+  assert.match(nativeWorkflow, /openssl pkcs12 -export -out/)
+  assert.doesNotMatch(nativeWorkflow, /openssl pkcs12[^\n]*-legacy/)
   assert.match(nativeWorkflow, /certutil -user -addstore TrustedPublisher/)
   assert.match(nativeWorkflow, /signtool\.exe/)
   assert.match(nativeWorkflow, /verify \/pa \/all/)
