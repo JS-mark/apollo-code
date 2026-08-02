@@ -81,8 +81,10 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   assert.match(windowsFoundation, /exit 0\s*$/)
 
   assert.match(nativeWorkflow, /Authenticode self-sign smoke \(non-production\)/)
+  assert.match(nativeWorkflow, /timeout-minutes: 5/)
   assert.match(nativeWorkflow, /Cert:\\CurrentUser\\TrustedPublisher/)
-  assert.match(nativeWorkflow, /Get-AuthenticodeSignature/)
+  assert.match(nativeWorkflow, /signtool\.exe/)
+  assert.match(nativeWorkflow, /verify \/pa \/all/)
   assert.match(nativeWorkflow, /Expected 3 Windows binaries/)
   assert.match(nativeWorkflow, /production_signature=false/)
   assert.match(nativeWorkflow, /macOS notarization credential gate/)
