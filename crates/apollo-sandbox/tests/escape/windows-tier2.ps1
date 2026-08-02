@@ -32,11 +32,15 @@ New-Item -ItemType Directory -Force $allowed, $denied | Out-Null
 Set-Content (Join-Path $denied 'secret.txt') 'must-not-leak'
 $aclBefore = (Get-Acl $allowed).Sddl
 $fsPermissions = @{ fs = @{ read = @($allowed); write = @($allowed) } }
-$write = Invoke-Sandbox "echo allowed>\"$allowed\written.txt\"" $fsPermissions
+$allowedFile = Join-Path $allowed 'written.txt'
+$writeCommand = 'echo allowed>"{0}"' -f $allowedFile
+$write = Invoke-Sandbox $writeCommand $fsPermissions
 if ($write.exit_code -ne 0 -or -not (Test-Path (Join-Path $allowed 'written.txt'))) { throw 'AppContainer could not write an allowed path' }
 $aclAfter = (Get-Acl $allowed).Sddl
 if ($aclAfter -ne $aclBefore) { throw 'AppContainer ACE was not rolled back after process exit' }
 
-$readDenied = Invoke-Sandbox "type \"$denied\secret.txt\""
+$deniedFile = Join-Path $denied 'secret.txt'
+$readCommand = 'type "{0}"' -f $deniedFile
+$readDenied = Invoke-Sandbox $readCommand
 if ($readDenied.exit_code -eq 0 -or $readDenied.stdout -match 'must-not-leak') { throw 'AppContainer read a path outside the filesystem allowlist' }
 Remove-Item -Recurse -Force $fixture
