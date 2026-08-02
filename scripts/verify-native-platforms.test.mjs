@@ -74,14 +74,18 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   )
   assert.match(escapeWorkflow, /name: Record verification evidence\s+shell: bash\s+run:/)
 
-  const windowsTier1 = await readFile(
-    new URL('crates/apollo-sandbox/tests/escape/windows-tier1.ps1', root),
+  const windowsTier2 = await readFile(
+    new URL('crates/apollo-sandbox/tests/escape/windows-tier2.ps1', root),
     'utf8',
   )
-  assert.match(escapeWorkflow, /verification: native-tier1/)
-  assert.match(windowsTier1, /tier -ne 'weak'/)
-  assert.match(windowsTier1, /SeDebugPrivilege\|SeShutdownPrivilege\|SeTakeOwnershipPrivilege/)
-  assert.match(windowsTier1, /grandchild escape/)
+  assert.match(escapeWorkflow, /verification: native-tier2/)
+  assert.match(windowsTier2, /tier -ne 'partial'/)
+  assert.match(windowsTier2, /acl_rollback/)
+  assert.match(windowsTier2, /orphan_cleanup/)
+  assert.match(windowsTier2, /SeDebugPrivilege\|SeShutdownPrivilege\|SeTakeOwnershipPrivilege/)
+  assert.match(windowsTier2, /grandchild escape/)
+  assert.match(windowsTier2, /outside the filesystem allowlist/)
+  assert.match(windowsTier2, /ACE was not rolled back/)
 
   assert.match(nativeWorkflow, /Authenticode self-sign smoke \(non-production\)/)
   assert.match(nativeWorkflow, /timeout-minutes: 5/)

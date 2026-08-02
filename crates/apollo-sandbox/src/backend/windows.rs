@@ -1,15 +1,32 @@
 use crate::profile::{ExecRequest, ExecResult, ProbeInfo, SandboxTier};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     ffi::c_void,
     os::windows::ffi::OsStrExt,
     path::Path,
     ptr::{null, null_mut},
-    time::Instant,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT},
-    Security::{CreateRestrictedToken, DISABLE_MAX_PRIVILEGE, TOKEN_ALL_ACCESS},
+    Foundation::{CloseHandle, LocalFree, ERROR_SUCCESS, HANDLE, WAIT_TIMEOUT},
+    Security::{
+        Authorization::{
+            GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
+            GRANT_ACCESS, REVOKE_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN,
+            TRUSTEE_W,
+        },
+        CreateRestrictedToken, FreeSid,
+        Isolation::{
+            CreateAppContainerProfile, DeleteAppContainerProfile,
+            DeriveAppContainerSidFromAppContainerName,
+        },
+        ACL, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, NO_INHERITANCE,
+        PSECURITY_DESCRIPTOR, PSID, SECURITY_CAPABILITIES, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+        TOKEN_ALL_ACCESS,
+    },
+    Storage::FileSystem::{DELETE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE},
     System::{
         JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -18,9 +35,12 @@ use windows_sys::Win32::{
             JOB_OBJECT_LIMIT_PROCESS_MEMORY,
         },
         Threading::{
-            CreateProcessWithTokenW, GetCurrentProcess, GetExitCodeProcess, OpenProcessToken,
-            ResumeThread, WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
-            PROCESS_INFORMATION, STARTUPINFOW,
+            CreateProcessWithTokenW, DeleteProcThreadAttributeList, GetCurrentProcess,
+            GetExitCodeProcess, InitializeProcThreadAttributeList, OpenProcess, OpenProcessToken,
+            ResumeThread, UpdateProcThreadAttribute, WaitForSingleObject, CREATE_SUSPENDED,
+            CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION,
+            PROCESS_QUERY_LIMITED_INFORMATION, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+            STARTUPINFOEXW,
         },
     },
 };
@@ -33,15 +53,17 @@ pub fn probe() -> ProbeInfo {
         arch: std::env::consts::ARCH.into(),
         libc: None,
         os_version: std::env::var("OS").unwrap_or_default(),
-        tier: SandboxTier::Weak,
+        tier: SandboxTier::Partial,
         features: BTreeMap::from([
             ("job_object".into(), true.into()),
             ("restricted_token".into(), true.into()),
-            ("appcontainer".into(), false.into()),
+            ("appcontainer".into(), true.into()),
+            ("acl_rollback".into(), true.into()),
+            ("orphan_cleanup".into(), true.into()),
         ]),
         known_limitations: vec![
-            "Windows Tier 1 strips privileges and applies Job Object resource limits, but cannot isolate filesystem or network access".into(),
-            "Windows Tier 2 AppContainer filesystem isolation remains unavailable".into(),
+            "Windows Tier 2 isolates filesystem access with AppContainer ACLs, but cannot enforce per-host network allowlists".into(),
+            "Windows Tier 3 WFP network filtering is intentionally not implemented in L2".into(),
         ],
     }
 }
@@ -57,7 +79,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
         .map_err(|error| format!("create output directory: {error}"))?;
     let stdout_path = output_dir.join("stdout.txt");
     let stderr_path = output_dir.join("stderr.txt");
-    let result = unsafe { run_restricted(request, &stdout_path, &stderr_path) };
+    let result = unsafe { run_restricted(request, &output_dir, &stdout_path, &stderr_path) };
     let stdout = std::fs::read_to_string(&stdout_path).unwrap_or_default();
     let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&output_dir);
@@ -67,16 +89,19 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
         stderr,
         exit_code,
         duration_ms: started.elapsed().as_millis(),
-        sandbox_tier: SandboxTier::Weak,
+        sandbox_tier: SandboxTier::Partial,
         sandbox_violations: vec![],
     })
 }
 
 unsafe fn run_restricted(
     request: &ExecRequest,
+    output_dir: &Path,
     stdout_path: &Path,
     stderr_path: &Path,
 ) -> Result<i32, String> {
+    cleanup_orphaned_acls()?;
+    let appcontainer = AppContainerLease::create(request, output_dir)?;
     let mut process_token: HANDLE = null_mut();
     if OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut process_token) == 0 {
         return Err(last_error("open process token"));
@@ -137,18 +162,45 @@ unsafe fn run_restricted(
     let application = wide_null(command_processor.as_os_str());
     let cwd = wide_null(std::ffi::OsStr::new(&request.cwd));
     let environment = environment_block(request);
-    let mut startup = STARTUPINFOW::default();
-    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let security_capabilities = SECURITY_CAPABILITIES {
+        AppContainerSid: appcontainer.sid,
+        Capabilities: null_mut(),
+        CapabilityCount: 0,
+        Reserved: 0,
+    };
+    let mut attributes_size = 0usize;
+    InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut attributes_size);
+    let mut attributes = vec![0usize; attributes_size.div_ceil(std::mem::size_of::<usize>())];
+    let attributes_ptr = attributes.as_mut_ptr() as *mut c_void;
+    if InitializeProcThreadAttributeList(attributes_ptr, 1, 0, &mut attributes_size) == 0 {
+        return Err(last_error("initialize process attribute list"));
+    }
+    let attributes = OwnedAttributeList(attributes_ptr);
+    if UpdateProcThreadAttribute(
+        attributes.0,
+        0,
+        PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
+        &security_capabilities as *const _ as *const c_void,
+        std::mem::size_of_val(&security_capabilities),
+        null_mut(),
+        null(),
+    ) == 0
+    {
+        return Err(last_error("attach AppContainer security capabilities"));
+    }
+    let mut startup = STARTUPINFOEXW::default();
+    startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+    startup.lpAttributeList = attributes.0;
     let mut process = PROCESS_INFORMATION::default();
     if CreateProcessWithTokenW(
         restricted_token.0,
         0,
         application.as_ptr(),
         command_line.as_mut_ptr(),
-        CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+        CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
         environment.as_ptr() as *const c_void,
         cwd.as_ptr(),
-        &startup,
+        &startup.StartupInfo,
         &mut process,
     ) == 0
     {
@@ -178,6 +230,278 @@ unsafe fn run_restricted(
         return Err(last_error("read restricted process exit code"));
     }
     Ok(exit_code as i32)
+}
+
+const APP_CONTAINER_PREFIX: &str = "ApolloCode.Sandbox.";
+static PROFILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AclJournal {
+    profile_name: String,
+    #[serde(default)]
+    owner_pid: u32,
+    paths: Vec<String>,
+}
+
+struct AppContainerLease {
+    name: Vec<u16>,
+    sid: PSID,
+    paths: Vec<String>,
+    journal_path: std::path::PathBuf,
+}
+
+impl AppContainerLease {
+    unsafe fn create(request: &ExecRequest, output_dir: &Path) -> Result<Self, String> {
+        let profile_name = unique_profile_name();
+        let name = wide_null(&profile_name);
+        let display = wide_null("Apollo Code Sandbox");
+        let description = wide_null("Ephemeral Apollo Code Tier 2 sandbox");
+        let mut sid: PSID = null_mut();
+        let result = CreateAppContainerProfile(
+            name.as_ptr(),
+            display.as_ptr(),
+            description.as_ptr(),
+            null(),
+            0,
+            &mut sid,
+        );
+        if result < 0 {
+            return Err(format!(
+                "create AppContainer profile: HRESULT 0x{result:08x}"
+            ));
+        }
+
+        let mut grants = BTreeMap::<String, u32>::new();
+        add_grant(
+            &mut grants,
+            &request.cwd,
+            FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+        )?;
+        add_grant(
+            &mut grants,
+            &output_dir.to_string_lossy(),
+            FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE,
+        )?;
+        for path in &request.permissions.fs.read {
+            add_grant(&mut grants, path, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)?;
+        }
+        for path in &request.permissions.fs.write {
+            add_grant(
+                &mut grants,
+                path,
+                FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE,
+            )?;
+        }
+
+        let paths = grants.keys().cloned().collect::<Vec<_>>();
+        let journal_path = journal_dir().join(format!("{profile_name}.json"));
+        std::fs::create_dir_all(journal_dir())
+            .map_err(|error| format!("create AppContainer ACL journal directory: {error}"))?;
+        write_journal(
+            &journal_path,
+            &AclJournal {
+                profile_name: profile_name.clone(),
+                owner_pid: std::process::id(),
+                paths: paths.clone(),
+            },
+        )?;
+
+        let lease = Self {
+            name,
+            sid,
+            paths,
+            journal_path,
+        };
+        for (path, access) in grants {
+            if let Err(error) = grant_path(&path, lease.sid, access) {
+                drop(lease);
+                return Err(error);
+            }
+        }
+        Ok(lease)
+    }
+}
+
+impl Drop for AppContainerLease {
+    fn drop(&mut self) {
+        unsafe {
+            for path in &self.paths {
+                let _ = revoke_path(path, self.sid);
+            }
+            let _ = DeleteAppContainerProfile(self.name.as_ptr());
+            if !self.sid.is_null() {
+                FreeSid(self.sid);
+            }
+        }
+        let _ = std::fs::remove_file(&self.journal_path);
+    }
+}
+
+fn unique_profile_name() -> String {
+    let ticks = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    let sequence = PROFILE_SEQUENCE.fetch_add(1, Ordering::Relaxed) as u128;
+    let value = ticks ^ (pid << 96) ^ sequence;
+    format!(
+        "{APP_CONTAINER_PREFIX}{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        (value >> 96) as u32,
+        (value >> 80) as u16,
+        (value >> 64) as u16,
+        (value >> 48) as u16,
+        value & 0xffffffffffff
+    )
+}
+
+fn journal_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("apollo-sandbox-acl-journal")
+}
+
+fn write_journal(path: &Path, journal: &AclJournal) -> Result<(), String> {
+    let bytes = serde_json::to_vec(journal)
+        .map_err(|error| format!("serialize AppContainer ACL journal: {error}"))?;
+    std::fs::write(path, bytes)
+        .map_err(|error| format!("write AppContainer ACL journal {}: {error}", path.display()))
+}
+
+unsafe fn cleanup_orphaned_acls() -> Result<(), String> {
+    let directory = journal_dir();
+    let entries = match std::fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("read AppContainer ACL journals: {error}")),
+    };
+    for entry in entries {
+        let path = entry
+            .map_err(|error| format!("read AppContainer ACL journal entry: {error}"))?
+            .path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).map_err(|error| {
+            format!("read AppContainer ACL journal {}: {error}", path.display())
+        })?;
+        let journal: AclJournal = serde_json::from_slice(&bytes).map_err(|error| {
+            format!("parse AppContainer ACL journal {}: {error}", path.display())
+        })?;
+        if !journal.profile_name.starts_with(APP_CONTAINER_PREFIX) {
+            return Err(format!("refusing foreign ACL journal {}", path.display()));
+        }
+        if journal.owner_pid != 0 && process_is_alive(journal.owner_pid) {
+            continue;
+        }
+        let name = wide_null(&journal.profile_name);
+        let mut sid: PSID = null_mut();
+        let result = DeriveAppContainerSidFromAppContainerName(name.as_ptr(), &mut sid);
+        if result >= 0 {
+            for granted_path in &journal.paths {
+                revoke_path(granted_path, sid)?;
+            }
+            FreeSid(sid);
+        }
+        let _ = DeleteAppContainerProfile(name.as_ptr());
+        std::fs::remove_file(&path).map_err(|error| {
+            format!(
+                "remove AppContainer ACL journal {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+unsafe fn process_is_alive(pid: u32) -> bool {
+    let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+    if handle.is_null() {
+        return false;
+    }
+    let handle = OwnedHandle(handle);
+    let mut exit_code = 0;
+    GetExitCodeProcess(handle.0, &mut exit_code) != 0 && exit_code == 259
+}
+
+fn add_grant(grants: &mut BTreeMap<String, u32>, path: &str, access: u32) -> Result<(), String> {
+    if path.contains('*') {
+        return Err(format!(
+            "Windows AppContainer does not accept glob permission paths: {path}"
+        ));
+    }
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|error| format!("canonicalize AppContainer permission path {path}: {error}"))?;
+    let canonical = canonical.to_string_lossy().into_owned();
+    grants
+        .entry(canonical)
+        .and_modify(|existing| *existing |= access)
+        .or_insert(access);
+    Ok(())
+}
+
+unsafe fn grant_path(path: &str, sid: PSID, access: u32) -> Result<(), String> {
+    update_path_acl(path, sid, GRANT_ACCESS, access)
+}
+
+unsafe fn revoke_path(path: &str, sid: PSID) -> Result<(), String> {
+    update_path_acl(path, sid, REVOKE_ACCESS, 0)
+}
+
+unsafe fn update_path_acl(path: &str, sid: PSID, mode: i32, access: u32) -> Result<(), String> {
+    let path_wide = wide_null(path);
+    let mut old_dacl: *mut ACL = null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
+    let status = GetNamedSecurityInfoW(
+        path_wide.as_ptr(),
+        SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION,
+        null_mut(),
+        null_mut(),
+        &mut old_dacl,
+        null_mut(),
+        &mut descriptor,
+    );
+    if status != ERROR_SUCCESS {
+        return Err(format!("read ACL for {path}: Windows error {status}"));
+    }
+    let descriptor = OwnedLocal(descriptor);
+    let inheritance = if Path::new(path).is_dir() {
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT
+    } else {
+        NO_INHERITANCE
+    };
+    let trustee = TRUSTEE_W {
+        pMultipleTrustee: null_mut(),
+        MultipleTrusteeOperation: 0,
+        TrusteeForm: TRUSTEE_IS_SID,
+        TrusteeType: TRUSTEE_IS_UNKNOWN,
+        ptstrName: sid as *mut u16,
+    };
+    let entry = EXPLICIT_ACCESS_W {
+        grfAccessPermissions: access,
+        grfAccessMode: mode,
+        grfInheritance: inheritance,
+        Trustee: trustee,
+    };
+    let mut new_dacl: *mut ACL = null_mut();
+    let status = SetEntriesInAclW(1, &entry, old_dacl, &mut new_dacl);
+    if status != ERROR_SUCCESS {
+        return Err(format!("build ACL for {path}: Windows error {status}"));
+    }
+    let new_dacl = OwnedLocal(new_dacl as *mut c_void);
+    let status = SetNamedSecurityInfoW(
+        path_wide.as_ptr() as *mut u16,
+        SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION,
+        null_mut(),
+        null_mut(),
+        new_dacl.0 as *const ACL,
+        null(),
+    );
+    drop(descriptor);
+    if status != ERROR_SUCCESS {
+        return Err(format!("write ACL for {path}: Windows error {status}"));
+    }
+    Ok(())
 }
 
 fn environment_block(request: &ExecRequest) -> Vec<u16> {
@@ -221,5 +545,60 @@ impl Drop for OwnedHandle {
         if !self.0.is_null() {
             unsafe { CloseHandle(self.0) };
         }
+    }
+}
+
+struct OwnedAttributeList(*mut c_void);
+
+impl Drop for OwnedAttributeList {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { DeleteProcThreadAttributeList(self.0) };
+        }
+    }
+}
+
+struct OwnedLocal(*mut c_void);
+
+impl Drop for OwnedLocal {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { LocalFree(self.0) };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn appcontainer_profiles_are_unique_and_namespaced() {
+        let first = unique_profile_name();
+        let second = unique_profile_name();
+        assert!(first.starts_with(APP_CONTAINER_PREFIX));
+        assert_ne!(first, second);
+        assert_eq!(first.len(), APP_CONTAINER_PREFIX.len() + 36);
+    }
+
+    #[test]
+    fn acl_journal_round_trips_owner_and_paths() {
+        let journal = AclJournal {
+            profile_name: unique_profile_name(),
+            owner_pid: 42,
+            paths: vec![r"C:\workspace".into()],
+        };
+        let encoded = serde_json::to_vec(&journal).unwrap();
+        let decoded: AclJournal = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.profile_name, journal.profile_name);
+        assert_eq!(decoded.owner_pid, 42);
+        assert_eq!(decoded.paths, journal.paths);
+    }
+
+    #[test]
+    fn appcontainer_acl_rejects_glob_paths() {
+        let error =
+            add_grant(&mut BTreeMap::new(), r"C:\workspace\*", FILE_GENERIC_READ).unwrap_err();
+        assert!(error.contains("does not accept glob"));
     }
 }
