@@ -53,6 +53,11 @@ void test('native bridge declares every platform package optional', async () => 
 
 void test('CI verifies foundation targets without weakening sandbox evidence', async () => {
   const nativeWorkflow = await readFile(new URL('.github/workflows/native.yml', root), 'utf8')
+  assert.match(
+    nativeWorkflow,
+    /taiki-e\/install-action@cargo-deny[\s\S]*cargo deny check licenses bans/,
+  )
+  assert.doesNotMatch(nativeWorkflow, /EmbarkStudios\/cargo-deny-action/)
   assert.match(nativeWorkflow, /if: runner\.os != 'Windows'[\s\S]*doctor --strict --json/)
   assert.match(
     nativeWorkflow,
