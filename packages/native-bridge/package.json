@@ -20,31 +20,5 @@
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "optionalDependencies": {
-    "@apollo-code/native-fs-darwin-arm64": "workspace:*",
-    "@apollo-code/native-fs-darwin-x64": "workspace:*",
-    "@apollo-code/native-fs-linux-arm64-gnu": "workspace:*",
-    "@apollo-code/native-fs-linux-arm64-musl": "workspace:*",
-    "@apollo-code/native-fs-linux-x64-gnu": "workspace:*",
-    "@apollo-code/native-fs-linux-x64-musl": "workspace:*",
-    "@apollo-code/native-fs-win32-arm64-msvc": "workspace:*",
-    "@apollo-code/native-fs-win32-x64-msvc": "workspace:*",
-    "@apollo-code/native-sandbox-darwin-arm64": "workspace:*",
-    "@apollo-code/native-sandbox-darwin-x64": "workspace:*",
-    "@apollo-code/native-sandbox-linux-arm64-gnu": "workspace:*",
-    "@apollo-code/native-sandbox-linux-arm64-musl": "workspace:*",
-    "@apollo-code/native-sandbox-linux-x64-gnu": "workspace:*",
-    "@apollo-code/native-sandbox-linux-x64-musl": "workspace:*",
-    "@apollo-code/native-sandbox-win32-arm64-msvc": "workspace:*",
-    "@apollo-code/native-sandbox-win32-x64-msvc": "workspace:*",
-    "@apollo-code/native-search-darwin-arm64": "workspace:*",
-    "@apollo-code/native-search-darwin-x64": "workspace:*",
-    "@apollo-code/native-search-linux-arm64-gnu": "workspace:*",
-    "@apollo-code/native-search-linux-arm64-musl": "workspace:*",
-    "@apollo-code/native-search-linux-x64-gnu": "workspace:*",
-    "@apollo-code/native-search-linux-x64-musl": "workspace:*",
-    "@apollo-code/native-search-win32-arm64-msvc": "workspace:*",
-    "@apollo-code/native-search-win32-x64-msvc": "workspace:*"
   }
 }

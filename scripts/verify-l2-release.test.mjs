@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
@@ -20,6 +20,7 @@ void test('generates TypeDoc markdown inside the private VitePress site', async 
   assert.deepEqual(typedoc.plugin, ['typedoc-plugin-markdown'])
   assert.match(docsWorkflow, /packages\/\*\/src\/\*\*/)
   assert.match(docsWorkflow, /actions\/deploy-pages@v4/)
+  assert.match(docsWorkflow, /enablement: true/)
 })
 
 void test('configures weekly Renovate updates with manual major approval', async () => {
@@ -32,15 +33,14 @@ void test('configures weekly Renovate updates with manual major approval', async
   assert.equal(major.dependencyDashboardApproval, true)
 })
 
-void test('keeps the 24 native manifests publishable and docs excluded', async () => {
-  const directories = (await readdir(new URL('platforms/', root))).filter((name) =>
-    name.startsWith('native-'),
-  )
-  assert.equal(directories.length, 24)
-  for (const directory of directories) {
-    const manifest = await json(`platforms/${directory}/package.json`)
-    assert.notEqual(manifest.private, true, `${manifest.name} must remain publishable`)
-  }
+void test('keeps native binaries on GitHub Releases and docs excluded from npm', async () => {
+  const [nativeWorkflow, bridge] = await Promise.all([
+    read('.github/workflows/native.yml'),
+    json('packages/native-bridge/package.json'),
+  ])
+  assert.match(nativeWorkflow, /Publish versioned native Release assets/)
+  assert.match(nativeWorkflow, /checksums\.sha256/)
+  assert.equal(bridge.optionalDependencies, undefined)
   const changesets = await json('.changeset/config.json')
   assert.ok(changesets.ignore.includes('@apollo-code/docs'))
 })
