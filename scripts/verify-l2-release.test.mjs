@@ -52,6 +52,10 @@ void test('release automation versions through Changesets without bypassing exte
   ])
   assert.match(workflow, /pnpm release:version:dry-run/)
   assert.match(workflow, /changesets\/action@v1/)
+  assert.ok(
+    workflow.indexOf('node --test scripts/verify-changesets-release-plan.test.mjs') <
+      workflow.indexOf('pnpm release:version:dry-run'),
+  )
   assert.doesNotMatch(workflow, /publish: pnpm release/)
   assert.match(checklist, /24\/24/)
   assert.match(checklist, /0\/2 real hardware/)
