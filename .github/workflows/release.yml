@@ -25,7 +25,7 @@ jobs:
       - run: pnpm release:status
       - name: Exercise snapshot versioning in the disposable CI checkout
         run: pnpm release:version:dry-run
-      - run: node --test scripts/verify-l2-release.test.mjs
+      - run: node --test scripts/verify-changesets-release-plan.test.mjs scripts/verify-l2-release.test.mjs
 
   version-packages:
     needs: verify
