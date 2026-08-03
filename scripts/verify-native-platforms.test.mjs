@@ -62,6 +62,11 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
     nativeWorkflow,
     /Run strict doctor against sandbox-capable target artifacts[\s\S]*doctor --strict --json/,
   )
+  assert.match(
+    nativeWorkflow,
+    /pnpm turbo run build --filter=apollo-code\.\.\./,
+    'native jobs must not start the independent TypeDoc/VitePress build in parallel',
+  )
   assert.doesNotMatch(nativeWorkflow, /if: runner\.os != 'Windows'/)
 
   const escapeWorkflow = await readFile(
