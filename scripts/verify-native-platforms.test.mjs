@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
-const kinds = ['sandbox', 'search', 'fs']
 const targets = [
   ['darwin-arm64', 'darwin', 'arm64'],
   ['darwin-x64', 'darwin', 'x64'],
@@ -27,8 +26,8 @@ void test('publishes all native binaries as versioned GitHub Release assets', as
   assert.match(workflow, /gh release upload/)
   assert.doesNotMatch(bridge, /optionalDependencies/)
   assert.doesNotMatch(workspace, /platforms\/\*/)
-  for (const kind of kinds) assert.match(workflow, new RegExp(`for kind in sandbox search fs`))
-  assert.equal(targets.length * kinds.length, 24)
+  assert.match(workflow, /for kind in sandbox search fs/)
+  assert.equal(targets.length * 3, 24)
 })
 
 void test('CI verifies foundation targets without weakening sandbox evidence', async () => {
