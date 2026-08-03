@@ -3,6 +3,10 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
 jobs:
   license:
     runs-on: ubuntu-24.04
@@ -91,7 +95,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ci-doctor-placeholder
         run: node apps/cli/dist/apollo.js doctor --strict --json
-      - name: Stage platform packages
+      - name: Stage GitHub Release assets
         shell: bash
         run: |
           case '${{ matrix.target }}' in
@@ -106,11 +110,9 @@ jobs:
           esac
           extension=''
           case '${{ matrix.target }}' in *windows*) extension='.exe' ;; esac
+          mkdir -p release-assets
           for kind in sandbox search fs; do
-            mkdir -p "platforms/native-$kind-$suffix/bin"
-            cp "target/${{ matrix.target }}/release/apollo-$kind$extension" "platforms/native-$kind-$suffix/bin/apollo-$kind$extension"
-            cp crates/apollo-sandbox-vendor/LICENSE "platforms/native-$kind-$suffix/LICENSE"
-            cp crates/apollo-sandbox-vendor/NOTICE "platforms/native-$kind-$suffix/NOTICE"
+            cp "target/${{ matrix.target }}/release/apollo-$kind$extension" "release-assets/apollo-$kind-$suffix$extension"
           done
       - run: echo '${{ matrix.verification }}' > native-verification.txt
       - uses: actions/upload-artifact@v4
@@ -121,9 +123,10 @@ jobs:
             target/${{ matrix.target }}/release/apollo-search*
             target/${{ matrix.target }}/release/apollo-fs*
             native-verification.txt
-            platforms/*/bin/*
-            platforms/*/LICENSE
-            platforms/*/NOTICE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: release-assets/*
   universal2:
     needs: native
     runs-on: macos-14
@@ -214,3 +217,27 @@ jobs:
         with:
           platforms: arm64
       - run: crates/apollo-sandbox/scripts/rebuild-bwrap.sh --check
+
+  github-release:
+    name: Publish versioned native Release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [native, universal2, signing-smoke, notarization-gate, bwrap-reproducibility]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksum manifest
+        working-directory: release-assets
+        run: sha256sum apollo-* > checksums.sha256
+      - name: Create release and upload immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber

@@ -46,6 +46,8 @@ jobs:
       - run: pnpm --filter @apollo-code/docs build
       - if: github.event_name == 'push'
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - if: github.event_name == 'push'
         uses: actions/upload-pages-artifact@v3
         with:

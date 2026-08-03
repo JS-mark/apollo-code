@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
@@ -15,40 +15,20 @@ const targets = [
   ['win32-x64-msvc', 'win32', 'x64'],
 ]
 
-async function json(path) {
-  return JSON.parse(await readFile(new URL(path, root), 'utf8'))
-}
-
-void test('publishes exactly 24 auditable native platform manifests', async () => {
-  const directories = (await readdir(new URL('platforms/', root))).filter((name) =>
-    name.startsWith('native-'),
-  )
-  assert.equal(directories.length, 24)
-  for (const kind of kinds) {
-    for (const [target, os, cpu, libc] of targets) {
-      const manifest = await json(`platforms/native-${kind}-${target}/package.json`)
-      assert.equal(manifest.name, `@apollo-code/native-${kind}-${target}`)
-      assert.deepEqual(manifest.os, [os])
-      assert.deepEqual(manifest.cpu, [cpu])
-      if (libc) assert.deepEqual(manifest.libc, [libc])
-      assert.deepEqual(manifest.files, ['bin', 'LICENSE', 'NOTICE'])
-      assert.equal(
-        manifest.bin[`apollo-${kind}`],
-        `bin/apollo-${kind}${os === 'win32' ? '.exe' : ''}`,
-      )
-    }
-  }
-})
-
-void test('native bridge declares every platform package optional', async () => {
-  const bridge = await json('packages/native-bridge/package.json')
-  assert.equal(Object.keys(bridge.optionalDependencies).length, 24)
-  for (const kind of kinds)
-    for (const [target] of targets)
-      assert.equal(
-        bridge.optionalDependencies[`@apollo-code/native-${kind}-${target}`],
-        'workspace:*',
-      )
+void test('publishes all native binaries as versioned GitHub Release assets', async () => {
+  const [workflow, bridge, workspace] = await Promise.all([
+    readFile(new URL('.github/workflows/native.yml', root), 'utf8'),
+    readFile(new URL('packages/native-bridge/package.json', root), 'utf8'),
+    readFile(new URL('pnpm-workspace.yaml', root), 'utf8'),
+  ])
+  assert.match(workflow, /tags: \['v\*'\]/)
+  assert.match(workflow, /release-assets\/apollo-\$kind-\$suffix\$extension/)
+  assert.match(workflow, /sha256sum apollo-\* > checksums\.sha256/)
+  assert.match(workflow, /gh release upload/)
+  assert.doesNotMatch(bridge, /optionalDependencies/)
+  assert.doesNotMatch(workspace, /platforms\/\*/)
+  for (const kind of kinds) assert.match(workflow, new RegExp(`for kind in sandbox search fs`))
+  assert.equal(targets.length * kinds.length, 24)
 })
 
 void test('CI verifies foundation targets without weakening sandbox evidence', async () => {

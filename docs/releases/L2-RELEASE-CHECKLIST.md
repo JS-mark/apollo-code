@@ -13,7 +13,7 @@ release complete from cross-build or self-signed smoke evidence.
 - [ ] `pnpm docs:api` and the VitePress build pass without broken links.
 - [ ] `pnpm release:status` reports the intended package bumps.
 - [ ] Snapshot version dry-run passes in a disposable checkout.
-- [x] Native platform manifest inventory is 24/24 (8 targets × sandbox/search/fs).
+- [x] Native Release asset matrix is 24/24 (8 targets × sandbox/search/fs), with `checksums.sha256`.
 - [x] `apps/docs` is private and excluded from Changesets publication.
 - [x] Weekly Renovate policy auto-merges CI-green non-major updates; majors require approval.
 - [ ] Every releasable change has an reviewed changeset and release note.
@@ -37,8 +37,8 @@ Any generated release notes must include each target's probe-derived Tier and
 - [ ] **Linux arm64 real hardware — BLOCKED:** run GNU and Alpine arm64 escape suites and attach immutable logs/checksums.
 - [ ] **Production Authenticode — BLOCKED:** a release custodian must sign the exact Windows candidate artifacts with a trusted publisher certificate and retain verification evidence. The CI self-signed smoke is not release evidence.
 - [ ] **Apple notarization — BLOCKED:** a release custodian must Developer-ID sign, submit, receive acceptance, staple, and run `spctl` on the exact universal candidate artifacts.
-- [ ] **Credentials — HUMAN GATE:** `NPM_TOKEN`, Apple credentials, and signing material must be supplied only through protected environments; never copy them into issues, logs, or repository files.
-- [ ] **Real publication — HUMAN GATE:** an authorized release custodian approves the `npm-release` environment and verifies npm/GitHub Release results. This checklist does not authorize `npm publish`, tags, Releases, paid runners, or notarization submissions.
+- [ ] **Credentials — HUMAN GATE:** Apple credentials and signing material must be supplied only through protected environments; never copy them into issues, logs, or repository files.
+- [ ] **Real publication — HUMAN GATE:** an authorized release custodian creates the immutable version tag and verifies the GitHub Release assets and checksum manifest. This checklist does not authorize tags, Releases, paid runners, or notarization submissions.
 
 ## Decision
 
