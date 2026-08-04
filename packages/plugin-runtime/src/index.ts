@@ -4,6 +4,14 @@ import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 
 import type { PluginSandboxProfile } from '@apollo-code/native-bridge'
 import type { PluginManifest } from '@apollo-code/plugin-sdk'
+import type {
+  Disposable as ProviderDisposable,
+  ProviderCapabilities,
+  ProviderChunk,
+  ProviderClient,
+  ProviderRegistry,
+  ProviderRequest,
+} from '@apollo-code/provider-kit'
 
 export class PluginError extends Error {
   constructor(
@@ -57,6 +65,24 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
     )
   if (!m.permissions || !Array.isArray(m.permissions.apollo))
     throw new PluginError('plugin_manifest_invalid', 'permissions.apollo is required')
+  if (m.kind === 'provider') {
+    const provider = m.provider
+    if (
+      !provider?.name ||
+      !provider.displayName ||
+      provider.auth?.mode !== 'header-template' ||
+      !provider.auth.credentialScope ||
+      !provider.auth.headerTemplate?.includes('{{key}}')
+    )
+      throw new PluginError('plugin_provider_invalid', 'invalid header-template provider')
+    if (!m.permissions.net || m.permissions.net.allowlist.length === 0)
+      throw new PluginError('plugin_provider_net_required', 'provider requires a net allowlist')
+    for (const permission of ['provider.register', 'auth.getAuthHeaders'])
+      if (!m.permissions.apollo.includes(permission))
+        throw new PluginError('plugin_provider_permission_required', permission)
+  } else if (m.provider) {
+    throw new PluginError('plugin_provider_invalid', 'provider section requires kind: provider')
+  }
   return m as PluginManifest
 }
 export const permissionHash = (manifest: PluginManifest) =>
@@ -201,5 +227,73 @@ export function createRpcGuard(manifest: PluginManifest, maxCallsPerTurn = 500) 
     const count = (calls.get(turnId) ?? 0) + 1
     calls.set(turnId, count)
     if (count > maxCallsPerTurn) throw new PluginError('plugin_rpc_quota_exceeded', method)
+  }
+}
+
+export type CredentialReader = (scope: string) => Promise<string | undefined>
+
+export function renderAuthHeaders(template: string, key: string): Record<string, string> {
+  const separator = template.indexOf(':')
+  if (separator < 1)
+    throw new PluginError('plugin_auth_template_invalid', 'missing header separator')
+  const name = template.slice(0, separator).trim()
+  const value = template
+    .slice(separator + 1)
+    .trim()
+    .replaceAll('{{key}}', key)
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(value))
+    throw new PluginError('plugin_auth_template_invalid', 'invalid header name or value')
+  return { [name]: value }
+}
+
+export interface ProviderStreamTransport {
+  stream(
+    providerName: string,
+    request: ProviderRequest & { authHeaders: Record<string, string> },
+    signal: AbortSignal,
+  ): AsyncIterable<ProviderChunk>
+  dispose(): Promise<void>
+}
+
+export function registerProviderPlugin(options: {
+  manifest: PluginManifest
+  capabilities: ProviderCapabilities
+  registry: ProviderRegistry
+  credentials: CredentialReader
+  transport: ProviderStreamTransport
+}): ProviderDisposable {
+  const { manifest, capabilities, registry, credentials, transport } = options
+  if (manifest.kind !== 'provider' || !manifest.provider)
+    throw new PluginError('plugin_provider_invalid', 'not a provider plugin')
+  const provider = manifest.provider
+  const client: ProviderClient = {
+    name: provider.name,
+    capabilities: Object.freeze(structuredClone(capabilities)),
+    async *stream(request, signal) {
+      const key = await credentials(provider.auth.credentialScope)
+      const authHeaders = key ? renderAuthHeaders(provider.auth.headerTemplate, key) : {}
+      yield* transport.stream(provider.name, { ...request, authHeaders }, signal)
+    },
+    dispose: () => transport.dispose(),
+  }
+  const meta = {
+    capabilities: client.capabilities,
+    displayName: provider.displayName,
+    ...(provider.models ? { models: provider.models } : {}),
+  }
+  return registry.register(client, { kind: 'plugin', plugin: manifest.name }, meta)
+}
+
+export class BufferedProviderStream {
+  private bytes = 0
+  constructor(private readonly maxBytes = 4 * 1024 * 1024) {}
+  accept(chunk: ProviderChunk) {
+    this.bytes += Buffer.byteLength(JSON.stringify(chunk))
+    if (this.bytes > this.maxBytes)
+      throw new PluginError('stream_truncated', 'provider stream buffer exceeded')
+    return chunk
+  }
+  consume(chunk: ProviderChunk) {
+    this.bytes = Math.max(0, this.bytes - Buffer.byteLength(JSON.stringify(chunk)))
   }
 }

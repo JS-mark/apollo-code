@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@apollo-code/native-bridge": "workspace:*",
-    "@apollo-code/plugin-sdk": "workspace:*"
+    "@apollo-code/plugin-sdk": "workspace:*",
+    "@apollo-code/provider-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

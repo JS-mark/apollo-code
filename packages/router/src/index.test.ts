@@ -1,4 +1,8 @@
-import type { ProviderClient, ProviderError } from '@apollo-code/provider-kit'
+import {
+  InMemoryProviderRegistry,
+  type ProviderClient,
+  type ProviderError,
+} from '@apollo-code/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
 import { SingleProviderRouter } from './index'
@@ -16,6 +20,32 @@ describe('SingleProviderRouter', () => {
       (await new SingleProviderRouter(client, 'default').pick(ctx, { explicitModel: 'chosen' }))
         .model,
     ).toBe('chosen')
+  })
+  it('resolves only explicitly named plugin providers through the registry', async () => {
+    const registry = new InMemoryProviderRegistry()
+    const plugin = { ...client, name: 'plugin-vllm' }
+    registry.register(
+      plugin,
+      { kind: 'plugin', plugin: 'apollo-plugin-provider-vllm' },
+      {
+        capabilities: plugin.capabilities,
+        displayName: 'vLLM',
+      },
+    )
+    const decision = await new SingleProviderRouter(client, 'default', undefined, registry).pick(
+      ctx,
+      { explicitModel: 'plugin-vllm/llama-3' },
+    )
+    expect(decision).toMatchObject({
+      provider: plugin,
+      model: 'llama-3',
+      reason: 'explicit-provider',
+    })
+    await expect(
+      new SingleProviderRouter(client, 'default', undefined, registry).pick(ctx, {
+        explicitModel: 'missing/model',
+      }),
+    ).rejects.toThrow('provider_not_registered')
   })
   it('retries retryable errors and gives up otherwise', async () => {
     const sleep = vi.fn(async () => {})
