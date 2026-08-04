@@ -32,7 +32,7 @@ describe('plugin runtime', () => {
       .update(await readFile(join(dir, 'index.js')))
       .digest('hex')
     await expect(verifyBundle(dir, manifest, { 'index.js': hash })).resolves.toBeUndefined()
-    await symlink('/etc/passwd', join(dir, 'escape'))
+    await symlink('index.js', join(dir, 'escape'))
     await expect(verifyBundle(dir, manifest, { escape: hash })).rejects.toThrow(/escapes|symlink/)
   })
   it('installs atomically and auto disables repeated failures', async () => {
