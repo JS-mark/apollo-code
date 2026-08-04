@@ -25,6 +25,7 @@
     "@apollo-code/shared": "workspace:*",
     "@apollo-code/skills-runtime": "workspace:*",
     "@apollo-code/storage": "workspace:*",
+    "@apollo-code/subagent": "workspace:*",
     "@apollo-code/telemetry": "workspace:*",
     "@apollo-code/tool-kit": "workspace:*",
     "@apollo-code/tools": "workspace:*",

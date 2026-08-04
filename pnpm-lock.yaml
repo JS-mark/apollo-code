@@ -119,6 +119,9 @@ importers:
       '@apollo-code/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@apollo-code/subagent':
+        specifier: workspace:*
+        version: link:../../packages/subagent
       '@apollo-code/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
@@ -491,6 +494,28 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
 
+  packages/subagent:
+    dependencies:
+      '@apollo-code/core':
+        specifier: workspace:*
+        version: link:../core
+      '@apollo-code/provider-kit':
+        specifier: workspace:*
+        version: link:../provider-kit
+      '@apollo-code/shared':
+        specifier: workspace:*
+        version: link:../shared
+      uuid:
+        specifier: 'catalog:'
+        version: 14.0.1
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
+
   packages/telemetry:
     dependencies:
       '@apollo-code/shared':
@@ -546,6 +571,9 @@ importers:
       '@apollo-code/shared':
         specifier: workspace:*
         version: link:../shared
+      '@apollo-code/subagent':
+        specifier: workspace:*
+        version: link:../subagent
       '@apollo-code/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit

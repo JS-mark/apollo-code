@@ -33,6 +33,7 @@ import {
   PromptLoader,
   SessionStore,
 } from '@apollo-code/storage'
+import { SubagentDispatcher } from '@apollo-code/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
@@ -231,9 +232,17 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     dangerouslySkip: false,
     logger,
   }
-  const permissions = new PermissionManager({}, permissionOptions)
-  permissions.setPromptHandler(permissionPrompt)
+  let dispatcher: SubagentDispatcher
   const createRunner: RunnerFactory = async (state, events) => {
+    // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
+    const permissions = new PermissionManager({}, permissionOptions)
+    permissions.setPromptHandler(async (request) => {
+      const decision = await permissionPrompt(request)
+      if (state.lineage.depth === 0) return decision
+      return ['allow-once', 'allow-session', 'deny'].includes(decision.kind)
+        ? decision
+        : { kind: 'deny' }
+    })
     let evolutionEnabled = true
     try {
       const config = await parseTomlFile(join(home, 'config.toml'))
@@ -293,7 +302,19 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       },
     }
     const registry = new ToolRegistry()
-    for (const tool of builtinTools({ backups })) registry.register(tool)
+    for (const tool of builtinTools({
+      backups,
+      task: {
+        dispatcher,
+        parent: (signal) => ({
+          state: runner.state,
+          events,
+          turnId: runner.state.activeTurn ?? '',
+          signal,
+        }),
+      },
+    }))
+      registry.register(tool)
     registry.register({
       name: 'Skill.activate',
       description: 'Activate an installed prompt skill for the current session',
@@ -374,6 +395,17 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     )
     return runner
   }
+  dispatcher = new SubagentDispatcher({
+    runnerFactory: createRunner,
+    maxDepth: 3,
+    maxConcurrency: 4,
+    defaultBudget: {
+      costUSDMax: 1,
+      tokenMax: 200_000,
+      timeMsMax: 10 * 60_000,
+      toolCallMax: 100,
+    },
+  })
   const session = new RuntimeSessionPort(join(home, 'sessions'), createRunner, (input) => {
     permissionOptions.dangerouslySkip = input.skipPermissions
   })

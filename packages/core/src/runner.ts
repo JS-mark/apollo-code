@@ -32,6 +32,7 @@ export interface RunnerToolPort {
 }
 export interface RunnerOptions {
   maxToolLoopsPerTurn?: number
+  budget?: { tokenMax?: number; costUSDMax?: number; timeMsMax?: number; toolCallMax?: number }
 }
 interface InProgress {
   text: string
@@ -73,7 +74,16 @@ export class Runner {
       draft.activeTurn = turnId
       draft.turns = [
         ...draft.turns,
-        { id: turnId, startMessageId: '', status: 'streaming', parentDepth: 0 },
+        {
+          id: turnId,
+          startMessageId: '',
+          status: 'streaming',
+          parentDepth: this.#state.lineage?.depth ?? 0,
+          ...(this.#state.lineage?.parentTurnId
+            ? { parentTurnId: this.#state.lineage.parentTurnId }
+            : {}),
+          ...(this.#state.lineage?.agentType ? { agentType: this.#state.lineage.agentType } : {}),
+        },
       ]
     })
     await this.emit('turn.started', turnId, {})
@@ -88,8 +98,27 @@ export class Runner {
     let retryDecision: RouterDecision | undefined
     let attempts = 0
     let loops = 0
+    let toolCalls = 0
     let failed = false
+    const turnStartedAt = Date.now()
     outer: while (!signal.aborted) {
+      const exhausted = this.exhaustedBudget(turnStartedAt, toolCalls)
+      if (exhausted) {
+        await this.emit('error.raised', turnId, {
+          code: 'subagent_budget_exhausted',
+          dimension: exhausted,
+          consumed: {
+            input: this.#state.cumulativeUsage.input,
+            output: this.#state.cumulativeUsage.output,
+            costUSD: this.#state.cumulativeUsage.costUSD,
+            timeMs: Date.now() - turnStartedAt,
+            toolCalls,
+          },
+          budget: this.options.budget ?? this.#state.resourceBudget ?? {},
+        })
+        this.#turnAbort.abort('budget')
+        break
+      }
       if (loops >= (this.options.maxToolLoopsPerTurn ?? 25)) {
         await this.emit('error.raised', turnId, { code: 'tool_loop_exhausted', loopCount: loops })
         break
@@ -204,12 +233,23 @@ export class Runner {
       if (signal.aborted) break
       const assistant = this.finish(current, decision)
       this.append(assistant)
+      if (current.usage)
+        this.#state = updateSession(this.#state, (draft) => {
+          draft.cumulativeUsage.input += current.usage!.input
+          draft.cumulativeUsage.output += current.usage!.output
+          draft.cumulativeUsage.cacheRead =
+            (draft.cumulativeUsage.cacheRead ?? 0) + (current.usage!.cacheRead ?? 0)
+          draft.cumulativeUsage.cacheWrite =
+            (draft.cumulativeUsage.cacheWrite ?? 0) + (current.usage!.cacheWrite ?? 0)
+          draft.cumulativeUsage.costUSD += current.usage!.costUSD ?? 0
+        })
       await this.emit('stream.completed', turnId, { messageId: assistant.id })
       await this.emit('message.appended', turnId, { messageId: assistant.id })
       const toolUses = assistant.content.filter(
         (part): part is Extract<ContentPart, { type: 'tool_use' }> => part.type === 'tool_use',
       )
       if (toolUses.length === 0) break
+      toolCalls += toolUses.length
       const results = await Promise.all(toolUses.map((tool) => this.tools.execute(tool, signal)))
       for (const result of results) {
         const message = this.message('user', [
@@ -236,6 +276,22 @@ export class Runner {
     })
     await this.emit(aborted ? 'turn.aborted' : 'turn.completed', turnId, {})
     return this.#state
+  }
+  private exhaustedBudget(
+    startedAt: number,
+    toolCalls: number,
+  ): 'token' | 'cost' | 'time' | 'tool-call' | undefined {
+    const budget = this.options.budget ?? this.#state.resourceBudget
+    if (!budget) return
+    if (
+      budget.tokenMax !== undefined &&
+      this.#state.cumulativeUsage.input + this.#state.cumulativeUsage.output >= budget.tokenMax
+    )
+      return 'token'
+    if (budget.costUSDMax !== undefined && this.#state.cumulativeUsage.costUSD >= budget.costUSDMax)
+      return 'cost'
+    if (budget.timeMsMax !== undefined && Date.now() - startedAt >= budget.timeMsMax) return 'time'
+    if (budget.toolCallMax !== undefined && toolCalls >= budget.toolCallMax) return 'tool-call'
   }
   private routerContext(turnId: string, attemptCount: number) {
     return {
