@@ -14,6 +14,7 @@ export const command = defineCommand({
     evolution: leaf('evolution', 'Inspect and rollback context tuning'),
     doctor: leaf('doctor', 'Diagnose L1 dependencies'),
     hook: leaf('hook', 'List builtin hooks'),
+    mcp: leaf('mcp', 'List, test, and inspect MCP servers'),
     version: leaf('version', 'Print version'),
     help: leaf('help', 'Show command help'),
   },

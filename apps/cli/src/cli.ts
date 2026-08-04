@@ -109,6 +109,38 @@ export async function runCli(
     return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
+  if (subcommand === 'mcp') {
+    if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+    const action = args._[1] ?? 'list'
+    if (action === 'list') {
+      const servers = await ports.mcp.list()
+      stdout += args.json
+        ? `${servers.map((server) => JSON.stringify(server)).join('\n')}${servers.length ? '\n' : ''}`
+        : `${servers.map((server) => `${server.name}\t${redactTransport(server.transport)}`).join('\n')}${servers.length ? '\n' : ''}`
+      return { exitCode: 0, stdout, stderr }
+    }
+    if (action === 'test' || action === 'inspect') {
+      const name = args._[2]
+      if (!name) return { exitCode: 2, stdout, stderr: `mcp ${action} requires a server name` }
+      try {
+        if (action === 'test') {
+          const result = await ports.mcp.test(name, AbortSignal.timeout(10_000))
+          stdout += `${args.json ? JSON.stringify(result) : `Connected (${result.protocolVersion})`}\n`
+        } else {
+          const result = await ports.mcp.inspect(name, AbortSignal.timeout(10_000))
+          stdout += `${args.json ? JSON.stringify(result) : result.tools.map((tool) => `${tool.name}${tool.description ? ` — ${tool.description}` : ''}`).join('\n')}\n`
+        }
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        return {
+          exitCode: 1,
+          stdout,
+          stderr: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }
+    return { exitCode: 2, stdout, stderr: `Unknown mcp action: ${action}` }
+  }
   if (subcommand === 'context') {
     if (!ports.context)
       return { exitCode: 2, stdout, stderr: 'context integration port is not connected' }
@@ -275,4 +307,17 @@ export async function runCli(
   const prompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ') || undefined
   await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })
   return { exitCode: 0, stdout, stderr }
+}
+
+function redactTransport(value: string): string {
+  try {
+    const url = new URL(value)
+    if (url.username || url.password) {
+      url.username = ''
+      url.password = ''
+    }
+    return url.toString()
+  } catch {
+    return value.replace(/(authorization|token|secret|key)=\S+/gi, '$1=<hidden>')
+  }
 }

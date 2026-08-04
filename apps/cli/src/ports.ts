@@ -37,6 +37,14 @@ export interface EvolutionPort {
   show(options: { namespace?: string; since?: Date }): Promise<unknown[]>
   rollback(options: { namespace?: 'context'; to?: Date }): Promise<unknown[]>
 }
+export interface McpPort {
+  list(): Promise<Array<{ name: string; transport: string }>>
+  test(name: string, signal: AbortSignal): Promise<{ protocolVersion: string }>
+  inspect(
+    name: string,
+    signal: AbortSignal,
+  ): Promise<{ tools: Array<{ name: string; description?: string }> }>
+}
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
@@ -64,6 +72,7 @@ export interface ApolloPorts {
   }
   context?: ContextPort
   evolution?: EvolutionPort
+  mcp?: McpPort
 }
 export function unavailablePorts(): ApolloPorts {
   return {
