@@ -23,7 +23,7 @@ pub struct Permissions {
     #[serde(default)]
     pub fs: FsPermissions,
     #[serde(default)]
-    pub net: bool,
+    pub net: NetworkPermissions,
     #[serde(default)]
     pub env: EnvPermissions,
 }
@@ -33,7 +33,7 @@ impl Permissions {
     /// by `declared`. Backends must call this before applying a transformed
     /// profile so normalization can never widen PermissionSpec.
     pub fn is_subset_of(&self, declared: &Self) -> bool {
-        (!self.net || declared.net)
+        self.net.is_subset_of(&declared.net)
             && self
                 .fs
                 .read
@@ -49,6 +49,54 @@ impl Permissions {
                 .read
                 .iter()
                 .all(|name| declared.env.read.contains(name))
+    }
+}
+
+/// Network access is deny-by-default. `true` remains accepted on the wire for
+/// older clients, but is deliberately not a valid Tier 3 profile because it
+/// cannot be translated into a finite WFP policy.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum NetworkPermissions {
+    #[default]
+    Disabled,
+    Legacy(bool),
+    Allowlist {
+        allowlist: Vec<String>,
+    },
+}
+
+impl NetworkPermissions {
+    pub fn allows_network(&self) -> bool {
+        match self {
+            Self::Legacy(value) => *value,
+            Self::Allowlist { allowlist } => !allowlist.is_empty(),
+            Self::Disabled => false,
+        }
+    }
+
+    pub fn allowlist(&self) -> Result<&[String], String> {
+        match self {
+            Self::Disabled | Self::Legacy(false) => Ok(&[]),
+            Self::Legacy(true) => {
+                Err("Windows Tier 3 requires an explicit IP:port or hostname:port allowlist".into())
+            }
+            Self::Allowlist { allowlist } => Ok(allowlist),
+        }
+    }
+
+    fn is_subset_of(&self, declared: &Self) -> bool {
+        match (self, declared) {
+            (Self::Disabled | Self::Legacy(false), _) => true,
+            (Self::Legacy(true), Self::Legacy(true)) => true,
+            (
+                Self::Allowlist { allowlist },
+                Self::Allowlist {
+                    allowlist: declared,
+                },
+            ) => allowlist.iter().all(|entry| declared.contains(entry)),
+            _ => false,
+        }
     }
 }
 
@@ -154,7 +202,7 @@ mod tests {
                 read: vec!["/workspace/**".into()],
                 write: vec![],
             },
-            net: false,
+            net: NetworkPermissions::Disabled,
             env: EnvPermissions {
                 read: vec!["PATH".into()],
             },
@@ -164,7 +212,7 @@ mod tests {
                 read: declared.fs.read.clone(),
                 write: vec!["/workspace/**".into()],
             },
-            net: true,
+            net: NetworkPermissions::Legacy(true),
             env: EnvPermissions {
                 read: vec!["PATH".into(), "HOME".into()],
             },

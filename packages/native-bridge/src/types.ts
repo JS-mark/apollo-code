@@ -12,7 +12,11 @@ export interface ExecOptions {
   command: string
   cwd: string
   timeout_ms?: number
-  permissions: { fs: { read: string[]; write: string[] }; net: boolean; env: { read: string[] } }
+  permissions: {
+    fs: { read: string[]; write: string[] }
+    net: false | { allowlist: string[] }
+    env: { read: string[] }
+  }
   env?: Record<string, string>
 }
 export interface ExecResult {

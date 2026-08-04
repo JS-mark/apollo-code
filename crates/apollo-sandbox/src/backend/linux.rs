@@ -67,7 +67,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
         "--dev",
         "/dev",
     ]);
-    if !request.permissions.net {
+    if !request.permissions.net.allows_network() {
         command.arg("--unshare-net");
     }
     for writable in &request.permissions.fs.write {
