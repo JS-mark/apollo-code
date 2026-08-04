@@ -1,4 +1,4 @@
-import type { JsonValue } from '@apollo-code/shared'
+import type { ApolloErrorCategory, JsonValue } from '@apollo-code/shared'
 
 export interface Usage {
   input: number
@@ -7,18 +7,7 @@ export interface Usage {
   cacheWrite?: number
   costUSD?: number
 }
-export type ProviderErrorCategory =
-  | 'network'
-  | 'auth'
-  | 'rate_limit'
-  | 'quota'
-  | 'invalid_request'
-  | 'content_filter'
-  | 'model_not_found'
-  | 'server'
-  | 'context_length'
-  | 'stream_truncated'
-  | 'unknown'
+export type ProviderErrorCategory = ApolloErrorCategory
 export interface ProviderError extends Error {
   provider: string
   model?: string
