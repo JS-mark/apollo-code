@@ -208,8 +208,9 @@ export async function runCli(
       return { exitCode: 2, stdout, stderr: 'evolution integration port is not connected' }
     const action = args._[1] ?? 'show'
     const namespace = args.namespace ? String(args.namespace) : undefined
-    if (namespace && namespace !== 'context')
-      return { exitCode: 2, stdout, stderr: `Unsupported L2 evolution namespace: ${namespace}` }
+    const namespaces = ['context', 'router', 'retry', 'tool-timeout'] as const
+    if (namespace && !namespaces.includes(namespace as (typeof namespaces)[number]))
+      return { exitCode: 2, stdout, stderr: `Unsupported evolution namespace: ${namespace}` }
     if (action === 'show') {
       const records = await ports.evolution.show({
         ...(namespace ? { namespace } : {}),
@@ -224,7 +225,7 @@ export async function runCli(
     }
     if (action === 'rollback') {
       const records = await ports.evolution.rollback({
-        namespace: 'context',
+        namespace: (namespace as (typeof namespaces)[number] | undefined) ?? 'context',
         ...(args.to ? { to: new Date(String(args.to)) } : {}),
       })
       stdout += `Rolled back ${records.length} parameter(s).\n`

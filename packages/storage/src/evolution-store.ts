@@ -3,23 +3,26 @@ import { mkdir, open, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
-import type { ContextTunableParam, EvolutionPersistence, EvolutionRecord } from '@apollo-code/core'
-import { CONTEXT_TUNABLE_DEFAULTS } from '@apollo-code/core'
+import type { EvolutionNamespace, EvolutionPersistence, EvolutionRecord } from '@apollo-code/core'
+import { EVOLUTION_DEFAULTS } from '@apollo-code/core'
 import { sanitize } from '@apollo-code/shared'
 
 export class EvolutionStore implements EvolutionPersistence {
+  #writeQueue = Promise.resolve()
   constructor(readonly root: string) {}
-  async current(namespace: 'context') {
-    const values: Partial<Record<ContextTunableParam, number>> = {}
+  async current(namespace: EvolutionNamespace) {
+    const values: Partial<Record<string, number>> = {}
     for (const record of await this.readNamespace(namespace)) values[record.param] = record.after
     return values
   }
   async append(record: EvolutionRecord): Promise<void> {
     const clean = sanitize(record)
-    await Promise.all([
-      this.appendLine(join(this.root, `${record.namespace}.jsonl`), clean),
-      this.appendLine(join(this.root, 'audit.jsonl'), clean),
-    ])
+    const write = this.#writeQueue.then(async () => {
+      await this.appendLine(join(this.root, `${record.namespace}.jsonl`), clean)
+      await this.appendLine(join(this.root, 'audit.jsonl'), clean)
+    })
+    this.#writeQueue = write.catch(() => {})
+    await write
   }
   async audit(namespace?: string, since?: Date): Promise<EvolutionRecord[]> {
     return (await this.read(join(this.root, 'audit.jsonl'))).filter(
@@ -27,17 +30,20 @@ export class EvolutionStore implements EvolutionPersistence {
         (!namespace || record.namespace === namespace) && (!since || new Date(record.at) >= since),
     )
   }
-  async rollback(namespace: 'context' = 'context', to?: Date): Promise<EvolutionRecord[]> {
+  async rollback(namespace: EvolutionNamespace = 'context', to?: Date): Promise<EvolutionRecord[]> {
     const history = await this.readNamespace(namespace)
     const eligible = to
       ? history.filter((record) => new Date(record.at) <= to)
       : history.slice(0, -1)
     const current = await this.current(namespace)
-    const target: Partial<Record<ContextTunableParam, number>> = {}
+    const target: Partial<Record<string, number>> = {}
     for (const record of eligible) target[record.param] = record.after
     const records: EvolutionRecord[] = []
-    for (const [param, before] of Object.entries(current) as [ContextTunableParam, number][]) {
-      const after = target[param] ?? CONTEXT_TUNABLE_DEFAULTS[param]
+    for (const [param, before] of Object.entries(current)) {
+      if (before === undefined) continue
+      const after =
+        target[param] ?? (EVOLUTION_DEFAULTS[namespace] as Record<string, number>)[param]
+      if (after === undefined) continue
       if (after === before) continue
       const record: EvolutionRecord = {
         namespace,
