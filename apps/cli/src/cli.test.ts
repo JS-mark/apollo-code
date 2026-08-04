@@ -59,9 +59,27 @@ describe('runCli', () => {
       'evolution',
       'doctor',
       'hook',
+      'mcp',
       'version',
       'help',
     ])
+  })
+
+  it('lists and inspects MCP servers without exposing URL credentials', async () => {
+    const mcp = {
+      list: vi.fn(async () => [
+        { name: 'demo', transport: 'https://user:secret@example.test/sse' },
+      ]),
+      test: vi.fn(async () => ({ protocolVersion: '2025-03-26' })),
+      inspect: vi.fn(async () => ({ tools: [{ name: 'read', description: 'reads' }] })),
+    }
+    const listed = await runCli(['mcp', 'list'], ports({ mcp }))
+    expect(listed.stdout).toContain('demo')
+    expect(listed.stdout).not.toContain('secret')
+    expect((await runCli(['mcp', 'test', 'demo'], ports({ mcp }))).stdout).toContain('2025-03-26')
+    expect((await runCli(['mcp', 'inspect', 'demo'], ports({ mcp }))).stdout).toContain(
+      'read — reads',
+    )
   })
 
   it('shows and rolls back evolution audit records through one port', async () => {
