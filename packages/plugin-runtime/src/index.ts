@@ -86,12 +86,12 @@ export async function verifyBundle(
   for (const entry of [manifest.main, ...Object.keys(integrity ?? {})]) {
     if (!safeRelative(entry))
       throw new PluginError('plugin_path_escape', `unsafe bundle path: ${entry}`)
-    const path = resolve(root, entry),
-      resolved = await realpath(path)
-    if (resolved !== root && !resolved.startsWith(`${root}${sep}`))
-      throw new PluginError('plugin_path_escape', `bundle path escapes plugin: ${entry}`)
+    const path = resolve(root, entry)
     if ((await lstat(path)).isSymbolicLink())
       throw new PluginError('plugin_symlink_rejected', `symlink rejected: ${entry}`)
+    const resolved = await realpath(path)
+    if (resolved !== root && !resolved.startsWith(`${root}${sep}`))
+      throw new PluginError('plugin_path_escape', `bundle path escapes plugin: ${entry}`)
     const expected = integrity?.[entry]
     if (expected) {
       const actual = createHash('sha256')
