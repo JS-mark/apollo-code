@@ -9,12 +9,6 @@ export const MCP_PROTOCOL_VERSION = '2025-03-26'
 const DEFAULT_LIMIT = 4 * 1024 * 1024
 
 type Id = number
-interface RpcResponse {
-  jsonrpc: '2.0'
-  id: Id
-  result?: unknown
-  error?: { code: number; message: string }
-}
 export interface McpTransport {
   start(onMessage: (message: unknown) => void, onClose: (error?: Error) => void): Promise<void>
   send(message: unknown, signal?: AbortSignal): Promise<void>
@@ -71,7 +65,7 @@ export class StdioTransport implements McpTransport {
   }
   async send(message: unknown, signal?: AbortSignal) {
     if (!this.#child) throw new Error('MCP stdio transport is not started')
-    signal?.throwIfAborted()
+    if (signal?.aborted) signal.throwIfAborted()
     const payload = `${JSON.stringify(message)}\n`
     if (Buffer.byteLength(payload) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
       throw new Error('MCP request exceeds size limit')
@@ -80,7 +74,8 @@ export class StdioTransport implements McpTransport {
       signal?.addEventListener('abort', abort, { once: true })
       this.#child!.stdin.write(payload, (error) => {
         signal?.removeEventListener('abort', abort)
-        error ? reject(error) : resolve()
+        if (error) reject(error)
+        else resolve()
       })
     })
   }
