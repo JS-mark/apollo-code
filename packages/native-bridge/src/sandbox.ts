@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 
 import { resolveBinary } from './resolver'
-import type { ExecOptions, ExecResult, SandboxInfo } from './types'
+import type { ExecOptions, ExecResult, PluginHost, PluginHostOptions, SandboxInfo } from './types'
 
 const NONE: SandboxInfo = Object.freeze({
   platform: process.platform,
@@ -64,4 +64,41 @@ export async function execSandbox(options: ExecOptions, signal?: AbortSignal): P
   const binary = await resolveBinary('sandbox')
   if (!binary) throw new Error('sandbox binary disappeared after frozen probe; restart required')
   return JSON.parse(await invoke(binary, ['exec'], JSON.stringify(options), signal)) as ExecResult
+}
+
+/** The only supported plugin process entrypoint. The inherited fd 3 is an NDJSON bridge. */
+export async function startPluginHost(options: PluginHostOptions): Promise<PluginHost> {
+  const info = await probeSandbox()
+  if (info.tier === 'none') throw new Error('sandbox unavailable; refusing unsandboxed plugin host')
+  const binary = await resolveBinary('sandbox')
+  if (!binary) throw new Error('sandbox binary disappeared after frozen probe; restart required')
+  const child = spawn(
+    binary,
+    [
+      '--run-plugin',
+      '--entry',
+      options.entry,
+      '--data-dir',
+      options.dataDir,
+      '--sandbox-profile',
+      JSON.stringify(options.profile),
+      '--bridge-fd',
+      '3',
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe', 'pipe'], signal: options.signal },
+  )
+  const bridge = child.stdio[3]
+  if (!bridge || typeof bridge === 'string') throw new Error('plugin bridge fd unavailable')
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+    child.once('close', (code, signal) => resolve({ code, signal })),
+  )
+  const timeout = setTimeout(() => child.kill('SIGKILL'), options.activationTimeoutMs ?? 10_000)
+  bridge.once('data', () => clearTimeout(timeout))
+  child.once('close', () => clearTimeout(timeout))
+  return {
+    pid: child.pid ?? -1,
+    bridge: bridge as unknown as NodeJS.ReadWriteStream,
+    terminate: () => child.kill('SIGKILL'),
+    exited,
+  }
 }
