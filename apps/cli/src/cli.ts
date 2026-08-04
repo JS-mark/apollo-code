@@ -129,6 +129,57 @@ export async function runCli(
     return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
+  if (subcommand === 'plugin') {
+    if (!ports.plugin)
+      return { exitCode: 2, stdout, stderr: 'plugin integration port is not connected' }
+    const action = args._[1] ?? 'list'
+    try {
+      if (action === 'list') {
+        const plugins = await ports.plugin.list()
+        stdout += args.json
+          ? `${Object.entries(plugins)
+              .map(([name, state]) => JSON.stringify({ name, ...state }))
+              .join('\n')}${Object.keys(plugins).length ? '\n' : ''}`
+          : `${Object.entries(plugins)
+              .map(
+                ([name, state]) =>
+                  `${name}@${state.version}\t${state.enabled ? 'enabled' : 'disabled'}`,
+              )
+              .join('\n')}${Object.keys(plugins).length ? '\n' : ''}`
+        return { exitCode: 0, stdout, stderr }
+      }
+      const target = args._[2]
+      if (!target) return { exitCode: 2, stdout, stderr: `plugin ${action} requires a target` }
+      if (action === 'install') {
+        const manifest = await ports.plugin.install(target)
+        return {
+          exitCode: 0,
+          stdout: `${stdout}Installed ${manifest.name}@${manifest.version}.\n`,
+          stderr,
+        }
+      }
+      if (action === 'uninstall') {
+        await ports.plugin.uninstall(target)
+        return { exitCode: 0, stdout: `${stdout}Uninstalled ${target}.\n`, stderr }
+      }
+      if (action === 'enable' || action === 'disable') {
+        await ports.plugin.setEnabled(target, action === 'enable')
+        return {
+          exitCode: 0,
+          stdout: `${stdout}${action === 'enable' ? 'Enabled' : 'Disabled'} ${target}.\n`,
+          stderr,
+        }
+      }
+      if (action === 'doctor') {
+        const report = await ports.plugin.doctor(target)
+        stdout += `${args.json ? JSON.stringify(report) : `${report.name}@${report.version}\nPermissions: ${report.permissions.join(', ') || 'none'}`}\n`
+        return { exitCode: 0, stdout, stderr }
+      }
+      return { exitCode: 2, stdout, stderr: `Unknown plugin action: ${action}` }
+    } catch (error) {
+      return { exitCode: 1, stdout, stderr: error instanceof Error ? error.message : String(error) }
+    }
+  }
   if (subcommand === 'mcp') {
     if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
     const action = args._[1] ?? 'list'

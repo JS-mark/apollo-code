@@ -21,6 +21,7 @@ import type { RunnerToolPort, SessionState } from '@apollo-code/core'
 import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
+import { PluginManager } from '@apollo-code/plugin-runtime'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { SingleProviderRouter } from '@apollo-code/router'
@@ -213,13 +214,26 @@ export interface ProductionOptions {
   version?: string
 }
 export function createProductionPorts(options: ProductionOptions = {}): ApolloPorts {
-  const home = options.apolloHome ?? join(homedir(), '.apollo')
+  const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
   const telemetry = new Telemetry(new LocalTelemetrySink(telemetryPath))
   const telemetryStore = new TelemetryStore(telemetryPath)
   const logger = new TelemetryLogger(telemetry, 'cli')
+  const pluginRoot = join(home, 'plugins')
+  const plugins = new PluginManager(
+    pluginRoot,
+    options.version ?? '0.0.0',
+    async (manifest, expanded) => {
+      const permissions = manifest.permissions.apollo.join(', ') || 'none'
+      const answer = await promptLine(
+        `${expanded ? 'Expanded' : 'Requested'} plugin permissions for ${manifest.name}: ${permissions}\nApprove? [y/N] `,
+      )
+      return answer.trim().toLowerCase() === 'y'
+    },
+  )
+  const pluginsReady = plugins.init()
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
@@ -433,6 +447,35 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
       rollback: (rollbackOptions) =>
         evolution.rollback(rollbackOptions.namespace, rollbackOptions.to),
+    },
+    plugin: {
+      async install(source) {
+        await pluginsReady
+        return plugins.install(source)
+      },
+      async uninstall(name) {
+        await pluginsReady
+        await plugins.uninstall(name)
+      },
+      async list() {
+        await pluginsReady
+        return plugins.list()
+      },
+      async setEnabled(name, enabled) {
+        await pluginsReady
+        await plugins.setEnabled(name, enabled)
+      },
+      async doctor(name) {
+        await pluginsReady
+        const state = plugins.list()[name]
+        if (!state) throw new Error(`plugin_not_installed: ${name}`)
+        const manifest = await plugins.inspect(join(pluginRoot, name))
+        return {
+          name: manifest.name,
+          version: manifest.version,
+          permissions: manifest.permissions.apollo,
+        }
+      },
     },
     telemetry: {
       securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
