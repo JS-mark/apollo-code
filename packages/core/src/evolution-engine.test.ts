@@ -1,16 +1,28 @@
 import { describe, expect, it } from 'vitest'
 
-import { CONTEXT_TUNABLE_DEFAULTS, EvolutionEngine, type EvolutionRecord } from './evolution-engine'
+import {
+  CONTEXT_TUNABLE_DEFAULTS,
+  EVOLUTION_DEFAULTS,
+  EvolutionEngine,
+  type EvolutionRecord,
+} from './evolution-engine'
 
 const persistence = () => {
   const records: EvolutionRecord[] = []
   return {
     records,
-    async current() {
-      return Object.fromEntries(records.map((record) => [record.param, record.after]))
+    async current(namespace = 'context') {
+      return Object.fromEntries(
+        records
+          .filter((record) => record.namespace === namespace)
+          .map((record) => [record.param, record.after]),
+      )
     },
     async append(record: EvolutionRecord) {
       records.push(record)
+    },
+    async audit() {
+      return records
     },
   }
 }
@@ -59,5 +71,56 @@ describe('EvolutionEngine', () => {
       action: 'adjusted',
     })
     expect((await new EvolutionEngine(store, { enabled: false }).values()).target_ratio).toBe(0.6)
+  })
+  it('supports router, retry, and tool timeout windows with namespace switches', async () => {
+    const store = persistence()
+    const engine = new EvolutionEngine(store, {
+      sampleWindow: 2,
+      namespaces: ['retry', 'tool-timeout'],
+    })
+    expect(await engine.observe('router', { fallback_success_rate: 1 })).toBeUndefined()
+    await engine.observe('retry', { retry_success_rate: 1 })
+    expect(await engine.observe('retry', { retry_success_rate: 1 })).toMatchObject({
+      namespace: 'retry',
+      param: 'max_retries',
+      before: 2,
+      after: 2.2,
+    })
+    await engine.observe('tool-timeout', { timeout_rate: 1, user_retry_rate: 1 })
+    expect(
+      await engine.observe('tool-timeout', { timeout_rate: 1, user_retry_rate: 1 }),
+    ).toMatchObject({
+      namespace: 'tool-timeout',
+      param: 'default_timeout_ms',
+      after: 66_000,
+    })
+  })
+  it('rejects unknown and security parameters and caps tool timeouts', async () => {
+    const engine = new EvolutionEngine(persistence())
+    for (const param of ['sandbox', 'permission', 'untrusted', 'hook_priority'])
+      expect(await engine.propose('router', param, 1, 'unsafe', {})).toBeUndefined()
+    expect(
+      await engine.propose('tool-timeout', 'default_timeout_ms', 999_999, 'large', {}),
+    ).toMatchObject({ after: 66_000 })
+    expect(EVOLUTION_DEFAULTS['tool-timeout'].default_timeout_ms).toBeLessThanOrEqual(300_000)
+  })
+  it('requires confirmation for cumulative deviation and freezes after rejection', async () => {
+    const store = persistence()
+    store.records.push({
+      namespace: 'router',
+      param: 'cooldown_ms',
+      before: 60_000,
+      after: 78_000,
+      at: '',
+      reason: '',
+      signal: {},
+      action: 'adjusted',
+    })
+    const engine = new EvolutionEngine(store, { confirm: async () => false })
+    expect(await engine.propose('router', 'cooldown_ms', 80_000, 'cumulative', {})).toMatchObject({
+      action: 'confirmation_rejected',
+      after: 60_000,
+    })
+    expect(await engine.propose('router', 'cooldown_ms', 50_000, 'frozen', {})).toBeUndefined()
   })
 })

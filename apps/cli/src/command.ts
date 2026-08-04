@@ -11,7 +11,7 @@ export const command = defineCommand({
     config: leaf('config', 'Inspect configuration'),
     history: leaf('history', 'List or show sessions'),
     context: leaf('context', 'Inspect and control context compaction'),
-    evolution: leaf('evolution', 'Inspect and rollback context tuning'),
+    evolution: leaf('evolution', 'Inspect and rollback local tuning'),
     doctor: leaf('doctor', 'Diagnose L1 dependencies'),
     hook: leaf('hook', 'List builtin hooks'),
     mcp: leaf('mcp', 'List, test, and inspect MCP servers'),

@@ -46,4 +46,24 @@ describe('evolution persistence', () => {
     expect(memory).toMatchObject({ scope: 'tuning', source: 'evolution' })
     expect((await store.read('one')).body).toContain('[REDACTED]')
   })
+  it('serializes concurrent appends without losing or interleaving records', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-concurrent-'))
+    const store = new EvolutionStore(root)
+    await Promise.all(
+      Array.from({ length: 25 }, (_, index) =>
+        store.append({
+          namespace: 'retry',
+          param: 'max_retries',
+          before: index,
+          after: index + 1,
+          at: new Date(index).toISOString(),
+          reason: 'concurrent',
+          signal: {},
+          action: 'adjusted',
+        }),
+      ),
+    )
+    expect(await store.audit('retry')).toHaveLength(25)
+    expect(await store.current('retry')).toEqual({ max_retries: 25 })
+  })
 })

@@ -35,7 +35,10 @@ export interface ContextPort {
 }
 export interface EvolutionPort {
   show(options: { namespace?: string; since?: Date }): Promise<unknown[]>
-  rollback(options: { namespace?: 'context'; to?: Date }): Promise<unknown[]>
+  rollback(options: {
+    namespace?: 'context' | 'router' | 'retry' | 'tool-timeout'
+    to?: Date
+  }): Promise<unknown[]>
 }
 export interface McpPort {
   list(): Promise<Array<{ name: string; transport: string }>>
