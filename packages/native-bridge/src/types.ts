@@ -23,3 +23,22 @@ export interface ExecResult {
   sandbox_tier: SandboxTier
   sandbox_violations: string[]
 }
+export interface PluginSandboxProfile {
+  fs: { read: string[]; write: string[] }
+  net: false | { allowlist: string[] }
+  env: { read: string[] }
+  limits: { cpu_seconds: number; rss_mb: number; processes: number; open_files: number }
+}
+export interface PluginHostOptions {
+  entry: string
+  dataDir: string
+  profile: PluginSandboxProfile
+  activationTimeoutMs?: number
+  signal?: AbortSignal
+}
+export interface PluginHost {
+  readonly pid: number
+  readonly bridge: NodeJS.ReadWriteStream
+  terminate(): void
+  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+}
