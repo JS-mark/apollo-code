@@ -1,0 +1,13 @@
+{
+  "name": "apollo-plugin-community-example",
+  "version": "0.0.1",
+  "private": true,
+  "files": [
+    "index.mjs",
+    "manifest.json"
+  ],
+  "type": "module",
+  "scripts": {
+    "pack:dry-run": "npm pack --dry-run"
+  }
+}

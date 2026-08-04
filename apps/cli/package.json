@@ -20,6 +20,7 @@
     "@apollo-code/core": "workspace:*",
     "@apollo-code/native-bridge": "workspace:*",
     "@apollo-code/permission": "workspace:*",
+    "@apollo-code/plugin-runtime": "workspace:*",
     "@apollo-code/provider-anthropic": "workspace:*",
     "@apollo-code/router": "workspace:*",
     "@apollo-code/shared": "workspace:*",

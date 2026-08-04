@@ -75,6 +75,7 @@ describe('runCli', () => {
       'history',
       'context',
       'evolution',
+      'plugin',
       'telemetry',
       'doctor',
       'hook',
@@ -82,6 +83,35 @@ describe('runCli', () => {
       'version',
       'help',
     ])
+  })
+
+  it('installs, lists, diagnoses, disables, and uninstalls plugins through one port', async () => {
+    const plugin = {
+      install: vi.fn(async () => ({ name: 'apollo-plugin-demo', version: '1.0.0' })),
+      uninstall: vi.fn(async () => {}),
+      list: vi.fn(async () => ({
+        'apollo-plugin-demo': { version: '1.0.0', enabled: true },
+      })),
+      setEnabled: vi.fn(async () => {}),
+      doctor: vi.fn(async () => ({
+        name: 'apollo-plugin-demo',
+        version: '1.0.0',
+        permissions: ['tools.register'],
+      })),
+    }
+    expect((await runCli(['plugin', 'install', './demo'], ports({ plugin }))).stdout).toContain(
+      'Installed apollo-plugin-demo@1.0.0',
+    )
+    expect((await runCli(['plugin', 'list', '--json'], ports({ plugin }))).stdout).toContain(
+      'apollo-plugin-demo',
+    )
+    expect(
+      (await runCli(['plugin', 'doctor', 'apollo-plugin-demo'], ports({ plugin }))).stdout,
+    ).toContain('tools.register')
+    await runCli(['plugin', 'disable', 'apollo-plugin-demo'], ports({ plugin }))
+    await runCli(['plugin', 'uninstall', 'apollo-plugin-demo'], ports({ plugin }))
+    expect(plugin.setEnabled).toHaveBeenCalledWith('apollo-plugin-demo', false)
+    expect(plugin.uninstall).toHaveBeenCalledWith('apollo-plugin-demo')
   })
 
   it('lists and inspects MCP servers without exposing URL credentials', async () => {

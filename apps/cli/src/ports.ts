@@ -49,6 +49,13 @@ export interface McpPort {
     signal: AbortSignal,
   ): Promise<{ tools: Array<{ name: string; description?: string }> }>
 }
+export interface PluginPort {
+  install(source: string): Promise<{ name: string; version: string }>
+  uninstall(name: string): Promise<void>
+  list(): Promise<Record<string, { version: string; enabled: boolean; failures?: number }>>
+  setEnabled(name: string, enabled: boolean): Promise<void>
+  doctor(name: string): Promise<{ name: string; version: string; permissions: readonly string[] }>
+}
 export interface ApolloPorts {
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
@@ -81,6 +88,7 @@ export interface ApolloPorts {
   context?: ContextPort
   evolution?: EvolutionPort
   mcp?: McpPort
+  plugin?: PluginPort
 }
 export function unavailablePorts(): ApolloPorts {
   return {

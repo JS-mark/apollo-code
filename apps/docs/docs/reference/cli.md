@@ -14,6 +14,7 @@
 | `apollo resume <session-id>`   | Resume at the last durable turn boundary.                                 |
 | `apollo restore <session-id>`  | Restore files changed during a session.                                   |
 | `apollo doctor [--strict]`     | Check configuration, credentials, native packages, and sandbox readiness. |
+| `apollo plugin <action>`       | Install, list, diagnose, enable, disable, or uninstall local plugins.     |
 | `apollo hook list`             | List built-in hooks.                                                      |
 | `apollo version`               | Print the version.                                                        |
 | `apollo help`                  | Show command help.                                                        |
@@ -29,3 +30,7 @@ Resume marks an unfinished turn as aborted and starts from a new turn; it never 
 `apollo telemetry show` summarizes locally stored Tier and sandbox escape decisions. A missing sample is reported as unknown, never as passing. `apollo telemetry export <path>` exports a freshly redacted JSONL copy, and `apollo telemetry clear` clears the active local file. `apollo doctor` reports sink writability and damaged JSONL lines.
 
 Telemetry stays local by default. Apollo does not enable an OpenTelemetry exporter unless one is explicitly configured; telemetry never changes sandbox permissions or Tier selection.
+
+## Plugins
+
+`apollo plugin install <local-directory>` validates the manifest and bundle, displays requested Apollo permissions, and installs only after explicit approval. Use `plugin list [--json]`, `plugin doctor <name>`, `plugin enable|disable <name>`, and `plugin uninstall <name>` to manage the local copy. Registry and GitHub install specs, upgrades, and the L4 development hot-reload command are not implemented yet.

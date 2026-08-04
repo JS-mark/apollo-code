@@ -12,6 +12,7 @@ export const command = defineCommand({
     history: leaf('history', 'List or show sessions'),
     context: leaf('context', 'Inspect and control context compaction'),
     evolution: leaf('evolution', 'Inspect and rollback local tuning'),
+    plugin: leaf('plugin', 'Install and manage sandboxed plugins'),
     telemetry: leaf('telemetry', 'Inspect, export, or clear local telemetry'),
     doctor: leaf('doctor', 'Diagnose L1 dependencies'),
     hook: leaf('hook', 'List builtin hooks'),
