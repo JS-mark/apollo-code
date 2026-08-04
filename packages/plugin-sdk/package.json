@@ -16,6 +16,9 @@
     "test": "vitest run --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@apollo-code/provider-kit": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"

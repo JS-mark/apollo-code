@@ -130,6 +130,80 @@ export interface ProviderClient {
   dispose(): Promise<void>
 }
 
+export interface Disposable {
+  dispose(): void | Promise<void>
+}
+export type ProviderSource = { kind: 'core' } | { kind: 'plugin'; plugin: string }
+export interface ModelDescriptor {
+  id: string
+  maxContext?: number
+}
+export interface ProviderMeta {
+  capabilities: Readonly<ProviderCapabilities>
+  displayName: string
+  models?: readonly ModelDescriptor[]
+}
+export interface RegisteredProvider {
+  name: string
+  source: ProviderSource
+  meta: Readonly<ProviderMeta>
+  client: ProviderClient
+}
+export interface ProviderRegistry {
+  register(client: ProviderClient, source: ProviderSource, meta: ProviderMeta): Disposable
+  get(name: string): ProviderClient | undefined
+  list(): readonly RegisteredProvider[]
+  describe(name: string): RegisteredProvider | undefined
+}
+
+const freezeMeta = (meta: ProviderMeta): Readonly<ProviderMeta> => {
+  const frozen: ProviderMeta = {
+    displayName: meta.displayName,
+    capabilities: Object.freeze(structuredClone(meta.capabilities)),
+  }
+  if (meta.models)
+    frozen.models = Object.freeze(meta.models.map((model) => Object.freeze({ ...model })))
+  return Object.freeze(frozen)
+}
+
+export class InMemoryProviderRegistry implements ProviderRegistry {
+  private readonly providers = new Map<string, RegisteredProvider>()
+
+  register(client: ProviderClient, source: ProviderSource, meta: ProviderMeta): Disposable {
+    if (this.providers.has(client.name)) throw new Error(`provider_name_conflict: ${client.name}`)
+    if (
+      client.capabilities !== meta.capabilities &&
+      JSON.stringify(client.capabilities) !== JSON.stringify(meta.capabilities)
+    )
+      throw new Error(`provider_capabilities_mismatch: ${client.name}`)
+    const registered = Object.freeze({
+      name: client.name,
+      source: Object.freeze({ ...source }),
+      meta: freezeMeta(meta),
+      client,
+    })
+    this.providers.set(client.name, registered)
+    let disposed = false
+    return {
+      dispose: async () => {
+        if (disposed) return
+        disposed = true
+        if (this.providers.get(client.name) === registered) this.providers.delete(client.name)
+        await client.dispose()
+      },
+    }
+  }
+  get(name: string) {
+    return this.providers.get(name)?.client
+  }
+  describe(name: string) {
+    return this.providers.get(name)
+  }
+  list() {
+    return Object.freeze([...this.providers.values()])
+  }
+}
+
 export interface ContextConfig {
   compactionThreshold?: number
   targetRatio?: number

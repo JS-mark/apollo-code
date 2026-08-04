@@ -1,4 +1,4 @@
-import type { ProviderClient, ProviderError } from '@apollo-code/provider-kit'
+import type { ProviderClient, ProviderError, ProviderRegistry } from '@apollo-code/provider-kit'
 
 export interface RouterSessionSnapshot {
   id: string
@@ -40,11 +40,19 @@ export class SingleProviderRouter implements RouterPolicy {
     readonly client: ProviderClient,
     readonly defaultModel: string,
     private readonly sleep: Sleeper = defaultSleep,
+    private readonly registry?: ProviderRegistry,
   ) {}
   async pick(_ctx: RouterContext, hint?: RouterHint): Promise<RouterDecision> {
+    const explicit = hint?.explicitModel
+    if (explicit?.includes('/')) {
+      const [providerName, ...modelParts] = explicit.split('/')
+      const provider = this.registry?.get(providerName!)
+      if (!provider) throw new Error(`provider_not_registered: ${providerName}`)
+      return { provider, model: modelParts.join('/'), reason: 'explicit-provider' }
+    }
     return {
       provider: this.client,
-      model: hint?.explicitModel ?? this.defaultModel,
+      model: explicit ?? this.defaultModel,
       reason: 'single-provider',
     }
   }
@@ -54,4 +62,9 @@ export class SingleProviderRouter implements RouterPolicy {
     await this.sleep(error.retryAfterMs ?? 1_000 * 4 ** ctx.attemptCount)
     return { provider: this.client, model: this.defaultModel, reason: 'retry' }
   }
+}
+
+export function assertProviderMayBeDefault(registry: ProviderRegistry, providerName: string) {
+  if (registry.describe(providerName)?.source.kind === 'plugin')
+    throw new Error('plugin_provider_cannot_be_default_v1')
 }
