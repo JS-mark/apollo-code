@@ -220,8 +220,19 @@ describe('Runner', () => {
       model: 'm2',
       reason: 'fallback',
     }))
-    const state = await new Runner(context(), policy, composer, tools).run('hi')
+    const switched: unknown[] = []
+    const bus = new EventBus()
+    bus.subscribe((event) => {
+      if (event.type === 'router.switched') switched.push(event.payload)
+    })
+    const state = await new Runner(context(), policy, composer, tools, bus).run('hi')
     expect(policy.pick).toHaveBeenCalledTimes(1)
+    expect(switched).toContainEqual({
+      from: 'first',
+      to: 'second',
+      reason: 'fallback',
+      category: 'stream_truncated',
+    })
     expect(state.messages.at(-1)?.content).toContainEqual({ type: 'text', text: 'kept' })
   })
 })

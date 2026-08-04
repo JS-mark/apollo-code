@@ -128,7 +128,10 @@ export class Runner {
         retryDecision ??
         (sticky
           ? { provider: sticky, model: decision?.model ?? '', reason: 'sticky-provider' }
-          : await this.router.pick(this.routerContext(turnId, attempts), hint))
+          : await this.router.pick(
+              this.routerContext(turnId, attempts, turnStartedAt, signal),
+              hint,
+            ))
       retryDecision = undefined
       const system = await this.promptComposer.compose({
         cwd: this.#state.cwd,
@@ -210,7 +213,10 @@ export class Runner {
             category: 'stream_truncated',
             retryable: true,
           }) as ProviderError
-          const next = await this.router.onError(error, this.routerContext(turnId, attempts++))
+          const next = await this.router.onError(
+            error,
+            this.routerContext(turnId, attempts++, turnStartedAt, signal, sticky?.name),
+          )
           if (next === 'give-up') {
             failed = true
             break outer
@@ -223,6 +229,13 @@ export class Runner {
             })
             break outer
           }
+          if (next.provider !== decision.provider)
+            await this.emit('router.switched', turnId, {
+              from: decision.provider.name,
+              to: next.provider.name,
+              reason: next.reason,
+              category: error.category,
+            })
           retryDecision = next
           continue outer
         }
@@ -231,6 +244,10 @@ export class Runner {
       }
       if (interrupted) continue
       if (signal.aborted) break
+      await this.router.onSuccess?.(
+        decision,
+        this.routerContext(turnId, attempts, turnStartedAt, signal, sticky?.name),
+      )
       const assistant = this.finish(current, decision)
       this.append(assistant)
       if (current.usage)
@@ -293,11 +310,32 @@ export class Runner {
     if (budget.timeMsMax !== undefined && Date.now() - startedAt >= budget.timeMsMax) return 'time'
     if (budget.toolCallMax !== undefined && toolCalls >= budget.toolCallMax) return 'tool-call'
   }
-  private routerContext(turnId: string, attemptCount: number) {
+  private routerContext(
+    turnId: string,
+    attemptCount: number,
+    startedAt: number,
+    signal: AbortSignal,
+    stickyProvider?: string,
+  ) {
+    const budget = this.options.budget ?? this.#state.resourceBudget
     return {
-      session: { id: this.#state.id, cumulativeCostUSD: this.#state.cumulativeUsage.costUSD },
+      session: {
+        id: this.#state.id,
+        cumulativeCostUSD: this.#state.cumulativeUsage.costUSD,
+        ...(stickyProvider === undefined ? {} : { stickyProvider }),
+      },
       turnId,
       attemptCount,
+      ...(budget
+        ? {
+            budget: {
+              ...(budget.costUSDMax === undefined ? {} : { costUSDMax: budget.costUSDMax }),
+              ...(budget.timeMsMax === undefined ? {} : { timeMsMax: budget.timeMsMax }),
+            },
+          }
+        : {}),
+      elapsedTimeMs: Date.now() - startedAt,
+      signal,
     }
   }
   private message(role: Message['role'], content: ContentPart[]): Message {
