@@ -69,6 +69,16 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   assert.match(windowsTier2, /SeDebugPrivilege\|SeShutdownPrivilege\|SeTakeOwnershipPrivilege/)
   assert.match(windowsTier2, /grandchild escape/)
   assert.match(windowsTier2, /outside the filesystem allowlist/)
+
+  const graviton = await readFile(new URL('.github/workflows/graviton-evidence.yml', root), 'utf8')
+  assert.match(graviton, /workflow_dispatch:/)
+  assert.match(graviton, /self-hosted, linux, arm64, apollo-graviton/)
+  assert.match(graviton, /candidate_sha=.*inputs\.candidate_sha/)
+  assert.match(graviton, /exit_code=/)
+
+  const l3Evidence = await readFile(new URL('docs/releases/L3-EXTERNAL-EVIDENCE.md', root), 'utf8')
+  assert.match(l3Evidence, /not executed/i)
+  assert.match(l3Evidence, /default deny/)
   assert.match(windowsTier2, /ACE was not rolled back/)
 
   assert.match(nativeWorkflow, /Authenticode self-sign smoke \(non-production\)/)

@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod bundled_bwrap;
 pub mod digest;
+pub mod network;
 pub mod profile;
 
 pub use backend::{probe, run};

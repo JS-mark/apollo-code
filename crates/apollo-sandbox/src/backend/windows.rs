@@ -71,6 +71,10 @@ pub fn probe() -> ProbeInfo {
 }
 
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
+    // Resolve before creating the process. Tier 3 consumes only these pinned
+    // tuples, never a second DNS answer after the policy is installed.
+    let allowlist = request.permissions.net.allowlist()?;
+    let _pinned_endpoints = crate::network::resolve_allowlist(allowlist)?;
     let started = Instant::now();
     let output_dir = std::env::temp_dir().join(format!(
         "apollo-sandbox-{}-{}",

@@ -64,7 +64,7 @@ fn profile(request: &ExecRequest) -> String {
             escape_sbpl_string(&path)
         ));
     }
-    if request.permissions.net {
+    if request.permissions.net.allows_network() {
         dynamic.push("(allow network*)".into());
     }
     rules.extend(dynamic.iter().map(String::as_str));

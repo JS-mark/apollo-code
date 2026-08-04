@@ -1,0 +1,52 @@
+name: L3 Graviton hardware evidence
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full candidate commit SHA already present on origin
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  hardware-sample:
+    # Never provisions paid infrastructure; dispatch targets an existing controlled runner.
+    runs-on: [self-hosted, linux, arm64, apollo-graviton]
+    timeout-minutes: 30
+    steps:
+      - name: Validate immutable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ inputs.candidate_sha }}' =~ ^[0-9a-f]{40}$ ]] || { echo 'candidate_sha must be a full lowercase SHA-1' >&2; exit 2; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run secret-free native and escape gates
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          command='cargo test --workspace && cargo build -p apollo-sandbox --bin apollo-sandbox && crates/apollo-sandbox/tests/escape/run.sh target/debug/apollo-sandbox'
+          started_at=$(date -u +%FT%TZ)
+          set +e
+          bash -lc "$command" 2>&1 | tee evidence/raw-summary.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          finished_at=$(date -u +%FT%TZ)
+          {
+            printf 'candidate_sha=%s\n' '${{ inputs.candidate_sha }}'
+            printf 'head_sha=%s\n' "$(git rev-parse HEAD)"
+            printf 'host=%s\narch=%s\nkernel=%s\n' "$(hostname)" "$(uname -m)" "$(uname -sr)"
+            printf 'command=%s\nstarted_at=%s\nfinished_at=%s\nexit_code=%s\n' "$command" "$started_at" "$finished_at" "$status"
+          } > evidence/manifest.txt
+          exit "$status"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graviton-${{ inputs.candidate_sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: evidence/
