@@ -31,9 +31,21 @@ export interface SessionState {
   toolRegistrySnapshot: string
   pendingInterrupt: boolean
   systemPromptSnapshot?: string
+  /** Immutable lineage metadata. Child sessions never share parent messages or caches. */
+  lineage: { depth: number; parentSessionId?: string; parentTurnId?: string; agentType?: string }
+  resourceBudget?: {
+    tokenMax?: number
+    costUSDMax?: number
+    timeMsMax?: number
+    toolCallMax?: number
+  }
 }
 export function createSession(
-  input: Pick<SessionState, 'cwd' | 'id' | 'toolRegistrySnapshot'> & { maxTokens: number },
+  input: Pick<SessionState, 'cwd' | 'id' | 'toolRegistrySnapshot'> & {
+    maxTokens: number
+    lineage?: SessionState['lineage']
+    resourceBudget?: SessionState['resourceBudget']
+  },
 ): SessionState {
   return {
     id: input.id,
@@ -47,6 +59,8 @@ export function createSession(
     contextBudget: { maxTokens: input.maxTokens, currentTokens: 0 },
     toolRegistrySnapshot: input.toolRegistrySnapshot,
     pendingInterrupt: false,
+    lineage: input.lineage ?? { depth: 0 },
+    ...(input.resourceBudget ? { resourceBudget: input.resourceBudget } : {}),
   }
 }
 export function updateSession(

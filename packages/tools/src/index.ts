@@ -14,6 +14,7 @@ import { relative, resolve } from 'node:path'
 
 import type { PermissionManager, PermissionSpec } from '@apollo-code/permission'
 import type { ContentPart } from '@apollo-code/provider-kit'
+import type { DispatchParent, SubagentBudget, SubagentDispatcher } from '@apollo-code/subagent'
 import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
 
 const objectSchema = (properties: Record<string, unknown>, required: string[]) =>
@@ -46,6 +47,7 @@ export interface FileBackupPort {
 
 export interface BuiltinToolsOptions {
   backups?: FileBackupPort
+  task?: { dispatcher: SubagentDispatcher; parent: (signal: AbortSignal) => DispatchParent }
 }
 
 async function safeMutationPath(cwd: string, input: string): Promise<string> {
@@ -418,6 +420,57 @@ export class TodoTool implements Tool<{
   }
 }
 
+export class TaskTool implements Tool<{
+  prompt: string
+  agentType?: string
+  budget?: SubagentBudget
+}> {
+  readonly name = 'Task'
+  readonly description = 'Run an isolated, depth-limited subagent and return its untrusted result'
+  readonly parallelSafe = true
+  readonly timeoutMs = 10 * 60_000
+  readonly inputSchema = objectSchema(
+    {
+      prompt: stringProp,
+      agentType: { type: 'string' },
+      budget: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          tokenMax: { type: 'integer', minimum: 1 },
+          costUSDMax: { type: 'number', minimum: 0 },
+          timeMsMax: { type: 'integer', minimum: 1 },
+          toolCallMax: { type: 'integer', minimum: 1 },
+        },
+      },
+    },
+    ['prompt'],
+  )
+  constructor(
+    readonly dispatcher: SubagentDispatcher,
+    readonly parent: (signal: AbortSignal) => DispatchParent,
+  ) {}
+  permissionSpec(): PermissionSpec {
+    return {}
+  }
+  async invoke(
+    input: { prompt: string; agentType?: string; budget?: SubagentBudget },
+    context: ToolContext,
+  ) {
+    const started = Date.now()
+    try {
+      const dispatched = await this.dispatcher.dispatch(this.parent(context.abortSignal), input)
+      return {
+        content: [{ type: 'text' as const, text: dispatched.text }],
+        isError: dispatched.status === 'failed' || dispatched.status === 'cancelled',
+        meta: { durationMs: Date.now() - started, costImpact: 'high' as const },
+      }
+    } catch (error) {
+      return failure(error, started)
+    }
+  }
+}
+
 export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new ReadTool(),
   new WriteTool(options.backups),
@@ -427,6 +480,7 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new GrepTool(),
   new GlobTool(),
   new TodoTool(),
+  ...(options.task ? [new TaskTool(options.task.dispatcher, options.task.parent)] : []),
 ]
 function validate(schema: Record<string, unknown>, input: unknown): string | undefined {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return 'input must be an object'

@@ -106,6 +106,37 @@ describe('Runner', () => {
     expect(tools.execute).toHaveBeenCalledTimes(25)
     expect(events).toContain('tool_loop_exhausted')
   })
+  it('enforces a subagent token budget between loops and preserves partial output', async () => {
+    const client = provider([
+      [
+        { kind: 'text.delta', text: 'partial answer' },
+        { kind: 'usage', usage: { input: 4, output: 6, costUSD: 0.01 } },
+        { kind: 'tool_use.start', id: 'id', name: 'x' },
+        { kind: 'tool_use.delta', id: 'id', argsFragment: '{}' },
+        { kind: 'tool_use.end', id: 'id' },
+        { kind: 'message.stop', stopReason: 'tool_use' },
+      ],
+    ])
+    const state = context()
+    state.resourceBudget = { tokenMax: 10 }
+    const raised: unknown[] = []
+    const bus = new EventBus()
+    bus.subscribe((event) => {
+      if (event.type === 'error.raised') raised.push(event.payload)
+    })
+    const final = await new Runner(state, router(client), composer, tools, bus).run('hi')
+    expect(final.cumulativeUsage).toMatchObject({ input: 4, output: 6, costUSD: 0.01 })
+    expect(final.messages).toContainEqual(
+      expect.objectContaining({
+        role: 'assistant',
+        content: expect.arrayContaining([{ type: 'text', text: 'partial answer' }]),
+      }),
+    )
+    expect(raised).toContainEqual(
+      expect.objectContaining({ code: 'subagent_budget_exhausted', dimension: 'token' }),
+    )
+    expect(final.turns.at(-1)?.status).toBe('aborted')
+  })
   it('propagates abort to provider stream', async () => {
     let seen: AbortSignal | undefined
     let ready!: () => void
