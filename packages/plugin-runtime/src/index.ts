@@ -1,9 +1,16 @@
 import { createHash } from 'node:crypto'
 import { cp, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { PluginSandboxProfile } from '@apollo-code/native-bridge'
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
+import type {
+  ApolloBridge,
+  Disposable,
+  HookEvent,
+  HookHandler,
+  HookResult,
+  PluginManifest,
+} from '@apollo-code/plugin-sdk'
 import type {
   Disposable as ProviderDisposable,
   ProviderCapabilities,
@@ -18,7 +25,7 @@ export class PluginError extends Error {
     readonly code: string,
     message: string,
   ) {
-    super(message)
+    super(`${code}: ${message}`)
   }
 }
 export interface PluginApproval {
@@ -295,5 +302,385 @@ export class BufferedProviderStream {
   }
   consume(chunk: ProviderChunk) {
     this.bytes = Math.max(0, this.bytes - Buffer.byteLength(JSON.stringify(chunk)))
+  }
+}
+
+const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
+  'tools.register': 'tools.register',
+  'tools.unregister': 'tools.register',
+  'hooks.on': 'hooks.on',
+  'hooks.off': 'hooks.on',
+  'hooks.kv.get': 'hooks.on',
+  'hooks.kv.set': 'hooks.on',
+  'hooks.kv.delete': 'hooks.on',
+  'hooks.kv.clear': 'hooks.on',
+  'commands.register': 'commands.register',
+  'prompt.contribute': 'prompt.contribute',
+  'prompt.revoke': 'prompt.contribute',
+  'session.read': 'session.read',
+  'session.on': 'session.read',
+  'fs.readFile': 'fs.read',
+  'fs.exists': 'fs.read',
+  'fs.glob': 'fs.read',
+  'fs.stat': 'fs.read',
+  'fs.writeFile': 'fs.write',
+  exec: 'exec',
+  'http.fetch': 'http.fetch',
+  'ui.confirm': 'ui.confirm',
+  'ui.prompt': 'ui.prompt',
+  'ui.pick': 'ui.pick',
+  'ui.notify': 'ui.notify',
+  'storage.get': 'storage.read',
+  'storage.set': 'storage.write',
+  'storage.delete': 'storage.write',
+  'config.get': 'config.read',
+  'log.write': 'log.write',
+})
+
+export interface BridgeSessionSnapshot {
+  readonly id: string
+  readonly cwd: string
+  readonly messages: readonly unknown[]
+  readonly usage: Readonly<{ inputTokens: number; outputTokens: number; cost?: number }>
+}
+export interface BridgeHost {
+  readonly session: BridgeSessionSnapshot
+  register(kind: 'tool' | 'command' | 'prompt', value: unknown, plugin: string): Disposable
+  fs: {
+    readFile(path: string, encoding?: string): Promise<string | Uint8Array>
+    writeFile(path: string, data: string | Uint8Array): Promise<void>
+    exists(path: string): Promise<boolean>
+    glob(pattern: string, cwd: string): Promise<string[]>
+    stat(path: string): Promise<unknown>
+  }
+  exec(command: string, options: unknown, signal: AbortSignal): Promise<unknown>
+  fetch(url: string, init: unknown, signal: AbortSignal): Promise<unknown>
+  ui(method: 'confirm' | 'prompt' | 'pick' | 'notify', params: unknown): unknown
+  storage(
+    plugin: string,
+    operation: 'get' | 'set' | 'delete',
+    key: string,
+    value?: unknown,
+  ): Promise<unknown>
+  config(plugin: string, key: string): unknown
+  log(level: string, message: string, meta?: unknown): void
+}
+
+type HookRecord = {
+  plugin: string
+  event: HookEvent
+  handler: HookHandler
+  priority: number
+  order: number
+}
+const clone = <T>(value: T): T => structuredClone(value)
+const isWithin = (root: string, candidate: string) => {
+  const rel = relative(root, candidate)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+const matchesHost = (host: string, rule: string) =>
+  host === rule || (rule.startsWith('*.') && host.endsWith(rule.slice(1)))
+const matchesCommand = (command: string, rule: string) =>
+  rule.endsWith(' *')
+    ? command === rule.slice(0, -2) || command.startsWith(rule.slice(0, -1))
+    : command === rule
+const redact = (value: unknown): unknown => {
+  if (typeof value === 'string')
+    return value.replace(/(?:bearer\s+|sk-|api[_-]?key[=:]\s*)[^\s,;]+/giu, '[REDACTED]')
+  if (Array.isArray(value)) return value.map(redact)
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        /token|secret|password|authorization|api.?key/i.test(key) ? '[REDACTED]' : redact(item),
+      ]),
+    )
+  return value
+}
+
+export class BridgeRuntime {
+  readonly #hooks: HookRecord[] = []
+  readonly #disposables = new Map<string, Set<Disposable>>()
+  readonly #kv = new Map<string, Map<string, unknown>>()
+  #order = 0
+  constructor(
+    readonly host: BridgeHost,
+    readonly options: { timeoutMs?: number; maxCallsPerTurn?: number; hookKvBytes?: number } = {},
+  ) {}
+
+  create(manifest: PluginManifest, dataDir: string, turnId = 'activation'): ApolloBridge {
+    const guard = createRpcGuard(
+      {
+        ...manifest,
+        permissions: {
+          ...manifest.permissions,
+          apollo: manifest.permissions.apollo.map((method) => BRIDGE_PERMISSIONS[method] ?? method),
+        },
+      },
+      this.options.maxCallsPerTurn ?? 500,
+    )
+    const check = (method: string) => guard(turnId, BRIDGE_PERMISSIONS[method] ?? method)
+    const track = (disposable: Disposable) => {
+      const set = this.#disposables.get(manifest.name) ?? new Set<Disposable>()
+      set.add(disposable)
+      this.#disposables.set(manifest.name, set)
+      return disposable
+    }
+    const register = (kind: 'tool' | 'command' | 'prompt', value: unknown, method: string) => {
+      check(method)
+      return track(this.host.register(kind, value, manifest.name))
+    }
+    const pathFor = async (input: string, mode: 'read' | 'write') => {
+      const candidate = resolve(this.host.session.cwd, input)
+      const canonical = await realpath(mode === 'write' ? dirname(candidate) : candidate).then(
+        (p) => (mode === 'write' ? join(p, basename(candidate)) : p),
+      )
+      const roots = await Promise.all(
+        (manifest.permissions.fs?.[mode] ?? []).map(async (path) => {
+          const root = resolve(this.host.session.cwd, path.replace(/[*?].*$/, ''))
+          return realpath(root).catch(() => root)
+        }),
+      )
+      if (!roots.some((root) => isWithin(root, canonical)))
+        throw new PluginError('plugin_fs_denied', input)
+      return canonical
+    }
+    const invoke = async <T>(
+      method: string,
+      task: (signal: AbortSignal) => Promise<T>,
+      external?: AbortSignal,
+    ) => {
+      check(method)
+      const controller = new AbortController(),
+        timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 10_000)
+      const abort = () => controller.abort()
+      external?.addEventListener('abort', abort, { once: true })
+      try {
+        return await task(controller.signal)
+      } finally {
+        clearTimeout(timeout)
+        external?.removeEventListener('abort', abort)
+      }
+    }
+    const bridge: ApolloBridge = {
+      apiVersion: '1.0',
+      plugin: Object.freeze({ name: manifest.name, version: manifest.version, dataDir }),
+      tools: {
+        register: (spec) => register('tool', spec, 'tools.register'),
+        unregister: () => check('tools.unregister'),
+      },
+      hooks: {
+        on: (event, handler, options) => {
+          check('hooks.on')
+          const record = {
+            plugin: manifest.name,
+            event,
+            handler,
+            priority: options?.priority ?? 0,
+            order: this.#order++,
+          }
+          this.#hooks.push(record)
+          return track({ dispose: () => this.removeHook(record) })
+        },
+        off: (event, handler) => {
+          check('hooks.off')
+          for (const item of this.#hooks.filter(
+            (h) => h.plugin === manifest.name && h.event === event && h.handler === handler,
+          ))
+            this.removeHook(item)
+        },
+        kv: {
+          get: <T = unknown>(key: string) => {
+            check('hooks.kv.get')
+            return clone(this.hookKv(manifest.name, turnId).get(key)) as T | undefined
+          },
+          set: (key, value) => {
+            check('hooks.kv.set')
+            const store = this.hookKv(manifest.name, turnId)
+            const next = new Map(store).set(key, clone(value))
+            if (Buffer.byteLength(JSON.stringify([...next])) > (this.options.hookKvBytes ?? 65_536))
+              throw new PluginError('plugin_hook_kv_quota_exceeded', key)
+            store.set(key, clone(value))
+          },
+          delete: (key) => {
+            check('hooks.kv.delete')
+            this.hookKv(manifest.name, turnId).delete(key)
+          },
+          clear: () => {
+            check('hooks.kv.clear')
+            this.hookKv(manifest.name, turnId).clear()
+          },
+        },
+      },
+      commands: { register: (spec) => register('command', spec, 'commands.register') },
+      prompt: {
+        contribute: (fragment) => register('prompt', fragment, 'prompt.contribute'),
+        revoke: () => check('prompt.revoke'),
+      },
+      session: {
+        id: this.host.session.id,
+        cwd: this.host.session.cwd,
+        getMessages: (range) => {
+          check('session.read')
+          return clone(
+            this.host.session.messages.slice(-(range?.limit ?? this.host.session.messages.length)),
+          ) as never
+        },
+        getUsage: () => {
+          check('session.read')
+          return clone(this.host.session.usage)
+        },
+        on: () => {
+          check('session.on')
+          return track({ dispose() {} })
+        },
+      },
+      fs: {
+        readFile: (path, encoding) =>
+          invoke('fs.readFile', async () =>
+            this.host.fs.readFile(await pathFor(path, 'read'), encoding),
+          ),
+        writeFile: (path, data) =>
+          invoke('fs.writeFile', async () =>
+            this.host.fs.writeFile(await pathFor(path, 'write'), data),
+          ),
+        exists: (path) =>
+          invoke('fs.exists', async () => this.host.fs.exists(await pathFor(path, 'read'))),
+        glob: (pattern) =>
+          invoke('fs.glob', async () => {
+            await pathFor(pattern.replace(/[*?].*$/, '') || '.', 'read')
+            return this.host.fs.glob(pattern, this.host.session.cwd)
+          }),
+        stat: (path) =>
+          invoke('fs.stat', async () => this.host.fs.stat(await pathFor(path, 'read'))) as never,
+      },
+      exec: (command, options) =>
+        invoke(
+          'exec',
+          async (signal) => {
+            if (!manifest.permissions.bash?.allowlist.some((rule) => matchesCommand(command, rule)))
+              throw new PluginError('plugin_exec_denied', command)
+            return this.host.exec(command, clone(options), signal) as never
+          },
+          options?.signal,
+        ) as never,
+      http: {
+        fetch: (url, init) =>
+          invoke('http.fetch', async (signal) => {
+            const parsed = new URL(url)
+            if (
+              parsed.protocol !== 'https:' ||
+              !manifest.permissions.net ||
+              !manifest.permissions.net.allowlist.some((rule) => matchesHost(parsed.hostname, rule))
+            )
+              throw new PluginError('plugin_net_denied', parsed.hostname)
+            return this.host.fetch(url, clone(init), signal)
+          }),
+      },
+      ui: {
+        confirm: (message) => {
+          check('ui.confirm')
+          return this.host.ui('confirm', { message }) as Promise<boolean>
+        },
+        prompt: (question, options) => {
+          check('ui.prompt')
+          return this.host.ui('prompt', { question, options }) as Promise<string | null>
+        },
+        pick: (options, settings) => {
+          check('ui.pick')
+          return this.host.ui('pick', {
+            options: clone(options),
+            labels: settings ? options.map(settings.label) : undefined,
+          }) as Promise<never>
+        },
+        notify: (message, level) => {
+          check('ui.notify')
+          this.host.ui('notify', { message, level })
+        },
+      },
+      storage: {
+        get: (key) => {
+          check('storage.get')
+          return this.host.storage(manifest.name, 'get', key) as never
+        },
+        set: (key, value) => {
+          check('storage.set')
+          return this.host.storage(manifest.name, 'set', key, clone(value)) as Promise<void>
+        },
+        delete: (key) => {
+          check('storage.delete')
+          return this.host.storage(manifest.name, 'delete', key) as Promise<void>
+        },
+      },
+      config: {
+        get: (key) => {
+          check('config.get')
+          if (!Object.prototype.hasOwnProperty.call(manifest.config ?? {}, key))
+            throw new PluginError('plugin_config_undeclared', key)
+          return clone(this.host.config(manifest.name, key)) as never
+        },
+      },
+      log: Object.fromEntries(
+        ['debug', 'info', 'warn', 'error'].map((level) => [
+          level,
+          (message: string, ...args: unknown[]) => {
+            check('log.write')
+            this.host.log(level, redact(message) as string, redact(args))
+          },
+        ]),
+      ) as ApolloBridge['log'],
+      call: async (method, _params) => {
+        check(method)
+        throw new PluginError('plugin_rpc_transport_only', `No direct handler for ${method}`)
+      },
+    }
+    return Object.freeze(bridge)
+  }
+
+  async runHooks(
+    event: HookEvent,
+    payload: unknown,
+    options: { signal?: AbortSignal; toolUseId?: string } = {},
+  ): Promise<HookResult | undefined> {
+    const handlers = this.#hooks
+      .filter((hook) => hook.event === event)
+      .sort((a, b) => b.priority - a.priority || a.order - b.order)
+    for (const hook of handlers) {
+      if (options.signal?.aborted) throw options.signal.reason
+      const controller = new AbortController(),
+        timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 10_000)
+      const aborted = new Promise<never>((_, reject) =>
+        controller.signal.addEventListener(
+          'abort',
+          () => reject(new PluginError('plugin_hook_timeout', event)),
+          { once: true },
+        ),
+      )
+      try {
+        const result = await Promise.race([Promise.resolve(hook.handler(clone(payload))), aborted])
+        if (result?.veto) return clone(result)
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+  }
+  async deactivate(plugin: string) {
+    for (const item of [...(this.#disposables.get(plugin) ?? [])].reverse()) await item.dispose()
+    this.#disposables.delete(plugin)
+    for (const hook of this.#hooks.filter((item) => item.plugin === plugin)) this.removeHook(hook)
+    for (const key of [...this.#kv.keys()].filter((key) => key.startsWith(`${plugin}:`)))
+      this.#kv.delete(key)
+  }
+  private removeHook(record: HookRecord) {
+    const index = this.#hooks.indexOf(record)
+    if (index >= 0) this.#hooks.splice(index, 1)
+  }
+  private hookKv(plugin: string, toolUseId: string) {
+    const key = `${plugin}:${toolUseId}`,
+      existing = this.#kv.get(key)
+    if (existing) return existing
+    const created = new Map<string, unknown>()
+    this.#kv.set(key, created)
+    return created
   }
 }
