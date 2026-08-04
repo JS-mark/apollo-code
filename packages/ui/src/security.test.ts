@@ -6,6 +6,7 @@ import {
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
   renderSecurityBanner,
+  renderTelemetryPanel,
 } from './index'
 
 describe('security disclosure', () => {
@@ -32,6 +33,18 @@ describe('security disclosure', () => {
 
   it('states the local-only telemetry default', () => {
     expect(renderPrivacyDisclosure()).toContain('does not send analytics anywhere by default')
+  })
+
+  it('never renders missing telemetry samples as passing', () => {
+    const output = renderTelemetryPanel({
+      samples: 0,
+      corruptLines: 0,
+      tiers: {},
+      escape: { allow: 0, deny: 0, ratio: null },
+      probe: null,
+    })
+    expect(output).toContain('no samples (unknown)')
+    expect(output).toContain('no sample (unknown)')
   })
 })
 

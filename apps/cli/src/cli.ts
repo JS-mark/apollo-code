@@ -3,6 +3,7 @@ import {
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
   renderSecurityBanner,
+  renderTelemetryPanel,
 } from '@apollo-code/ui'
 import type { DangerousMode } from '@apollo-code/ui'
 import { parseArgs, renderUsage } from 'citty'
@@ -102,6 +103,25 @@ export async function runCli(
       ? `${checks.map((check) => JSON.stringify(check)).join('\n')}\n`
       : `${checks.map((check) => `${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`).join('\n')}\n`
     return { exitCode: args.strict && checks.some((check) => !check.ok) ? 1 : 0, stdout, stderr }
+  }
+  if (subcommand === 'telemetry') {
+    const action = args._[1] ?? 'show'
+    if (action === 'show') {
+      const summary = await ports.telemetry.summary()
+      stdout += `${args.json ? JSON.stringify(summary) : renderTelemetryPanel(summary)}\n`
+      return { exitCode: 0, stdout, stderr }
+    }
+    if (action === 'export') {
+      const target = args._[2]
+      if (!target) return { exitCode: 2, stdout, stderr: 'telemetry export requires a target path' }
+      const count = await ports.telemetry.export(target)
+      return { exitCode: 0, stdout: `${stdout}Exported ${count} redacted event(s).\n`, stderr }
+    }
+    if (action === 'clear') {
+      await ports.telemetry.clear()
+      return { exitCode: 0, stdout: `${stdout}Cleared local telemetry.\n`, stderr }
+    }
+    return { exitCode: 2, stdout, stderr: `Unknown telemetry action: ${action}` }
   }
   if (subcommand === 'version')
     return { exitCode: 0, stdout: `${stdout}${ports.version}\n`, stderr }

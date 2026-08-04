@@ -5,6 +5,40 @@ export interface SandboxDisclosure {
   features: { filesystem: boolean; network: boolean }
   degradationReasons: readonly string[]
 }
+
+export interface TelemetryPanelState {
+  samples: number
+  corruptLines: number
+  tiers: Record<string, number>
+  escape: { allow: number; deny: number; ratio: number | null }
+  probe: {
+    mechanism: string
+    tier: SandboxTier
+    abi?: string
+    version?: string
+    probedAt: string
+  } | null
+}
+export function renderTelemetryPanel(state: TelemetryPanelState, now = Date.now()): string {
+  const tiers =
+    Object.entries(state.tiers)
+      .map(([tier, count]) => `${tier}=${count}`)
+      .join(', ') || 'no samples'
+  const escape =
+    state.escape.ratio === null
+      ? 'no samples (unknown)'
+      : `${state.escape.allow} pass / ${state.escape.deny} deny (${Math.round(state.escape.ratio * 100)}% denied)`
+  const probe = state.probe
+    ? `${state.probe.mechanism}; tier=${state.probe.tier}; ABI=${state.probe.abi ?? 'unknown'}; version=${state.probe.version ?? 'unknown'}; age=${Math.max(0, Math.round((now - Date.parse(state.probe.probedAt)) / 1000))}s`
+    : 'no sample (unknown)'
+  return [
+    `Telemetry (local)`,
+    `Samples: ${state.samples}; corrupt lines ignored: ${state.corruptLines}`,
+    `Tiers: ${tiers}`,
+    `Escape decisions: ${escape}`,
+    `Probe: ${probe}`,
+  ].join('\n')
+}
 export type DangerousMode = 'no-sandbox' | 'skip-permissions'
 
 export interface ContextPanelState {
