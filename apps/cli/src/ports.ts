@@ -1,3 +1,4 @@
+import type { TelemetryHealth, TelemetrySummary } from '@apollo-code/telemetry'
 import type { SandboxDisclosure } from '@apollo-code/ui'
 
 export interface DoctorHealth {
@@ -64,6 +65,10 @@ export interface ApolloPorts {
   config: { health(cwd: string): Promise<DoctorHealth> }
   telemetry: {
     securityEvent(name: string, payload: Record<string, boolean | string>): Promise<void>
+    summary(): Promise<TelemetrySummary>
+    export(target: string): Promise<number>
+    clear(): Promise<void>
+    health(): Promise<TelemetryHealth>
   }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   session: SessionPort
@@ -99,7 +104,25 @@ export function unavailablePorts(): ApolloPorts {
       },
     },
     config: { health: async () => ({ valid: false, detail: 'config port not connected' }) },
-    telemetry: { securityEvent: async () => {} },
+    telemetry: {
+      securityEvent: async () => {},
+      summary: async () => ({
+        samples: 0,
+        corruptLines: 0,
+        tiers: {},
+        escape: { allow: 0, deny: 0, ratio: null },
+        probe: null,
+      }),
+      export: async () => 0,
+      clear: async () => {},
+      health: async () => ({
+        exists: false,
+        writable: true,
+        corruptLines: 0,
+        samples: 0,
+        detail: 'local sink not created yet',
+      }),
+    },
     confirmation: { confirmDangerousNoSandbox: async () => false },
     session: {
       start: async () => ({ id: 'unconnected-session' }),

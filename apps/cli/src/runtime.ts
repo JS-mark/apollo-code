@@ -34,7 +34,12 @@ import {
   SessionStore,
 } from '@apollo-code/storage'
 import { SubagentDispatcher } from '@apollo-code/subagent'
-import { LocalTelemetrySink, Telemetry, TelemetryLogger } from '@apollo-code/telemetry'
+import {
+  LocalTelemetrySink,
+  Telemetry,
+  TelemetryLogger,
+  TelemetryStore,
+} from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
 import { v7 as uuidv7 } from 'uuid'
@@ -211,7 +216,9 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   const home = options.apolloHome ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
-  const telemetry = new Telemetry(new LocalTelemetrySink(join(home, 'telemetry', 'events.jsonl')))
+  const telemetryPath = join(home, 'telemetry', 'events.jsonl')
+  const telemetry = new Telemetry(new LocalTelemetrySink(telemetryPath))
+  const telemetryStore = new TelemetryStore(telemetryPath)
   const logger = new TelemetryLogger(telemetry, 'cli')
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
@@ -356,6 +363,15 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
           },
           signal,
         )
+        for (const reason of result.sandbox_violations) {
+          await telemetry.violation({
+            mechanism: 'apollo-sandbox',
+            tier: result.sandbox_tier,
+            operation: 'sandbox-exec',
+            decision: 'deny',
+            reason,
+          })
+        }
         return result.stdout
       },
     }
@@ -418,7 +434,13 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       rollback: (rollbackOptions) =>
         evolution.rollback(rollbackOptions.namespace, rollbackOptions.to),
     },
-    telemetry: { securityEvent: (name, payload) => telemetry.emit(name, 'security', payload) },
+    telemetry: {
+      securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
+      summary: () => telemetryStore.summary(),
+      export: (target) => telemetryStore.export(target),
+      clear: () => telemetryStore.clear(),
+      health: () => telemetryStore.health(),
+    },
     confirmation: {
       confirmDangerousNoSandbox: async (sentence) =>
         (await promptLine(`Type "${sentence}" to continue: `)) === sentence,
@@ -470,15 +492,26 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       async probe() {
         const info = await probeSandbox()
         const features = info.features as Record<string, unknown>
-        return {
+        const mechanism =
+          typeof features.mechanism === 'string' ? features.mechanism : 'apollo-sandbox'
+        const abi = typeof features.abi === 'string' ? features.abi : 'unknown'
+        const disclosure = {
           tier: info.tier,
-          mechanism: String(features.mechanism ?? 'apollo-sandbox'),
+          mechanism,
           features: {
             filesystem: Boolean(features.filesystem ?? info.tier !== 'none'),
             network: Boolean(features.network),
           },
           degradationReasons: info.known_limitations,
         }
+        await telemetry.emit('sandbox.probe', 'sandbox', {
+          tier: disclosure.tier,
+          mechanism: disclosure.mechanism,
+          abi,
+          version: options.version ?? '0.0.0',
+          probedAt: new Date().toISOString(),
+        })
+        return disclosure
       },
       async health() {
         const [probe, search, fs] = await Promise.all([

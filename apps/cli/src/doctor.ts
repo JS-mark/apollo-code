@@ -8,10 +8,11 @@ export interface DoctorCheck {
   ok: boolean
 }
 export async function runDoctor(cwd: string, ports: ApolloPorts): Promise<DoctorCheck[]> {
-  const [native, auth, config] = await Promise.all([
+  const [native, auth, config, telemetry] = await Promise.all([
     ports.native.health(),
     ports.auth.health(),
     ports.config.health(cwd),
+    ports.telemetry.health(),
   ])
   let writable = true
   try {
@@ -40,5 +41,10 @@ export async function runDoctor(cwd: string, ports: ApolloPorts): Promise<Doctor
     { name: 'auth', ok: auth.configured === true, detail: auth.detail },
     { name: 'config', ok: config.valid === true, detail: config.detail },
     { name: 'cwd writable', ok: writable, detail: cwd },
+    {
+      name: 'local telemetry',
+      ok: telemetry.writable && telemetry.corruptLines === 0,
+      detail: telemetry.detail,
+    },
   ]
 }
