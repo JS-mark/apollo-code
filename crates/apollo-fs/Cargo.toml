@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 serde_json.workspace = true
+encoding_rs.workspace = true
+similar.workspace = true
+tiktoken-rs.workspace = true
