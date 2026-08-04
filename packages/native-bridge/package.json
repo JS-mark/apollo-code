@@ -16,7 +16,14 @@
     "test": "vitest run --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "fast-glob": "^3.3.3",
+    "gpt-tokenizer": "^3.4.0",
+    "iconv-lite": "^0.7.3"
+  },
   "devDependencies": {
+    "@types/diff": "^8.0.0",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

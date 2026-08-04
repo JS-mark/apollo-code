@@ -1,9 +1,9 @@
 export { resolveBinary } from './resolver'
 export { execSandbox, probeSandbox, startPluginHost } from './sandbox'
 export { computeDiff, countTokens, readLarge } from './fs'
-export { search } from './search'
+export { astQuery, search } from './search'
 export { WorkerPool, workerPool } from './worker-pool'
-export type { SearchMatch, SearchOptions } from './search'
+export type { AstMatch, AstQueryOptions, SearchMatch, SearchOptions } from './search'
 export type {
   ExecOptions,
   ExecResult,
