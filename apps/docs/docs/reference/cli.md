@@ -21,6 +21,8 @@
 
 Common modes include `--no-tui`, `--json`, and `--no-color`. Non-interactive runs do not load project configuration unless `--trust-project-config` is supplied. Dangerous sandbox bypass flags are audited and require explicit confirmation.
 
+For automation, see the [versioned NDJSON and management JSON contract](./json-output.md). Chat `--json` is an event stream and disables the TUI; management commands return one JSON document.
+
 Use `apollo restore <session-id> --dry-run` to preview a rollback. Every `Write`, `Edit`, and `MultiEdit` operation records a session-scoped backup first. Restore refuses to overwrite files changed after Apollo's edit. Backups are retained for seven days by default and bounded to 500 MB.
 
 Resume marks an unfinished turn as aborted and starts from a new turn; it never re-runs an incomplete provider or tool call.

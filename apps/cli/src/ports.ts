@@ -12,11 +12,12 @@ export interface NativeHealth {
   fs: boolean
 }
 export interface SessionPort {
-  start(input: { cwd: string; prompt?: string }): Promise<{ id: string }>
+  start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   resume(id: string): Promise<{ id: string }>
   interrupt(): Promise<void>
   end(): Promise<void>
   configureSecurity?(input: { skipPermissions: boolean }): void
+  configureOutput?(input: { json: boolean; write: (value: string) => void }): void
 }
 export interface ContextStatus {
   policy: string

@@ -1,4 +1,5 @@
 export * from './event-bus'
+export * from './machine-output'
 export * from './evolution-engine'
 export * from './context-policy-registry'
 export * from './prompt-composer'

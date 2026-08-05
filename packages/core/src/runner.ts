@@ -246,7 +246,7 @@ export class Runner {
           continue outer
         }
         this.merge(current, chunk)
-        await this.emit('stream.delta', turnId, { kind: chunk.kind })
+        await this.emit('stream.delta', turnId, { chunk: chunk as unknown as JsonValue })
       }
       if (interrupted) continue
       if (signal.aborted) break
@@ -288,6 +288,12 @@ export class Runner {
           },
         ])
         this.append(message)
+        await this.emit('tool.completed', turnId, {
+          toolUseId: result.toolUseId,
+          toolName: result.toolName ?? 'unknown',
+          content: result.content as unknown as JsonValue,
+          isError: result.isError ?? false,
+        })
         await this.emit('message.appended', turnId, { messageId: message.id })
       }
     }
@@ -297,7 +303,10 @@ export class Runner {
       const turn = draft.turns.find((item) => item.id === turnId)
       if (turn) turn.status = aborted ? 'aborted' : 'done'
     })
-    await this.emit(aborted ? 'turn.aborted' : 'turn.completed', turnId, {})
+    await this.emit(aborted ? 'turn.aborted' : 'turn.completed', turnId, {
+      status: failed ? 'error' : aborted ? 'cancelled' : 'completed',
+      exitCode: failed ? 1 : aborted ? 130 : 0,
+    })
     return this.#state
   }
   private exhaustedBudget(

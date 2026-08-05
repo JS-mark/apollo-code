@@ -13,6 +13,7 @@ import {
   createSession,
   DefaultPromptComposer,
   EventBus,
+  MachineEventFormatter,
   EvolutionEngine,
   Runner,
   updateSession,
@@ -59,6 +60,8 @@ export class RuntimeSessionPort implements SessionPort {
   #runner: Runner | undefined
   #events: EventBus | undefined
   #store: SessionStore | undefined
+  #output?: { json: boolean; write: (value: string) => void }
+  #lastExitCode = 0
   constructor(
     readonly sessionsDir: string,
     readonly createRunner: RunnerFactory,
@@ -68,7 +71,10 @@ export class RuntimeSessionPort implements SessionPort {
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
   }
-  async start(input: { cwd: string; prompt?: string }): Promise<{ id: string }> {
+  configureOutput(input: { json: boolean; write: (value: string) => void }): void {
+    this.#output = input
+  }
+  async start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }> {
     const id = uuidv7()
     await this.activate(
       createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
@@ -77,7 +83,8 @@ export class RuntimeSessionPort implements SessionPort {
     const prompt = input.prompt ?? (await promptLine('> '))
     if (prompt) await this.#runner!.run(prompt)
     await this.snapshot()
-    return { id }
+    const last = this.#runner!.state.turns.at(-1)
+    return { id, exitCode: last?.status === 'aborted' ? this.#lastExitCode : 0 }
   }
   async resume(id: string): Promise<{ id: string }> {
     if (!sessionIdPattern.test(id)) throw new Error('Invalid session id')
@@ -121,8 +128,21 @@ export class RuntimeSessionPort implements SessionPort {
   }
   private async activate(state: SessionState, resumed: boolean): Promise<void> {
     const events = new EventBus()
+    this.#lastExitCode = 0
     const store = new SessionStore(this.path(state.id))
     store.attach(events)
+    events.subscribe((event) => {
+      if (event.type !== 'turn.aborted') return
+      const exitCode = (event.payload as { exitCode?: unknown }).exitCode
+      this.#lastExitCode = typeof exitCode === 'number' ? exitCode : 130
+    })
+    if (this.#output?.json) {
+      const formatter = new MachineEventFormatter()
+      events.subscribe((event) => {
+        const line = formatter.encode(event)
+        if (line) this.#output?.write(line)
+      })
+    }
     this.#events = events
     this.#store = store
     this.#runner = await this.createRunner(state, events)
