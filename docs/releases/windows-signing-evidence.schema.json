@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apollo-code.dev/schemas/windows-signing-evidence-v1.json",
+  "title": "Apollo Windows signing and Store evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "certificate",
+    "identity",
+    "approval",
+    "timestamp",
+    "store",
+    "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "certificate": {
+      "type": "object",
+      "required": ["kind", "organizationValidated", "keyCustody", "revoked"],
+      "properties": {
+        "kind": { "enum": ["fixture", "self-signed", "ev"] },
+        "organizationValidated": { "type": "boolean" },
+        "keyCustody": { "enum": ["ephemeral-test-key", "managed-signing", "hsm"] },
+        "revoked": { "type": "boolean" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["oidc", "staticCredential"],
+      "properties": { "oidc": { "type": "boolean" }, "staticCredential": { "type": "boolean" } }
+    },
+    "approval": {
+      "type": "object",
+      "required": ["twoPerson", "changeControlId"],
+      "properties": {
+        "twoPerson": { "type": "boolean" },
+        "changeControlId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "timestamp": {
+      "type": "object",
+      "required": ["verified", "url"],
+      "properties": {
+        "verified": { "type": "boolean" },
+        "url": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
+    },
+    "store": {
+      "type": "object",
+      "required": ["identityMatches", "upgradeTested", "uninstallTested"],
+      "properties": {
+        "identityMatches": { "type": "boolean" },
+        "upgradeTested": { "type": "boolean" },
+        "uninstallTested": { "type": "boolean" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "architecture",
+          "unsignedSha256",
+          "signedSha256",
+          "sbomSha256",
+          "attestationSha256",
+          "logsRedacted",
+          "verification"
+        ],
+        "properties": {
+          "name": { "type": "string", "pattern": "\\.(exe|msix)$" },
+          "architecture": { "enum": ["x64", "arm64"] },
+          "unsignedSha256": { "$ref": "#/$defs/sha256" },
+          "signedSha256": { "$ref": "#/$defs/sha256" },
+          "sbomSha256": { "$ref": "#/$defs/sha256" },
+          "attestationSha256": { "$ref": "#/$defs/sha256" },
+          "logsRedacted": { "type": "boolean" },
+          "verification": {
+            "type": "object",
+            "required": ["outcome", "architecture"],
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "valid",
+                  "unsigned",
+                  "invalid-chain",
+                  "timestamp-mismatch",
+                  "tampered",
+                  "revoked"
+                ]
+              },
+              "architecture": { "enum": ["x64", "arm64"] }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+}
