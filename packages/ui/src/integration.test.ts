@@ -8,7 +8,57 @@ import {
   renderContextPanel,
   contextPanelKey,
   createSessionView,
+  BUILTIN_THEMES,
+  PluginUiRegistry,
+  parseTheme,
+  resolveTheme,
+  validateTheme,
 } from './index'
+
+describe('themes and declarative plugin UI', () => {
+  it('validates schema v1 and falls back deterministically', () => {
+    expect(validateTheme(BUILTIN_THEMES.dark)).toEqual(BUILTIN_THEMES.dark)
+    expect(() => validateTheme({ ...BUILTIN_THEMES.dark, schemaVersion: 2 })).toThrow('version')
+    expect(() =>
+      validateTheme({
+        ...BUILTIN_THEMES.dark,
+        tokens: { ...BUILTIN_THEMES.dark.tokens, accent: 'red' },
+      }),
+    ).toThrow('accent')
+    expect(resolveTheme(null, 'light')).toMatchObject({
+      theme: BUILTIN_THEMES.light,
+      fallback: true,
+    })
+    expect(parseTheme('{broken', 'dark')).toMatchObject({
+      theme: BUILTIN_THEMES.dark,
+      fallback: true,
+    })
+  })
+
+  it('isolates, orders, cleans up, and headlessly ignores contributions', () => {
+    const registry = new PluginUiRegistry()
+    const low = registry.register('apollo-plugin-a', {
+      id: 'branch',
+      surface: 'status-bar',
+      text: 'main',
+    })
+    registry.register('apollo-plugin-b', {
+      id: 'cost',
+      surface: 'status-bar',
+      text: '$0.01',
+      priority: 10,
+    })
+    expect(registry.list('status-bar').map((item) => item.plugin)).toEqual([
+      'apollo-plugin-b',
+      'apollo-plugin-a',
+    ])
+    low.dispose()
+    expect(registry.list('status-bar')).toHaveLength(1)
+    const headless = new PluginUiRegistry(true)
+    headless.register('apollo-plugin-a', { id: 'x', surface: 'status-bar', text: 'ignored' })
+    expect(headless.list('status-bar')).toEqual([])
+  })
+})
 
 describe('unified picker', () => {
   it('puts an alias before a same-named file and supports explicit file mode', () => {
