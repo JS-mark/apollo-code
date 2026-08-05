@@ -113,6 +113,9 @@ importers:
       '@apollo-code/provider-anthropic':
         specifier: workspace:*
         version: link:../../packages/provider-anthropic
+      '@apollo-code/provider-kit':
+        specifier: workspace:*
+        version: link:../../packages/provider-kit
       '@apollo-code/router':
         specifier: workspace:*
         version: link:../../packages/router
