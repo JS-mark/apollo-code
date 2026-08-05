@@ -45,4 +45,21 @@ describe('PermissionManager', () => {
       ).kind,
     ).toBe('allow-session')
   })
+  it('caches network grants by canonical origin, not secret-bearing paths', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    const network = (url: string) => ({
+      toolName: 'WebFetch',
+      spec: { net: { url, method: 'GET' as const } },
+      input: { url: `${url}/path?token=secret` },
+      session: { id: 's', cwd: process.cwd() },
+      attempt: 1,
+    })
+    expect((await manager.request(network('https://example.com'))).kind).toBe('allow-session')
+    expect((await manager.request(network('https://example.com/other'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect((await manager.request(network('https://other.example'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
 })

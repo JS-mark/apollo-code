@@ -19,6 +19,9 @@ import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
 
 import { WebSearchTool, type WebSearchProvider } from './web-search'
 export * from './web-search'
+import { WebFetchTool, type WebFetchOptions } from './web-fetch'
+export { canonicalWebOrigin, isForbiddenAddress, WebFetchTool } from './web-fetch'
+export type { WebFetchInput, WebFetchOptions } from './web-fetch'
 
 const objectSchema = (properties: Record<string, unknown>, required: string[]) =>
   ({ type: 'object', additionalProperties: false, properties, required }) as never
@@ -52,6 +55,7 @@ export interface BuiltinToolsOptions {
   backups?: FileBackupPort
   task?: { dispatcher: SubagentDispatcher; parent: (signal: AbortSignal) => DispatchParent }
   webSearch?: { provider?: WebSearchProvider }
+  webFetch?: WebFetchOptions
 }
 
 async function safeMutationPath(cwd: string, input: string): Promise<string> {
@@ -485,6 +489,7 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new GlobTool(),
   new TodoTool(),
   new WebSearchTool(options.webSearch?.provider),
+  new WebFetchTool(options.webFetch),
   ...(options.task ? [new TaskTool(options.task.dispatcher, options.task.parent)] : []),
 ]
 function validate(schema: Record<string, unknown>, input: unknown): string | undefined {

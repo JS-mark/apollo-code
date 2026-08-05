@@ -33,6 +33,10 @@ function inCwd(path: string, cwd: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 function keyOf(request: PermissionRequest): string {
+  if (request.spec.net) {
+    const origin = new URL(request.spec.net.url).origin
+    return JSON.stringify([request.toolName, { net: { ...request.spec.net, url: origin } }])
+  }
   return JSON.stringify([request.toolName, request.spec])
 }
 const SAFE_BASH =
