@@ -34,10 +34,11 @@ input.on('data', chunk => {
     const waiter = pending.get(message.id)
     if (waiter) {
       pending.delete(message.id); clearTimeout(waiter.timeout)
-      message.error ? waiter.reject(new Error(String(message.error.message || 'RPC failed'))) : waiter.resolve(message.result)
+      if (message.error) waiter.reject(new Error(String(message.error.message || 'RPC failed')))
+      else waiter.resolve(message.result)
       continue
     }
-    if (message.method === 'callback.invoke' && message.id != null) {
+    if (message.method === 'callback.invoke' && message.id !== null && message.id !== undefined) {
       const callback = callbacks.get(message.params?.callbackId)
       Promise.resolve().then(() => {
         if (!callback) throw new Error('unknown callback')

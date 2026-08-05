@@ -51,9 +51,10 @@ pub fn probe() -> ProbeInfo {
     }
 }
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
-    execute(command(request)?, SandboxTier::Full)
+    let (command, _bundled) = command(request)?;
+    execute(command, SandboxTier::Full)
 }
-pub(crate) fn command(request: &ExecRequest) -> Result<Command, String> {
+fn command(request: &ExecRequest) -> Result<(Command, bundled_bwrap::BundledBwrap), String> {
     let bundled = bundled_bwrap::materialize()
         .map_err(|error| format!("bundled bwrap unavailable; refusing execution: {error}"))?;
     seccomp_arch()?;
@@ -84,7 +85,15 @@ pub(crate) fn command(request: &ExecRequest) -> Result<Command, String> {
         }
     }
     command.args(["/bin/sh", "-c", &request.command]);
-    Ok(command)
+    Ok((command, bundled))
+}
+pub(crate) fn exec_persistent(request: &ExecRequest) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    let (mut command, _bundled) = command(request)?;
+    Err(format!(
+        "failed to execute sandbox backend: {}",
+        command.exec()
+    ))
 }
 #[cfg(test)]
 mod tests {

@@ -55,19 +55,18 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
 /// bridge fd and makes killing the launcher kill the actual plugin host.
 pub fn exec_persistent(request: &ExecRequest) -> Result<(), String> {
     request.validate()?;
-    #[cfg(target_os = "macos")]
-    let mut command = macos::command(request)?;
     #[cfg(target_os = "linux")]
-    let mut command = linux::command(request)?;
-    #[cfg(unix)]
+    return linux::exec_persistent(request);
+    #[cfg(target_os = "macos")]
     {
         use std::os::unix::process::CommandExt;
+        let mut command = macos::command(request)?;
         Err(format!(
             "failed to execute sandbox backend: {}",
             command.exec()
         ))
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     Err("persistent plugin host is not yet supported by this sandbox backend".into())
 }
 
