@@ -51,6 +51,9 @@ pub fn probe() -> ProbeInfo {
     }
 }
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
+    execute(command(request)?, SandboxTier::Full)
+}
+pub(crate) fn command(request: &ExecRequest) -> Result<Command, String> {
     let bundled = bundled_bwrap::materialize()
         .map_err(|error| format!("bundled bwrap unavailable; refusing execution: {error}"))?;
     seccomp_arch()?;
@@ -81,7 +84,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
         }
     }
     command.args(["/bin/sh", "-c", &request.command]);
-    execute(command, SandboxTier::Full)
+    Ok(command)
 }
 #[cfg(test)]
 mod tests {

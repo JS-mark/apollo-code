@@ -51,6 +51,26 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
     Err("sandbox unavailable on this L1 platform".into())
 }
 
+/// Replace this process with the sandbox backend. This preserves the dedicated
+/// bridge fd and makes killing the launcher kill the actual plugin host.
+pub fn exec_persistent(request: &ExecRequest) -> Result<(), String> {
+    request.validate()?;
+    #[cfg(target_os = "macos")]
+    let mut command = macos::command(request)?;
+    #[cfg(target_os = "linux")]
+    let mut command = linux::command(request)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Err(format!(
+            "failed to execute sandbox backend: {}",
+            command.exec()
+        ))
+    }
+    #[cfg(not(unix))]
+    Err("persistent plugin host is not yet supported by this sandbox backend".into())
+}
+
 fn execute(mut command: Command, tier: SandboxTier) -> Result<ExecResult, String> {
     let started = Instant::now();
     let output = command

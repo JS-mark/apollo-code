@@ -88,7 +88,18 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Plugi
     { stdio: ['ignore', 'pipe', 'pipe', 'pipe'], signal: options.signal },
   )
   const bridge = child.stdio[3]
-  if (!bridge || typeof bridge === 'string') throw new Error('plugin bridge fd unavailable')
+  if (!bridge || typeof bridge === 'string') {
+    child.kill('SIGKILL')
+    throw new Error('plugin bridge fd unavailable')
+  }
+  // Plugin stdout is never a protocol channel. Drain bounded stderr for
+  // diagnostics without allowing an untrusted plugin to fill parent memory.
+  child.stdout?.resume()
+  let stderrBytes = 0
+  child.stderr?.on('data', (chunk: Buffer) => {
+    stderrBytes += chunk.byteLength
+    if (stderrBytes > 256 * 1024) child.kill('SIGKILL')
+  })
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
     child.once('close', (code, signal) => resolve({ code, signal })),
   )
@@ -98,7 +109,10 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Plugi
   return {
     pid: child.pid ?? -1,
     bridge: bridge as unknown as NodeJS.ReadWriteStream,
-    terminate: () => child.kill('SIGKILL'),
+    terminate: () => {
+      bridge.destroy()
+      child.kill('SIGKILL')
+    },
     exited,
   }
 }

@@ -1,4 +1,6 @@
-use apollo_sandbox::{bundled_bwrap, digest::verify_sha256, probe, run, ExecRequest};
+use apollo_sandbox::{
+    bundled_bwrap, digest::verify_sha256, plugin::run_plugin, probe, run, ExecRequest,
+};
 use std::io::Read;
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -28,6 +30,22 @@ fn main() {
                 std::process::exit(2);
             }
         }
+    }
+    if args.first().map(String::as_str) == Some("--run-plugin") {
+        let value = |flag: &str| {
+            args.windows(2)
+                .find(|pair| pair[0] == flag)
+                .map(|pair| pair[1].as_str())
+        };
+        let result = match (value("--entry"), value("--data-dir"), value("--sandbox-profile"), value("--bridge-fd")) {
+            (Some(entry), Some(data), Some(profile), Some(fd)) if args.len() == 9 => run_plugin(entry, data, profile, fd),
+            _ => Err("usage: apollo-sandbox --run-plugin --entry <file> --data-dir <dir> --sandbox-profile <json> --bridge-fd 3".into()),
+        };
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+        return;
     }
     let mut input = String::new();
     std::io::stdin()

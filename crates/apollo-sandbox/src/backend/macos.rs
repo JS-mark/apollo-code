@@ -103,6 +103,10 @@ pub fn probe() -> ProbeInfo {
 }
 
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
+    execute(command(request)?, SandboxTier::Partial)
+}
+
+pub(crate) fn command(request: &ExecRequest) -> Result<Command, String> {
     if probe().tier < SandboxTier::Partial {
         return Err("macOS sandbox backend unavailable; refusing unsandboxed execution".into());
     }
@@ -125,7 +129,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
             command.env(key, value);
         }
     }
-    execute(command, SandboxTier::Partial)
+    Ok(command)
 }
 
 #[cfg(test)]
