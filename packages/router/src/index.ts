@@ -277,3 +277,173 @@ export function assertProviderMayBeDefault(registry: ProviderRegistry, providerN
   if (registry.describe(providerName)?.source.kind === 'plugin')
     throw new Error('plugin_provider_cannot_be_default_v1')
 }
+
+export type RouterRole = NonNullable<RouterHint['role']>
+export interface RoleRouteConfig {
+  provider: string
+  model: string
+  priority?: number
+}
+export interface RoleRouterConfig {
+  roles?: Partial<Record<RouterRole, RoleRouteConfig | readonly RoleRouteConfig[]>>
+  default?: RoleRouteConfig | readonly RoleRouteConfig[]
+}
+
+const ROUTER_ROLES: readonly RouterRole[] = ['planner', 'coder', 'reviewer', 'chat']
+
+/** Role selection layered over FallbackRouter's retry, cooldown, budget, and sticky policy. */
+export class RoleRouter implements RouterPolicy {
+  readonly name = 'role'
+  readonly #registry: ProviderRegistry
+  readonly #default: FallbackRouter
+  readonly #roles = new Map<RouterRole, FallbackRouter>()
+  readonly #providerRouters = new Map<string, FallbackRouter>()
+  readonly #activeTurns = new Map<string, FallbackRouter>()
+  readonly #options: FallbackRouterOptions
+  readonly #maxTrackedTurns: number
+
+  constructor(
+    registry: ProviderRegistry,
+    config: RoleRouterConfig,
+    options: FallbackRouterOptions & { maxTrackedTurns?: number } = {},
+  ) {
+    if (!config.default) throw new Error('role_router_default_missing')
+    this.#registry = registry
+    this.#options = options
+    this.#maxTrackedTurns = Math.max(1, options.maxTrackedTurns ?? 256)
+    const defaults = this.#normalize(config.default, 'default')
+    assertProviderMayBeDefault(registry, defaults[0]!.provider)
+    this.#default = this.#fallback(defaults)
+    for (const route of defaults) this.#providerRouters.set(route.provider, this.#default)
+    for (const role of ROUTER_ROLES) {
+      const configured = config.roles?.[role]
+      if (!configured) continue
+      const routes = this.#normalize(configured, role)
+      const router = this.#fallback(routes)
+      this.#roles.set(role, router)
+      for (const route of routes) this.#providerRouters.set(route.provider, router)
+    }
+  }
+
+  async pick(ctx: RouterContext, hint?: RouterHint): Promise<RouterDecision> {
+    const active = this.#activeTurns.get(ctx.turnId)
+    if (ctx.session.stickyProvider) {
+      const router = active ?? this.#providerRouters.get(ctx.session.stickyProvider)
+      if (!router)
+        throw new Error(`sticky_provider_not_in_role_candidates: ${ctx.session.stickyProvider}`)
+      this.#track(ctx.turnId, router)
+      return router.pick(ctx)
+    }
+
+    if (hint?.explicitModel?.includes('/')) {
+      const [providerName, ...model] = hint.explicitModel.split('/')
+      const provider = this.#registry.get(providerName!)
+      if (!provider) throw new Error(`provider_not_registered: ${providerName}`)
+      const router = new FallbackRouter(
+        [{ provider, model: model.join('/'), priority: 0 }],
+        this.#options,
+      )
+      this.#track(ctx.turnId, router)
+      return router.pick(ctx, hint)
+    }
+
+    const role = hint?.role
+    const router = (role && this.#roles.get(role)) || this.#default
+    this.#track(ctx.turnId, router)
+    const decision = await router.pick(ctx, hint)
+    return {
+      ...decision,
+      reason: `role:${role && this.#roles.has(role) ? role : 'default'}`,
+      metadata: { ...decision.metadata, fallbackReason: decision.reason },
+    }
+  }
+
+  async onError(error: ProviderError, ctx: RouterContext): Promise<RouterDecision | 'give-up'> {
+    return (await this.#activeTurns.get(ctx.turnId)?.onError(error, ctx)) ?? 'give-up'
+  }
+
+  async onSuccess(decision: RouterDecision, ctx: RouterContext): Promise<void> {
+    await Promise.resolve(this.#activeTurns.get(ctx.turnId)?.onSuccess?.(decision, ctx))
+  }
+
+  #normalize(
+    configured: RoleRouteConfig | readonly RoleRouteConfig[],
+    label: string,
+  ): readonly RoleRouteConfig[] {
+    const routes = Array.isArray(configured) ? configured : [configured]
+    if (routes.length === 0) throw new Error(`role_router_candidates_empty: ${label}`)
+    return routes
+  }
+
+  #fallback(configured: readonly RoleRouteConfig[]): FallbackRouter {
+    return new FallbackRouter(
+      configured.map((route, index) => {
+        const provider = this.#registry.get(route.provider)
+        if (!provider) throw new Error(`provider_not_registered: ${route.provider}`)
+        return { provider, model: route.model, priority: route.priority ?? -index }
+      }),
+      this.#options,
+    )
+  }
+
+  #track(turnId: string, router: FallbackRouter): void {
+    this.#activeTurns.delete(turnId)
+    this.#activeTurns.set(turnId, router)
+    while (this.#activeTurns.size > this.#maxTrackedTurns)
+      this.#activeTurns.delete(this.#activeTurns.keys().next().value!)
+  }
+}
+
+/** Validates the untyped `[router]` config before any provider can receive traffic. */
+export function parseRoleRouterConfig(value: unknown): RoleRouterConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('role_router_config_invalid')
+  const input = value as Record<string, unknown>
+  const config: RoleRouterConfig = { default: parseConfiguredRoutes(input.default, 'default') }
+  if (input.roles !== undefined) {
+    if (!input.roles || typeof input.roles !== 'object' || Array.isArray(input.roles))
+      throw new Error('role_router_roles_invalid')
+    const roles = input.roles as Record<string, unknown>
+    const unknown = Object.keys(roles).find((role) => !ROUTER_ROLES.includes(role as RouterRole))
+    if (unknown) throw new Error(`role_router_role_unknown: ${unknown}`)
+    const parsed: Partial<Record<RouterRole, RoleRouteConfig | readonly RoleRouteConfig[]>> = {}
+    for (const role of ROUTER_ROLES)
+      if (roles[role] !== undefined) parsed[role] = parseConfiguredRoutes(roles[role], role)
+    config.roles = parsed
+  }
+  return config
+}
+
+function parseConfiguredRoutes(
+  value: unknown,
+  label: string,
+): RoleRouteConfig | readonly RoleRouteConfig[] {
+  if (Array.isArray(value)) {
+    if (value.length === 0) throw new Error(`role_router_candidates_empty: ${label}`)
+    return value.map((route) => parseConfiguredRoute(route, label))
+  }
+  return parseConfiguredRoute(value, label)
+}
+
+function parseConfiguredRoute(value: unknown, label: string): RoleRouteConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error(`role_router_route_invalid: ${label}`)
+  const route = value as Record<string, unknown>
+  if (
+    typeof route.provider !== 'string' ||
+    !route.provider ||
+    typeof route.model !== 'string' ||
+    !route.model
+  )
+    throw new Error(`role_router_route_invalid: ${label}`)
+  if (
+    route.priority !== undefined &&
+    (!Number.isFinite(route.priority) || typeof route.priority !== 'number')
+  )
+    throw new Error(`role_router_priority_invalid: ${label}`)
+  return {
+    provider: route.provider,
+    model: route.model,
+    ...(route.priority === undefined ? {} : { priority: route.priority }),
+  }
+}

@@ -8,21 +8,21 @@
 
 ### 3.1 设计目标
 
-| 目标                    | 具体含义                                                                     |
-|-------------------------|------------------------------------------------------------------------------|
-| **中性优先**            | 内部 `Message` / `ContentPart` provider 无关；跨 provider 切换无需改业务代码。 |
-| **能力可探测**          | `ProviderCapabilities` 让 Runner / Router 知道 provider 能做什么、不能做什么。 |
-| **原生特性可用**        | 允许 provider 特殊字段通过 **RawMeta 逃生舱** 传递，不污染中性模型。          |
-| **流式一等**            | Stream 是主 API，非流式退化为收集流。                                          |
-| **可路由**              | Router 层夹在 Runner 与 provider 之间，负责选择 / 降级 / 切换。                |
-| **可组合能力检测**      | Runner 询问 capabilities 决定行为（并行 tool / 是否发 thinking / 视觉压缩等）。 |
-| **Auth / http 强路由**  | 所有 provider 走 `auth` + `http-kit`，不允许自建 fetch。                       |
+| 目标                   | 具体含义                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| **中性优先**           | 内部 `Message` / `ContentPart` provider 无关；跨 provider 切换无需改业务代码。  |
+| **能力可探测**         | `ProviderCapabilities` 让 Runner / Router 知道 provider 能做什么、不能做什么。  |
+| **原生特性可用**       | 允许 provider 特殊字段通过 **RawMeta 逃生舱** 传递，不污染中性模型。            |
+| **流式一等**           | Stream 是主 API，非流式退化为收集流。                                           |
+| **可路由**             | Router 层夹在 Runner 与 provider 之间，负责选择 / 降级 / 切换。                 |
+| **可组合能力检测**     | Runner 询问 capabilities 决定行为（并行 tool / 是否发 thinking / 视觉压缩等）。 |
+| **Auth / http 强路由** | 所有 provider 走 `auth` + `http-kit`，不允许自建 fetch。                        |
 
 ### 3.2 ProviderClient 契约（provider-kit）
 
 ```ts
 export interface ProviderClient {
-  readonly name: string                             // 'anthropic' / 'openai' / 'gemini' / 'ollama'
+  readonly name: string // 'anthropic' / 'openai' / 'gemini' / 'ollama'
   readonly capabilities: ProviderCapabilities
 
   /** 主 API：流式请求 */
@@ -44,45 +44,52 @@ export interface ProviderClient {
 
 ```ts
 export interface ProviderRequest {
-  model: string                                     // 具体模型 id
-  messages: ReadonlyArray<Message>                  // 中性 Message[]
-  system?: string                                   // 由 PromptComposer 提供，见 §6.5
-  tools?: ToolSchema[]                              // 由 tool-kit 序列化
+  model: string // 具体模型 id
+  messages: ReadonlyArray<Message> // 中性 Message[]
+  system?: string // 由 PromptComposer 提供，见 §6.5
+  tools?: ToolSchema[] // 由 tool-kit 序列化
   toolChoice?: 'auto' | 'none' | 'required' | { name: string }
   maxTokens?: number
   temperature?: number
   topP?: number
   stopSequences?: string[]
-  responseFormat?: 'text' | 'json'                  // 简单 JSON 模式；结构化输出用 tool
-  reasoning?: {                                     // 显式思考开关
+  responseFormat?: 'text' | 'json' // 简单 JSON 模式；结构化输出用 tool
+  reasoning?: {
+    // 显式思考开关
     enabled: boolean
-    budgetTokens?: number                           // Anthropic thinking / OpenAI reasoning_effort 换算
+    budgetTokens?: number // Anthropic thinking / OpenAI reasoning_effort 换算
   }
-  cache?: {                                         // 由 provider 适配转成 provider-specific 缓存指令
+  cache?: {
+    // 由 provider 适配转成 provider-specific 缓存指令
     strategy: 'ephemeral' | 'persistent' | 'off'
     ttlSeconds?: number
   }
-  rawMeta?: RawMeta                                 // 逃生舱，见 §3.4
+  rawMeta?: RawMeta // 逃生舱，见 §3.4
 }
 ```
 
 ```ts
 export type ProviderChunk =
-  | { kind: 'message.start',   messageId: string }
-  | { kind: 'text.delta',      text: string }
-  | { kind: 'thinking.delta',  text: string, signature?: string }
-  | { kind: 'tool_use.start',  id: string, name: string }
-  | { kind: 'tool_use.delta',  id: string, argsFragment: string }        // JSON 片段流
-  | { kind: 'tool_use.end',    id: string }
-  | { kind: 'usage',           usage: Usage }                            // 中间或结束时到达
-  | { kind: 'message.stop',    stopReason: StopReason }
-  | { kind: 'message.interrupted', reason: string, partial?: { text?: string; toolUseIds?: string[] } }  // ★ 异常终止，见 §3.9a；与 message.stop 互斥
-  | { kind: 'error',           error: ProviderError }
+  | { kind: 'message.start'; messageId: string }
+  | { kind: 'text.delta'; text: string }
+  | { kind: 'thinking.delta'; text: string; signature?: string }
+  | { kind: 'tool_use.start'; id: string; name: string }
+  | { kind: 'tool_use.delta'; id: string; argsFragment: string } // JSON 片段流
+  | { kind: 'tool_use.end'; id: string }
+  | { kind: 'usage'; usage: Usage } // 中间或结束时到达
+  | { kind: 'message.stop'; stopReason: StopReason }
+  | {
+      kind: 'message.interrupted'
+      reason: string
+      partial?: { text?: string; toolUseIds?: string[] }
+    } // ★ 异常终止，见 §3.9a；与 message.stop 互斥
+  | { kind: 'error'; error: ProviderError }
 
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error'
 ```
 
 **关键约定**：
+
 - **`stream` 是主 API**。所有 provider 实现都必须提供 stream；`complete` 只是包装糖。
 - **tool_use 参数流式拼接**：`tool_use.delta.argsFragment` 是 JSON 字符串增量，`tool_use.end` 时由 Runner 一次性 `JSON.parse`（失败则包成 tool_result error）。
 - **`usage` 可多次到达**（有的 provider 中间报 cache_read，结束报 output）。累计规则：以 `message.stop` 前的最后一次为准，中间的用于 UI 实时显示。
@@ -94,39 +101,45 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence
 ```ts
 export interface ProviderCapabilities {
   //-------- 上下文与费用 --------
-  maxContextTokens: number                          // 输入上限（不含 output）
+  maxContextTokens: number // 输入上限（不含 output）
   maxOutputTokens: number
-  pricing?: { inputPerM: number; outputPerM: number; cacheReadPerM?: number; cacheWritePerM?: number }
+  pricing?: {
+    inputPerM: number
+    outputPerM: number
+    cacheReadPerM?: number
+    cacheWritePerM?: number
+  }
 
   //-------- 工具能力 --------
-  toolUse: 'none' | 'sequential' | 'parallel'       // Runner 用来决定并行度
+  toolUse: 'none' | 'sequential' | 'parallel' // Runner 用来决定并行度
   toolResultSchema: 'anthropic' | 'openai' | 'gemini' | 'json-string'
 
   //-------- 内容形态 --------
   vision: false | { formats: string[]; maxSizeMB: number }
   files: false | { formats: string[]; maxSizeMB: number }
   audio?: false | { formats: string[] }
-  thinking: false | { budgetTokens: boolean }        // 支持思考 + 是否支持 budget 控制
+  thinking: false | { budgetTokens: boolean } // 支持思考 + 是否支持 budget 控制
 
   //-------- 流式 --------
-  streaming: boolean                                 // 理论上都得是 true
-  streamingReasoning: boolean                        // 是否支持思考流
+  streaming: boolean // 理论上都得是 true
+  streamingReasoning: boolean // 是否支持思考流
 
   //-------- 缓存 --------
   cache: 'none' | 'ephemeral' | 'persistent'
 
   //-------- 结构化输出 --------
   jsonMode: boolean
-  structuredOutput: boolean                          // schema-constrained
+  structuredOutput: boolean // schema-constrained
 
   //-------- 特殊 --------
-  systemPromptLocation: 'system-field' | 'first-user-message'  // Gemini 是后者
-  toolChoiceRequired: boolean                        // OpenAI 才有 'required'
-  interleavedThinking: boolean                       // 允许思考与工具交错
+  systemPromptLocation: 'system-field' | 'first-user-message' // Gemini 是后者
+  toolChoiceRequired: boolean // OpenAI 才有 'required'
+  interleavedThinking: boolean // 允许思考与工具交错
 }
 ```
 
 **用途**：
+
 - Runner 检查 `toolUse` 决定并行度（§2.5）
 - context 层根据 `maxContextTokens` 计算是否要压缩
 - ui 根据 `vision` 决定用户能否粘图
@@ -142,7 +155,7 @@ export interface ProviderCapabilities {
 ```ts
 export interface RawMeta {
   anthropic?: {
-    cacheControl?: { type: 'ephemeral' }[]           // 每条 message 一个位点
+    cacheControl?: { type: 'ephemeral' }[] // 每条 message 一个位点
     metadata?: { user_id?: string }
     computerUse?: { displayWidth: number; displayHeight: number }
   }
@@ -164,6 +177,7 @@ export interface RawMeta {
 ```
 
 **规则**：
+
 - 中性 `Message` **绝对不含** provider 特殊字段
 - 只有需要 provider 特殊行为的调用者（少数）会填 `rawMeta`
 - Provider 适配器**只读自己命名空间的 key**，未知 key 忽略（跨 provider 切换时静默降级）
@@ -175,21 +189,22 @@ export interface RawMeta {
 
 四家主要 provider 的适配点，实现时按此表逐项映射：
 
-| 维度                       | Anthropic Messages           | OpenAI Chat Completions      | Gemini generateContent        | Ollama                        |
-|----------------------------|------------------------------|------------------------------|-------------------------------|-------------------------------|
-| 端点                       | `POST /v1/messages`          | `POST /v1/chat/completions`  | `POST /v1/models/*:streamGenerateContent` | `POST /api/chat`             |
-| System prompt              | 顶层 `system` 字段           | `messages[0].role='system'`  | **无 system 字段**，塞第一条 user | `messages[0].role='system'`  |
-| Tool 定义位置              | `tools` 顶层                 | `tools` 顶层                 | `tools[].functionDeclarations[]` | 视版本，v0.3+ 支持            |
-| Tool 结果表达              | user message + `tool_result` | tool role + `tool_call_id`   | function role + `functionResponse` | tool role                    |
-| 图像                       | `content[].type='image'`     | `content[].type='image_url'` | `parts[].inlineData`          | `images[]` base64             |
-| 思考                       | `thinking` content type      | `reasoning` field (o1/o3)    | 无原生 field                  | 无                            |
-| 缓存                       | `cache_control` breakpoint   | 自动（无控制）                | context caching (需 explicit) | 无                            |
-| 并行工具                   | ✅                          | ✅                          | ⚠️ 部分模型                    | ⚠️ 视模型                     |
-| Stream 帧格式              | SSE `event: content_block_delta` | SSE `data: {...}` 累加 delta | SSE JSON lines                | NDJSON                       |
-| 错误码                     | `400 invalid_request_error`  | `429 rate_limit`             | `429 RESOURCE_EXHAUSTED`      | `500` (通常)                  |
-| Token 计数                 | `/v1/messages/count_tokens`  | tiktoken 近似                | `countTokens` 端点            | 无                            |
+| 维度          | Anthropic Messages               | OpenAI Chat Completions      | Gemini generateContent                    | Ollama                      |
+| ------------- | -------------------------------- | ---------------------------- | ----------------------------------------- | --------------------------- |
+| 端点          | `POST /v1/messages`              | `POST /v1/chat/completions`  | `POST /v1/models/*:streamGenerateContent` | `POST /api/chat`            |
+| System prompt | 顶层 `system` 字段               | `messages[0].role='system'`  | **无 system 字段**，塞第一条 user         | `messages[0].role='system'` |
+| Tool 定义位置 | `tools` 顶层                     | `tools` 顶层                 | `tools[].functionDeclarations[]`          | 视版本，v0.3+ 支持          |
+| Tool 结果表达 | user message + `tool_result`     | tool role + `tool_call_id`   | function role + `functionResponse`        | tool role                   |
+| 图像          | `content[].type='image'`         | `content[].type='image_url'` | `parts[].inlineData`                      | `images[]` base64           |
+| 思考          | `thinking` content type          | `reasoning` field (o1/o3)    | 无原生 field                              | 无                          |
+| 缓存          | `cache_control` breakpoint       | 自动（无控制）               | context caching (需 explicit)             | 无                          |
+| 并行工具      | ✅                               | ✅                           | ⚠️ 部分模型                               | ⚠️ 视模型                   |
+| Stream 帧格式 | SSE `event: content_block_delta` | SSE `data: {...}` 累加 delta | SSE JSON lines                            | NDJSON                      |
+| 错误码        | `400 invalid_request_error`      | `429 rate_limit`             | `429 RESOURCE_EXHAUSTED`                  | `500` (通常)                |
+| Token 计数    | `/v1/messages/count_tokens`      | tiktoken 近似                | `countTokens` 端点                        | 无                          |
 
 **每个 provider-\* 包必须实现**：
+
 1. Message ↔ provider format 双向转换器（含图像/工具/思考的差异处理）
 2. Stream 帧 → `ProviderChunk` 归一化
 3. 错误码 → `ProviderError`（含 `retryable: boolean` / `category`）
@@ -206,39 +221,39 @@ export interface ProviderError extends Error {
   status?: number
   category: ProviderErrorCategory
   retryable: boolean
-  retryAfterMs?: number                             // 429 时优先用
+  retryAfterMs?: number // 429 时优先用
   cause?: unknown
 }
 
 export type ProviderErrorCategory =
-  | 'network'           // 连接失败 / 超时 / DNS
-  | 'auth'              // 401 / 403 → 提示重新 login
-  | 'rate_limit'        // 429
-  | 'quota'             // 余额不足
-  | 'invalid_request'   // 400 → 大概率是我们的 bug
-  | 'content_filter'    // 被 safety 拦
-  | 'model_not_found'   // 404
-  | 'server'            // 5xx
-  | 'context_length'    // context 超限 → 触发 context 压缩重试
-  | 'stream_truncated'  // 流式连接中途断（RST / abort / 响应体不完整），见 §3.9a
+  | 'network' // 连接失败 / 超时 / DNS
+  | 'auth' // 401 / 403 → 提示重新 login
+  | 'rate_limit' // 429
+  | 'quota' // 余额不足
+  | 'invalid_request' // 400 → 大概率是我们的 bug
+  | 'content_filter' // 被 safety 拦
+  | 'model_not_found' // 404
+  | 'server' // 5xx
+  | 'context_length' // context 超限 → 触发 context 压缩重试
+  | 'stream_truncated' // 流式连接中途断（RST / abort / 响应体不完整），见 §3.9a
   | 'unknown'
 ```
 
 **每类的 Router / Runner 反应**（详见 §3.9）：
 
-| 类别             | Router 行为                          | Runner 行为                            |
-|------------------|--------------------------------------|----------------------------------------|
-| `network`        | 指数退避后同 provider 重试；3 次失败 fallback | 中转失败 → 用户可见的 retry 提示     |
-| `auth`           | ❌ 不 fallback（换 provider 也没 key） | 立即报错，提示 `apollo login`           |
-| `rate_limit`     | 首选 fallback，无 fallback 时按 retryAfter 退避 | 显示等待时间                    |
-| `quota`          | fallback                             | 无 fallback 时报错                      |
-| `invalid_request`| ❌ 不 fallback（同样会 400）           | 报错到 telemetry，用户可见错误           |
-| `content_filter` | fallback（不同 provider 尺度不同）    | 用户可见提示                             |
-| `model_not_found`| fallback                             | 提示模型不可用                           |
-| `server`         | 指数退避 + fallback                  | 同 network                              |
-| `context_length` | ❌ 不 fallback（换 provider 也超）     | Runner 触发**紧急压缩** + 重试一次      |
+| 类别               | Router 行为                                     | Runner 行为                                                                        |
+| ------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `network`          | 指数退避后同 provider 重试；3 次失败 fallback   | 中转失败 → 用户可见的 retry 提示                                                   |
+| `auth`             | ❌ 不 fallback（换 provider 也没 key）          | 立即报错，提示 `apollo login`                                                      |
+| `rate_limit`       | 首选 fallback，无 fallback 时按 retryAfter 退避 | 显示等待时间                                                                       |
+| `quota`            | fallback                                        | 无 fallback 时报错                                                                 |
+| `invalid_request`  | ❌ 不 fallback（同样会 400）                    | 报错到 telemetry，用户可见错误                                                     |
+| `content_filter`   | fallback（不同 provider 尺度不同）              | 用户可见提示                                                                       |
+| `model_not_found`  | fallback                                        | 提示模型不可用                                                                     |
+| `server`           | 指数退避 + fallback                             | 同 network                                                                         |
+| `context_length`   | ❌ 不 fallback（换 provider 也超）              | Runner 触发**紧急压缩** + 重试一次                                                 |
 | `stream_truncated` | 见 [§3.9a](#39a-流式中断处理-stream-resilience) | Runner 作废当前 assistant 消息 + 按 sticky 语义决定重试/fallback；不落半截 message |
-| `unknown`        | 保守：一次退避 + fallback             | 报错                                    |
+| `unknown`          | 保守：一次退避 + fallback                       | 报错                                                                               |
 
 ### 3.7 Router 契约（packages/router）
 
@@ -258,27 +273,28 @@ export interface RouterPolicy {
 }
 
 export interface RouterContext {
-  session: SessionSnapshot                          // 只读，含 cumulativeUsage / lastProvider 等
+  session: SessionSnapshot // 只读，含 cumulativeUsage / lastProvider 等
   turnId: TurnId
-  attemptCount: number                              // 当前 turn 内已尝试次数（用于退避）
+  attemptCount: number // 当前 turn 内已尝试次数（用于退避）
   budget?: { costUSDMax?: number; timeMsMax?: number }
 }
 
 export interface RouterHint {
-  explicitModel?: string                            // 用户输入 `@gpt-4 ...` 时提取
-  role?: 'planner' | 'coder' | 'reviewer' | 'chat'  // hooks/plugins 可以塞角色暗示
+  explicitModel?: string // 用户输入 `@gpt-4 ...` 时提取
+  role?: 'planner' | 'coder' | 'reviewer' | 'chat' // hooks/plugins 可以塞角色暗示
   costPreference?: 'cheap' | 'balanced' | 'quality'
 }
 
 export interface RouterDecision {
-  provider: ProviderClient                          // 已实例化
+  provider: ProviderClient // 已实例化
   model: string
-  reason: string                                    // 用于 telemetry / UI 展示
+  reason: string // 用于 telemetry / UI 展示
   metadata?: Record<string, unknown>
 }
 ```
 
 **关键决策**：
+
 - Router **每次** provider 调用前都被询问，可以在同一 turn 内动态切换 —— **但受 sticky 约束**（见下）。
 - Router **不感知具体 provider 实现**，只操作 `ProviderClient` 实例；实例从 `ProviderRegistry` 解析（registry 兼纳核心 provider 与插件 provider，见 [PLUGIN-PROVIDER-r1](./PLUGIN-PROVIDER-r1.md)）。
 - Router 状态（哪个 provider 冷却中、剩余重试等）由 `RouterPolicy` 实例内部维护，不放 `SessionState`。
@@ -312,13 +328,16 @@ export interface RouterDecision {
 
 ```ts
 class SingleProviderRouter implements RouterPolicy {
-  constructor(private client: ProviderClient, private defaultModel: string) {}
+  constructor(
+    private client: ProviderClient,
+    private defaultModel: string,
+  ) {}
 
   async pick(_ctx, hint) {
     return {
       provider: this.client,
       model: hint?.explicitModel ?? this.defaultModel,
-      reason: 'single-provider'
+      reason: 'single-provider',
     }
   }
 
@@ -366,9 +385,14 @@ config:
 ```
 
 `hint.role` 来源：
+
 - 用户输入前缀（`@planner ...`）
 - Hook 注入（用户配置 hook 根据 prompt 分类角色）
 - 内置：subagent dispatch 时传入其 agentType
+
+实现组合固定为 `RoleRouter → FallbackRouter → ProviderRegistry`：RoleRouter 只选择 role 对应的显式候选链，重试分类、cooldown、budget 和 sticky retry 全部委托给每条链的 FallbackRouter，不复制安全逻辑。每个 turn 记录实际选中的链以处理 `onError`，记录数量有上限以防长期会话造成无界状态增长；未知 turn 的错误 fail closed 为 `give-up`。
+
+Role 配置中的 provider 名必须在构造时通过 ProviderRegistry 解析成功。插件 provider 只有被 role/fallback 配置点名或本 turn 通过 `provider/model` 显式选择时才会进入候选池；仅注册不会自动获得流量，且 v1 仍禁止作为 default。
 
 #### 3.8.4 CostAwareRouter（v2）
 
@@ -394,21 +418,25 @@ provider stream 可能在任意 chunk 边界中断。若不定义 resume 语义�
 #### 契约
 
 **1. ProviderChunk 增 `message.interrupted` kind**（[§3.2](#32-providerclient-契约provider-kit)）：
+
 - provider 适配器在 stream **异常**终止（连接断 / abort / 超时 / 响应体不完整）时，**必须**先 emit 一个 `message.interrupted { reason, partial }` chunk，再结束 iterable；`partial` = 已累计的未提交片段（供 Runner 决策作废 vs 保留）。
 - 正常 `message.stop`（含 `end_turn`/`tool_use`/`max_tokens`/`stop_sequence`）**不**发 `interrupted`。
 - `message.interrupted` 与 `message.stop` **互斥**（二选一），与 [§3.2](#32-providerclient-契约provider-kit) 的 `error` chunk vs throw 二选一一致。
 
 **2. 强制 streaming UTF-8 decoder**：
+
 - provider 适配器**必须**用 `TextDecoder({ stream: true })`（或等价）跨 chunk 拼接 text；**禁止**逐 chunk `Buffer.toString()` 后字符串拼接（会切坏多字节字符）。
 - 单元测试：构造把一个 emoji 切到 byte 边界的 chunk 序列，断言最终文本正确。
 
 **3. Runner 的 turn 作废语义**（[§2.4](./02-agent-loop.md#24-runner-主循环伪代码)）：
+
 - Runner 收到 `message.interrupted` 后，**作废整个进行中的 assistant message**（不落盘、不入 SessionState.messages、不 emit `message.appended`）。
 - 已 emit 给 UI 的 `stream.delta` 由 UI 侧标记为"已撤销"（UI 收到 `message.interrupted` → 把当前 streaming block 渲染为 `[stream interrupted: <reason>]` 灰色 + 撤销按钮，**不**提交到 transcript）。
 - 已 emit 的 `tool_use.start/delta` **作废**：Runner 不调用任何 tool，不产生 tool_result；模型端若重试，视为全新 tool_use。
 - emit `error.raised { code: 'stream_interrupted', turnId, reason, hadPartialToolUse: <bool> }`。
 
 **4. 重试/fallback 决策（与 sticky 正交但受限，r9 优化"复用已完成状态"）**：
+
 - Runner 把 `stream_truncated` 当作可重试错误交给 `router.onError`。
 - **若本 turn 尚未产生任何 `tool_use.*` chunk**（`stickyProvider == null`）：`onError` 可自由选择同 provider 重试（指数退避）或 fallback 到别的 provider，**整个 turn 从头重跑**（重新调 `provider.stream`）。
 - **若已产生 `tool_use.*` chunk**（`stickyProvider` 已锁定，见 §3.7.1 规则 2a）：`onError` **只能同 provider 重试**或 `give-up`，**禁止跨 provider fallback**（否则 tool_use_id 不匹配）。
@@ -421,6 +449,7 @@ provider stream 可能在任意 chunk 边界中断。若不定义 resume 语义�
 - 边界：重跑若再次中断，累计重试次数仍受本条上限（同 provider 2 次）；`loopCount` 不重置（占额度，防死循环）。
 
 **5. 不做 resume-from-offset（v1 明确）**：
+
 - v1 **不**实现"从断点继续接收剩余 chunk"（byte/token offset 级续传）。理由：(a) 各 provider 无稳定的 byte/token offset resume API；(b) 半截 message + 续传的实现复杂度高于收益。
 - **r9 区分**：上述"不做 resume-from-offset"指**provider stream 的字节级续传**；而规则 4 的"复用已完成 tool_result"是**Runner 侧状态复用**（不需要 provider 支持 offset），两者不同。后者 v1 即做（省 tool 重复执行 + 省 input token），前者推 v2。
 - 留 v2：若 provider 提供官方 resume（如 Anthropic 的 stream_id），再评估接入字节级续传。
@@ -428,14 +457,14 @@ provider stream 可能在任意 chunk 边界中断。若不定义 resume 语义�
 
 #### 边界与清单（新增到 §3.10）
 
-| 规则 | 强制点 |
-|---|---|
+| 规则                                                                      | 强制点                                                    |
+| ------------------------------------------------------------------------- | --------------------------------------------------------- |
 | stream 异常终止**必须** emit `message.interrupted`（不发 `message.stop`） | provider 适配器单元测试（模拟 RST / abort / 不完整 body） |
-| text 拼接**必须**用 streaming `TextDecoder` | provider 适配器单元测试（多字节边界 chunk） |
-| Runner 收到 `message.interrupted` **必须**作废进行中 message（不落盘） | core 集成测试 |
-| sticky 期间 `stream_truncated` **禁止**跨 provider fallback | core 单元测试（assert 不调 `router.pick`） |
-| UI 收到 `message.interrupted` **必须**把 streaming block 标记撤销而非提交 | ui 单元测试 |
-| `tool_use.*` 已 emit 后中断 → Runner **不**调 tool、**不**产 tool_result | core 集成测试 |
+| text 拼接**必须**用 streaming `TextDecoder`                               | provider 适配器单元测试（多字节边界 chunk）               |
+| Runner 收到 `message.interrupted` **必须**作废进行中 message（不落盘）    | core 集成测试                                             |
+| sticky 期间 `stream_truncated` **禁止**跨 provider fallback               | core 单元测试（assert 不调 `router.pick`）                |
+| UI 收到 `message.interrupted` **必须**把 streaming block 标记撤销而非提交 | ui 单元测试                                               |
+| `tool_use.*` 已 emit 后中断 → Runner **不**调 tool、**不**产 tool_result  | core 集成测试                                             |
 
 ### 3.9 显式路由：`@model` 前缀
 
@@ -449,6 +478,7 @@ provider stream 可能在任意 chunk 边界中断。若不定义 resume 语义�
 > **UI 侧触发**（r9 更新）：`@` 是**统一 picker** 入口，在 InputBox 里键入 `@` 会进 alias 置顶 + 文件候选跟后的统一 picker（见 §7.5.3）。选中 alias 候选 → model 分支；用户也可以用 `@!<alias>` 强制 model 模式。落到 model 分支后，剥离规则与本节一致。
 
 **流程**：
+
 1. `apps/cli` 输入解析器识别 `@<alias>` 前缀，剥离后传给 Runner
 2. Runner 把 `explicitModel: <alias>` 放进 `RouterHint`
 3. Router 优先使用 `explicitModel`（各策略实现自决是否尊重）
@@ -470,20 +500,20 @@ Alias 是**用户面**的短名字，避免记忆 provider 全称。
 
 ### 3.10 边界与安全清单
 
-| 规则                                                                              | 强制点                                          |
-|-----------------------------------------------------------------------------------|-------------------------------------------------|
-| `Runner` 禁止 import 任何具体 `provider-*` 包；**通过 `ProviderRegistry` 拿 `ProviderClient` 引用**（registry 兼纳核心与插件 provider，见 [PLUGIN-PROVIDER-r1](./PLUGIN-PROVIDER-r1.md)） | ESLint 依赖规则                                 |
-| `Runner` 只持有 `RouterPolicy` 引用；RouterPolicy 从 `ProviderRegistry` 解析 provider 名→实例（Runner 仍不直接持 ProviderClient）                   | `Runner` 构造函数签名                            |
-| `provider-*` 内**禁止** `import { fetch } from 'undici'`，必须走 `http-kit`         | ESLint no-restricted-imports                    |
-| `provider-*` 内**禁止**直接读 `process.env.XXX_API_KEY`，必须走 `auth`              | ESLint no-restricted-imports                    |
-| `provider-*` 内**禁止**拼接 system prompt（该字段由 Runner 从 PromptComposer 拿）    | code review                                     |
-| 中性 `Message` **禁止**含 provider 独有字段；provider 独有走 `rawMeta.<provider>`    | 类型约束                                        |
-| provider 适配器**只读**自己命名空间的 `rawMeta` key，未知 key 忽略                   | 单元测试                                        |
-| `ProviderChunk.error` 与 throw **二选一**，不双发                                    | 单元测试                                        |
-| `AbortSignal` 传递到底层 http 请求                                                 | 单元测试（发大请求 abort 检查连接断开）           |
-| `ProviderCapabilities.maxContextTokens` 是**静态**声明，与实际 API 一致              | provider 包发布前手动核对                        |
-| Router 错误时**必须**决定 `retry` / `fallback` / `give-up`，不能默默吞异常          | Runner 层强制                                    |
-| Router 切换时**必须** emit `router.switched` 事件                                   | 单元测试                                        |
+| 规则                                                                                                                                                                                      | 强制点                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `Runner` 禁止 import 任何具体 `provider-*` 包；**通过 `ProviderRegistry` 拿 `ProviderClient` 引用**（registry 兼纳核心与插件 provider，见 [PLUGIN-PROVIDER-r1](./PLUGIN-PROVIDER-r1.md)） | ESLint 依赖规则                         |
+| `Runner` 只持有 `RouterPolicy` 引用；RouterPolicy 从 `ProviderRegistry` 解析 provider 名→实例（Runner 仍不直接持 ProviderClient）                                                         | `Runner` 构造函数签名                   |
+| `provider-*` 内**禁止** `import { fetch } from 'undici'`，必须走 `http-kit`                                                                                                               | ESLint no-restricted-imports            |
+| `provider-*` 内**禁止**直接读 `process.env.XXX_API_KEY`，必须走 `auth`                                                                                                                    | ESLint no-restricted-imports            |
+| `provider-*` 内**禁止**拼接 system prompt（该字段由 Runner 从 PromptComposer 拿）                                                                                                         | code review                             |
+| 中性 `Message` **禁止**含 provider 独有字段；provider 独有走 `rawMeta.<provider>`                                                                                                         | 类型约束                                |
+| provider 适配器**只读**自己命名空间的 `rawMeta` key，未知 key 忽略                                                                                                                        | 单元测试                                |
+| `ProviderChunk.error` 与 throw **二选一**，不双发                                                                                                                                         | 单元测试                                |
+| `AbortSignal` 传递到底层 http 请求                                                                                                                                                        | 单元测试（发大请求 abort 检查连接断开） |
+| `ProviderCapabilities.maxContextTokens` 是**静态**声明，与实际 API 一致                                                                                                                   | provider 包发布前手动核对               |
+| Router 错误时**必须**决定 `retry` / `fallback` / `give-up`，不能默默吞异常                                                                                                                | Runner 层强制                           |
+| Router 切换时**必须** emit `router.switched` 事件                                                                                                                                         | 单元测试                                |
 
 ### 3.11 里程碑
 
@@ -493,4 +523,3 @@ Alias 是**用户面**的短名字，避免记忆 provider 全称。
 - **L4**：`provider-gemini` + `provider-ollama`；`RoleRouter`
 
 > **alias 里程碑澄清（r10 修正）**：早期版本曾把"`@model` alias 解析"列在 L4。r9 引入 `@` 统一 picker（§7.5.3）后，alias 选 model 的能力已随 picker 在 **L1** 落地（用户键入 `@` → alias 候选置顶 → 选 alias → 切 model）。L4 不再有独立的 "alias 解析" 里程碑项。`RoleRouter`（按 `hint.role` 分派）仍在 L4。
-

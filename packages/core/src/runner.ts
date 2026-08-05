@@ -101,6 +101,12 @@ export class Runner {
     let toolCalls = 0
     let failed = false
     const turnStartedAt = Date.now()
+    const agentType = this.#state.lineage?.agentType
+    const lineageRole: RouterHint['role'] =
+      agentType === 'planner' || agentType === 'coder' || agentType === 'reviewer'
+        ? agentType
+        : undefined
+    const routerHint = lineageRole ? { role: lineageRole, ...hint } : hint
     outer: while (!signal.aborted) {
       const exhausted = this.exhaustedBudget(turnStartedAt, toolCalls)
       if (exhausted) {
@@ -130,7 +136,7 @@ export class Runner {
           ? { provider: sticky, model: decision?.model ?? '', reason: 'sticky-provider' }
           : await this.router.pick(
               this.routerContext(turnId, attempts, turnStartedAt, signal),
-              hint,
+              routerHint,
             ))
       retryDecision = undefined
       const system = await this.promptComposer.compose({

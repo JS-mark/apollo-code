@@ -5,7 +5,7 @@ import {
 } from '@apollo-code/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
-import { FallbackRouter, SingleProviderRouter } from './index'
+import { FallbackRouter, parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from './index'
 
 const client = {
   name: 'fake',
@@ -172,5 +172,223 @@ describe('FallbackRouter', () => {
       await router.onError(providerError('fake', 'rate_limit', true, 12_345), ctx),
     ).toMatchObject({ provider: client, reason: 'retry' })
     expect(sleep).toHaveBeenCalledWith(12_345, undefined)
+  })
+})
+
+describe('RoleRouter', () => {
+  const registryWith = (...providers: ProviderClient[]) => {
+    const registry = new InMemoryProviderRegistry()
+    for (const provider of providers) {
+      const source = provider.name.startsWith('plugin-')
+        ? ({ kind: 'plugin', plugin: `apollo-${provider.name}` } as const)
+        : ({ kind: 'core' } as const)
+      registry.register(provider, source, {
+        capabilities: provider.capabilities,
+        displayName: provider.name,
+      })
+    }
+    return registry
+  }
+
+  it('predictably selects planner, coder, reviewer, and default routes', async () => {
+    const planner = { ...client, name: 'planner-provider' } as ProviderClient
+    const coder = { ...client, name: 'coder-provider' } as ProviderClient
+    const reviewer = { ...client, name: 'reviewer-provider' } as ProviderClient
+    const registry = registryWith(planner, coder, reviewer)
+    const router = new RoleRouter(registry, {
+      roles: {
+        planner: { provider: 'planner-provider', model: 'plan-model' },
+        coder: { provider: 'coder-provider', model: 'code-model' },
+        reviewer: { provider: 'reviewer-provider', model: 'review-model' },
+      },
+      default: { provider: 'coder-provider', model: 'chat-model' },
+    })
+
+    await expect(
+      router.pick({ ...ctx, turnId: 'planner' }, { role: 'planner' }),
+    ).resolves.toMatchObject({
+      provider: planner,
+      model: 'plan-model',
+      reason: 'role:planner',
+    })
+    await expect(
+      router.pick({ ...ctx, turnId: 'coder' }, { role: 'coder' }),
+    ).resolves.toMatchObject({
+      provider: coder,
+      model: 'code-model',
+      reason: 'role:coder',
+    })
+    await expect(
+      router.pick({ ...ctx, turnId: 'reviewer' }, { role: 'reviewer' }),
+    ).resolves.toMatchObject({
+      provider: reviewer,
+      model: 'review-model',
+      reason: 'role:reviewer',
+    })
+    await expect(router.pick({ ...ctx, turnId: 'chat' }, { role: 'chat' })).resolves.toMatchObject({
+      provider: coder,
+      model: 'chat-model',
+      reason: 'role:default',
+    })
+  })
+
+  it('gives explicit provider/model and model-only hints precedence', async () => {
+    const registry = registryWith(client, otherClient)
+    const router = new RoleRouter(registry, {
+      roles: { coder: { provider: 'fake', model: 'code' } },
+      default: { provider: 'fake', model: 'chat' },
+    })
+    await expect(
+      router.pick(
+        { ...ctx, turnId: 'explicit-provider' },
+        { role: 'coder', explicitModel: 'other/special' },
+      ),
+    ).resolves.toMatchObject({
+      provider: otherClient,
+      model: 'special',
+      reason: 'explicit-provider',
+    })
+    await expect(
+      router.pick(
+        { ...ctx, turnId: 'explicit-model' },
+        { role: 'coder', explicitModel: 'code-fast' },
+      ),
+    ).resolves.toMatchObject({ provider: client, model: 'code-fast', reason: 'role:coder' })
+  })
+
+  it('keeps a sticky provider in-turn and reselects on the next turn', async () => {
+    const registry = registryWith(client, otherClient)
+    const router = new RoleRouter(registry, {
+      roles: {
+        planner: { provider: 'fake', model: 'plan' },
+        reviewer: { provider: 'other', model: 'review' },
+      },
+      default: { provider: 'fake', model: 'chat' },
+    })
+    await router.pick({ ...ctx, turnId: 'turn-a' }, { role: 'planner' })
+    await expect(
+      router.pick(
+        { ...ctx, turnId: 'turn-a', session: { ...ctx.session, stickyProvider: 'fake' } },
+        { role: 'reviewer' },
+      ),
+    ).resolves.toMatchObject({ provider: client, model: 'plan', reason: 'sticky-provider' })
+    await expect(
+      router.pick({ ...ctx, turnId: 'turn-b' }, { role: 'reviewer' }),
+    ).resolves.toMatchObject({ provider: otherClient, model: 'review' })
+  })
+
+  it('only admits plugin providers through explicit role configuration or explicit hints', async () => {
+    const plugin = { ...client, name: 'plugin-vllm' } as ProviderClient
+    const registry = registryWith(client, plugin)
+    const coreOnly = new RoleRouter(registry, { default: { provider: 'fake', model: 'chat' } })
+    expect((await coreOnly.pick(ctx)).provider).toBe(client)
+    await expect(
+      coreOnly.pick({ ...ctx, turnId: 'plugin-explicit' }, { explicitModel: 'plugin-vllm/llama' }),
+    ).resolves.toMatchObject({ provider: plugin, model: 'llama' })
+    const optedIn = new RoleRouter(registry, {
+      roles: { coder: { provider: 'plugin-vllm', model: 'llama' } },
+      default: { provider: 'fake', model: 'chat' },
+    })
+    expect(
+      (await optedIn.pick({ ...ctx, turnId: 'plugin-role' }, { role: 'coder' })).provider,
+    ).toBe(plugin)
+    expect(
+      () => new RoleRouter(registry, { default: { provider: 'plugin-vllm', model: 'llama' } }),
+    ).toThrow('plugin_provider_cannot_be_default_v1')
+  })
+
+  it('delegates retry, fallback, cooldown, budgets, and failure propagation', async () => {
+    let now = 0
+    const sleep = vi.fn(async () => {})
+    const registry = registryWith(client, otherClient)
+    const router = new RoleRouter(
+      registry,
+      {
+        roles: {
+          coder: [
+            { provider: 'fake', model: 'primary', priority: 100 },
+            { provider: 'other', model: 'secondary', priority: 50 },
+          ],
+        },
+        default: { provider: 'fake', model: 'chat' },
+      },
+      { clock: () => now, cooldownMs: 100, sleep },
+    )
+    const turn = { ...ctx, turnId: 'fallback-turn' }
+    await router.pick(turn, { role: 'coder' })
+    await expect(router.onError(providerError('fake', 'rate_limit'), turn)).resolves.toMatchObject({
+      provider: otherClient,
+      reason: 'fallback',
+    })
+    expect((await router.pick({ ...ctx, turnId: 'cooldown' }, { role: 'coder' })).provider).toBe(
+      otherClient,
+    )
+    now = 101
+    expect((await router.pick({ ...ctx, turnId: 'half-open' }, { role: 'coder' })).provider).toBe(
+      client,
+    )
+    expect(await router.onError(providerError('fake', 'auth'), turn)).toBe('give-up')
+    await expect(
+      router.pick(
+        {
+          ...ctx,
+          turnId: 'budget',
+          budget: { costUSDMax: 1 },
+          session: { ...ctx.session, cumulativeCostUSD: 1 },
+        },
+        { role: 'coder' },
+      ),
+    ).rejects.toThrow('router_budget_exhausted')
+    expect(
+      await router.onError(providerError('fake', 'network'), { ...ctx, turnId: 'unknown' }),
+    ).toBe('give-up')
+  })
+
+  it('fails closed for missing providers, empty candidates, and duplicate provider chains', () => {
+    const registry = registryWith(client)
+    expect(() => new RoleRouter(registry, {})).toThrow('role_router_default_missing')
+    expect(
+      () => new RoleRouter(registry, { default: { provider: 'missing', model: 'x' } }),
+    ).toThrow('provider_not_registered: missing')
+    expect(
+      () =>
+        new RoleRouter(registry, {
+          roles: {
+            coder: [
+              { provider: 'fake', model: 'a' },
+              { provider: 'fake', model: 'b' },
+            ],
+          },
+          default: { provider: 'fake', model: 'chat' },
+        }),
+    ).toThrow('fallback_provider_duplicate: fake')
+    expect(() =>
+      parseRoleRouterConfig({ default: { provider: 'fake', model: 'chat' }, roles: { coder: [] } }),
+    ).toThrow('role_router_candidates_empty: coder')
+    expect(() => parseRoleRouterConfig({ default: { provider: 'fake', model: '' } })).toThrow(
+      'role_router_route_invalid: default',
+    )
+    expect(() =>
+      parseRoleRouterConfig({
+        default: { provider: 'fake', model: 'chat' },
+        roles: { typo: { provider: 'fake', model: 'x' } },
+      }),
+    ).toThrow('role_router_role_unknown: typo')
+  })
+
+  it('bounds remembered turn routes to prevent unbounded routing state', async () => {
+    const registry = registryWith(client)
+    const router = new RoleRouter(
+      registry,
+      { default: { provider: 'fake', model: 'chat' } },
+      { maxTrackedTurns: 2, sleep: async () => {} },
+    )
+    for (const turnId of ['oldest', 'middle', 'newest']) await router.pick({ ...ctx, turnId })
+    expect(
+      await router.onError(providerError('fake', 'network'), { ...ctx, turnId: 'oldest' }),
+    ).toBe('give-up')
+    expect(
+      await router.onError(providerError('fake', 'network'), { ...ctx, turnId: 'newest' }),
+    ).toMatchObject({ provider: client, reason: 'retry' })
   })
 })

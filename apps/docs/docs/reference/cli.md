@@ -31,6 +31,38 @@ Resume marks an unfinished turn as aborted and starts from a new turn; it never 
 
 Telemetry stays local by default. Apollo does not enable an OpenTelemetry exporter unless one is explicitly configured; telemetry never changes sandbox permissions or Tier selection.
 
+## Role routing
+
+Role routing is configured in the trusted global `~/.apollo/config.toml`. A role selects an explicit provider/model candidate chain; failures, cooldowns, retry limits, time/cost budgets, and sticky tool-use turns remain governed by `FallbackRouter`.
+
+```toml
+[router]
+type = "role"
+
+[router.default]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+
+[router.roles.planner]
+provider = "openai"
+model = "gpt-4o-mini"
+priority = 100
+
+[router.roles.coder]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+priority = 100
+
+[router.roles.reviewer]
+provider = "anthropic"
+model = "claude-opus-4"
+priority = 100
+```
+
+`planner`, `coder`, and `reviewer` hints may come from explicit input/hook metadata or built-in subagent types. An explicit `provider/model` hint wins for that turn. Once a provider emits the first tool-use chunk, it remains sticky until the turn ends; a retry may not cross providers.
+
+Provider plugins never enter a role or fallback candidate pool merely by registering. Name one in a role/fallback entry to opt in, or select it explicitly for one turn. Plugin providers cannot be the default provider in v1.
+
 ## Plugins
 
 `apollo plugin install <local-directory>` validates the manifest and bundle, displays requested Apollo permissions, and installs only after explicit approval. New and resumed sessions activate only installed, approved, enabled plugins through the native sandbox host. Registered tools must use the `plugin:<manifest-name>:<tool-name>` namespace; their results are wrapped as untrusted content. Disabling or uninstalling a plugin terminates its host and removes its registrations, while enabling it restores activation for the active session. Use `plugin list [--json]`, `plugin doctor <name>`, `plugin enable|disable <name>`, and `plugin uninstall <name>` to manage the local copy. Registry and GitHub install specs, upgrades, and the L4 development hot-reload command are not implemented yet.

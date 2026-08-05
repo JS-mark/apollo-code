@@ -235,4 +235,22 @@ describe('Runner', () => {
     })
     expect(state.messages.at(-1)?.content).toContainEqual({ type: 'text', text: 'kept' })
   })
+
+  it('derives role hints from built-in subagent types while preserving explicit hints', async () => {
+    const client = provider([
+      [{ kind: 'message.stop', stopReason: 'end_turn' }],
+      [{ kind: 'message.stop', stopReason: 'end_turn' }],
+    ])
+    const policy = router(client)
+    const state = context()
+    state.lineage = { depth: 1, agentType: 'planner' }
+    const runner = new Runner(state, policy, composer, tools)
+    await runner.run('plan')
+    expect(policy.pick).toHaveBeenLastCalledWith(expect.anything(), { role: 'planner' })
+    await runner.run('review', { role: 'reviewer', costPreference: 'quality' })
+    expect(policy.pick).toHaveBeenLastCalledWith(expect.anything(), {
+      role: 'reviewer',
+      costPreference: 'quality',
+    })
+  })
 })

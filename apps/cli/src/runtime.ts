@@ -26,7 +26,9 @@ import { BridgeRuntime, PluginManager, PluginRuntime } from '@apollo-code/plugin
 import type { ToolSpec } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
-import { SingleProviderRouter } from '@apollo-code/router'
+import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
+import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
+import type { RouterPolicy } from '@apollo-code/router'
 import type { JsonValue } from '@apollo-code/shared'
 import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
@@ -271,9 +273,10 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
         : { kind: 'deny' }
     })
     let evolutionEnabled = true
+    let userConfig: Record<string, JsonValue> = {}
     try {
-      const config = await parseTomlFile(join(home, 'config.toml'))
-      const section = config.evolution
+      userConfig = await parseTomlFile(join(home, 'config.toml'))
+      const section = userConfig.evolution
       if (section && typeof section === 'object' && !Array.isArray(section))
         evolutionEnabled = section.enabled !== false
     } catch (error) {
@@ -328,6 +331,26 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
         stdout.write('\n')
       },
     }
+    const providers = new InMemoryProviderRegistry()
+    providers.register(
+      client,
+      { kind: 'core' },
+      { capabilities: client.capabilities, displayName: 'Anthropic' },
+    )
+    let router: RouterPolicy = new SingleProviderRouter(
+      client,
+      options.model ?? 'claude-sonnet-4-20250514',
+      undefined,
+      providers,
+    )
+    const routerConfig = userConfig.router
+    if (
+      routerConfig &&
+      typeof routerConfig === 'object' &&
+      !Array.isArray(routerConfig) &&
+      routerConfig.type === 'role'
+    )
+      router = new RoleRouter(providers, parseRoleRouterConfig(routerConfig))
     const registry = new ToolRegistry()
     for (const tool of builtinTools({
       backups,
@@ -420,15 +443,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
         }
       },
     }
-    runner = new Runner(
-      state,
-      new SingleProviderRouter(client, options.model ?? 'claude-sonnet-4-20250514'),
-      composer,
-      tools,
-      events,
-      {},
-      contextPolicy,
-    )
+    runner = new Runner(state, router, composer, tools, events, {}, contextPolicy)
     await pluginsReady
     const pluginStorage = new Map<string, unknown>()
     const pluginRuntime = new PluginRuntime(
