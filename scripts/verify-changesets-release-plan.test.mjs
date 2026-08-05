@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -13,6 +13,29 @@ const runChangesetStatus = (cwd, outputPath) =>
     cwd,
     encoding: 'utf8',
   })
+
+void test('Changesets never mix ignored and publishable packages', async () => {
+  const changesetDirectory = new URL('../.changeset/', import.meta.url)
+  const { ignore } = JSON.parse(await readFile(new URL('config.json', changesetDirectory), 'utf8'))
+  const ignoredPackages = new Set(ignore)
+  const changesetFiles = (await readdir(changesetDirectory)).filter((file) => file.endsWith('.md'))
+
+  for (const file of changesetFiles) {
+    const contents = await readFile(new URL(file, changesetDirectory), 'utf8')
+    const frontmatter = contents.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
+    const packages = [
+      ...frontmatter.matchAll(/^['"]?([^'":]+)['"]?:\s+(?:major|minor|patch)$/gm),
+    ].map(([, packageName]) => packageName)
+    const hasIgnoredPackage = packages.some((packageName) => ignoredPackages.has(packageName))
+    const hasPublishablePackage = packages.some((packageName) => !ignoredPackages.has(packageName))
+
+    assert.equal(
+      hasIgnoredPackage && hasPublishablePackage,
+      false,
+      `${file} mixes ignored and publishable packages`,
+    )
+  }
+})
 
 void test('Changesets builds the release plan and rejects deleted workspace packages', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'apollo-changesets-'))
