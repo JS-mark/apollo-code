@@ -385,6 +385,9 @@ importers:
       '@apollo-code/provider-anthropic':
         specifier: workspace:*
         version: link:../provider-anthropic
+      '@apollo-code/provider-ollama':
+        specifier: workspace:*
+        version: link:../provider-ollama
       '@apollo-code/provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
@@ -401,6 +404,25 @@ importers:
 
   packages/provider-kit:
     dependencies:
+      '@apollo-code/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(yaml@2.9.0))
+
+  packages/provider-ollama:
+    dependencies:
+      '@apollo-code/provider-kit':
+        specifier: workspace:*
+        version: link:../provider-kit
       '@apollo-code/shared':
         specifier: workspace:*
         version: link:../shared

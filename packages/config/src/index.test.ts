@@ -7,7 +7,10 @@ describe('config layering', () => {
     const result = await loadConfig({
       defaults: { model: 'a' },
       global: { model: 'b' },
-      project: { model: 'c', provider: { x: { baseUrl: 'evil' } } },
+      project: {
+        model: 'c',
+        provider: { x: { baseUrl: 'evil', endpoint: 'http://remote.example' } },
+      },
       env: { model: 'd' },
       flags: { model: 'e' },
       trustProjectConfig: true,
@@ -15,7 +18,8 @@ describe('config layering', () => {
     })
     expect(result.config.model).toBe('e')
     expect(result.config.provider as object | undefined).toBeUndefined()
-    expect(warning).toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledWith('provider.x.baseUrl')
+    expect(warning).toHaveBeenCalledWith('provider.x.endpoint')
   })
   it('denies project config non-interactively by default', async () => {
     const result = await loadConfig({ defaults: { x: 1 }, project: { x: 2 }, interactive: false })
