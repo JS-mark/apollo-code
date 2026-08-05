@@ -18,3 +18,13 @@ Apollo 会用带来源信息、经过编码的 `<untrusted source="...">` 包裹
 如果不可信内容要求泄露密钥、削弱保护、执行无关命令或连接意外主机，应将其视为注入企图：拒绝权限、检查来源，并用自己的语言重新说明真实任务。
 
 凭据只能进入 Apollo 遮罩显示的登录流程。认证遥测会被脱敏，且默认只保存在本地。
+
+## WebFetch 网络边界
+
+WebFetch 按规范化后的 HTTP(S) origin 请求权限；一个 origin 的 session/project 授权不会授权
+其他 origin（包括重定向目标）。URL 凭据和非 HTTP scheme 会被拒绝。
+
+每次连接和每个重定向跳转前，Apollo 都重新解析域名；任一结果属于 loopback、私网、link-local、
+reserved、multicast、文档专用地址或云 metadata 地址时即拒绝。连接固定使用已验证 IP，避免 DNS 在
+校验与建连之间变化。响应受超时、速率、重定向次数、content type、字节数和模型侧字符数限制，
+网页内容始终是不可信数据。审计事件不记录 query、响应正文、请求 header 或凭据。

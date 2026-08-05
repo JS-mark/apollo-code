@@ -44,6 +44,7 @@ describe('L1 tools', () => {
       'Glob',
       'Todo',
       'WebSearch',
+      'WebFetch',
     ])
     for (const name of ['Write', 'Edit', 'MultiEdit', 'Bash'])
       expect(
