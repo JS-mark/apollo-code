@@ -65,5 +65,6 @@ describe('evolution persistence', () => {
     )
     expect(await store.audit('retry')).toHaveLength(25)
     expect(await store.current('retry')).toEqual({ max_retries: 25 })
-  })
+  }, // Windows durable fsync is materially slower; keep all 50 synced writes and assertions.
+  15_000)
 })
