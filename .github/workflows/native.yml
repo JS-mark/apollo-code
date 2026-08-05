@@ -81,7 +81,12 @@ jobs:
       # The native matrix only consumes the CLI. Keeping the independent docs
       # pipeline out avoids TypeDoc/VitePress competing with Rust/TS processes
       # on constrained Windows runners (0xC0000142 DLL initialization failure).
-      - run: pnpm turbo run build --filter=apollo-code...
+      - if: runner.os == 'Windows'
+        name: Build CLI dependency graph serially on Windows
+        run: pnpm turbo run build --filter=apollo-code... --concurrency=1
+      - if: runner.os != 'Windows'
+        name: Build CLI dependency graph
+        run: pnpm turbo run build --filter=apollo-code...
       - name: Export target artifact paths
         shell: bash
         run: |
