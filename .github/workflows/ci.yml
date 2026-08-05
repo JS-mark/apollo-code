@@ -8,7 +8,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, macos-14, windows-2022]
+        include:
+          - runner: ubuntu-24.04
+            turbo-concurrency: 100%
+          - runner: macos-14
+            turbo-concurrency: 100%
+          # The Windows hosted runner can fail to initialize worker processes
+          # (0xC0000142) when Turbo starts every workspace task at once.
+          - runner: windows-2022
+            turbo-concurrency: 4
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +28,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo run typecheck test build
+      - run: pnpm turbo run typecheck test build --concurrency=${{ matrix.turbo-concurrency }}
       - name: Assert Rolldown single-bin output
         shell: bash
         run: |
