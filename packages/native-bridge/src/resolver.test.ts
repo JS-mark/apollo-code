@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { packageTriple, releaseAssetName, resolveBinary } from './resolver'
+import { packageTriple, releaseAssetName, resolveBinary, resolveBinaryDetailed } from './resolver'
 
 const originalEnvironment = { ...process.env }
 
@@ -80,6 +80,66 @@ describe('Release asset resolution', () => {
       await expect(resolveBinary('search')).rejects.toThrow('Checksum mismatch')
     } finally {
       await rm(cache, { recursive: true, force: true })
+    }
+  })
+
+  it('prefers a verified bundled asset for offline standalone execution', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo standalone assets '))
+    const triple = packageTriple(process.platform, process.arch)!
+    const file = releaseAssetName('sandbox', triple)
+    const body = Buffer.from('offline binary')
+    await writeFile(join(root, file), body)
+    await writeFile(
+      join(root, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        assets: [
+          {
+            kind: 'sandbox',
+            target: triple,
+            file,
+            sha256: createHash('sha256').update(body).digest('hex'),
+          },
+        ],
+      }),
+    )
+    process.env.APOLLO_STANDALONE_ASSET_DIR = root
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw new Error('offline')
+      }),
+    )
+    try {
+      expect(await resolveBinaryDetailed('sandbox')).toMatchObject({
+        source: 'bundled',
+        target: triple,
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a tampered bundled asset without falling through to network', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-native-'))
+    const triple = packageTriple(process.platform, process.arch)!
+    const file = releaseAssetName('fs', triple)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, file), 'tampered')
+    await writeFile(
+      join(root, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        assets: [{ kind: 'fs', target: triple, file, sha256: '0'.repeat(64) }],
+      }),
+    )
+    await chmod(root, 0o555)
+    process.env.APOLLO_STANDALONE_ASSET_DIR = root
+    try {
+      await expect(resolveBinary('fs')).rejects.toThrow('Checksum mismatch for bundled')
+    } finally {
+      await chmod(root, 0o755)
+      await rm(root, { recursive: true, force: true })
     }
   })
 })

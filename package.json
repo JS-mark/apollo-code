@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "build:standalone": "pnpm --filter apollo-code build:standalone",
     "docs:api": "pnpm --filter @apollo-code/docs exec typedoc --options ../../typedoc.json",
     "release:status": "changeset status",
     "release:version:dry-run": "changeset version --snapshot dry-run",
@@ -12,7 +13,7 @@
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test && node --test scripts/verify-changesets-release-plan.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs",
+    "test": "turbo run test && node --test scripts/build-standalone.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {

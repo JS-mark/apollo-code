@@ -1,12 +1,20 @@
 import { createHash } from 'node:crypto'
 import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const require = createRequire(import.meta.url)
-const packageVersion = (require('../package.json') as { version: string }).version
+import nativePackage from '../package.json' with { type: 'json' }
+
+const packageVersion = nativePackage.version
 export type BinaryKind = 'sandbox' | 'search' | 'fs'
+export interface NativeResolution {
+  kind: BinaryKind
+  path: string | null
+  source: 'override' | 'bundled' | 'cache' | 'download' | 'unavailable'
+  target: string | null
+  error?: 'unsupported-platform' | 'missing' | 'tampered'
+}
 
 const releaseRepository = 'JS-mark/apollo-code'
 
@@ -49,7 +57,42 @@ async function sha256(path: string): Promise<string> {
     .digest('hex')
 }
 
-async function fetchReleaseBinary(kind: BinaryKind, triple: string): Promise<string | null> {
+async function verifiedPath(path: string, expected: string): Promise<boolean> {
+  try {
+    return (await sha256(path)) === expected
+  } catch {
+    return false
+  }
+}
+
+async function bundledBinary(kind: BinaryKind, triple: string): Promise<string | null> {
+  const root =
+    process.env.APOLLO_STANDALONE_ASSET_DIR ??
+    join(dirname(fileURLToPath(import.meta.url)), 'native')
+  const manifestPath = join(root, 'manifest.json')
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      schemaVersion: number
+      assets: Array<{ kind: BinaryKind; target: string; file: string; sha256: string }>
+    }
+    if (manifest.schemaVersion !== 1) return null
+    const asset = manifest.assets.find((item) => item.kind === kind && item.target === triple)
+    if (!asset || asset.file !== releaseAssetName(kind, triple)) return null
+    const path = join(root, asset.file)
+    if (!(await verifiedPath(path, asset.sha256)))
+      throw new Error(`Checksum mismatch for bundled native asset ${asset.file}`)
+    await chmod(path, 0o755).catch(() => undefined)
+    return path
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Checksum mismatch')) throw error
+    return null
+  }
+}
+
+async function fetchReleaseBinary(
+  kind: BinaryKind,
+  triple: string,
+): Promise<{ path: string; source: 'cache' | 'download' } | null> {
   const version = process.env.APOLLO_VERSION ?? packageVersion
   if (!version || version === '0.0.0') return null
 
@@ -68,7 +111,8 @@ async function fetchReleaseBinary(kind: BinaryKind, triple: string): Promise<str
   await mkdir(targetDirectory, { recursive: true })
   try {
     const cachedExpected = checksumFor(await readFile(checksumPath, 'utf8'), assetName)
-    if (cachedExpected && (await sha256(binaryPath)) === cachedExpected) return binaryPath
+    if (cachedExpected && (await verifiedPath(binaryPath, cachedExpected)))
+      return { path: binaryPath, source: 'cache' }
   } catch {
     // A cache miss is expected on first use.
   }
@@ -86,7 +130,7 @@ async function fetchReleaseBinary(kind: BinaryKind, triple: string): Promise<str
   await writeFile(checksumPath, checksumManifest)
 
   try {
-    if ((await sha256(binaryPath)) === expected) return binaryPath
+    if (await verifiedPath(binaryPath, expected)) return { path: binaryPath, source: 'cache' }
     await rm(binaryPath, { force: true })
   } catch {
     // A cache miss is expected on first use.
@@ -106,19 +150,28 @@ async function fetchReleaseBinary(kind: BinaryKind, triple: string): Promise<str
       throw new Error(`Checksum mismatch for native asset ${assetName}`)
     await chmod(temporaryPath, 0o755)
     await rename(temporaryPath, binaryPath)
-    return binaryPath
+    return { path: binaryPath, source: 'download' }
   } finally {
     await rm(temporaryPath, { force: true })
   }
 }
 
-export async function resolveBinary(kind: BinaryKind): Promise<string | null> {
+export async function resolveBinaryDetailed(kind: BinaryKind): Promise<NativeResolution> {
   const override = process.env[`APOLLO_NATIVE_${kind.toUpperCase()}_BINARY`]
   if (override) {
     await access(override)
-    return override
+    return { kind, path: override, source: 'override', target: null }
   }
   const triple = packageTriple(process.platform, process.arch, runtimeLibc())
-  if (!triple) return null
-  return fetchReleaseBinary(kind, triple)
+  if (!triple)
+    return { kind, path: null, source: 'unavailable', target: null, error: 'unsupported-platform' }
+  const bundled = await bundledBinary(kind, triple)
+  if (bundled) return { kind, path: bundled, source: 'bundled', target: triple }
+  const fetched = await fetchReleaseBinary(kind, triple)
+  if (fetched) return { kind, path: fetched.path, source: fetched.source, target: triple }
+  return { kind, path: null, source: 'unavailable', target: triple, error: 'missing' }
+}
+
+export async function resolveBinary(kind: BinaryKind): Promise<string | null> {
+  return (await resolveBinaryDetailed(kind)).path
 }

@@ -1,4 +1,5 @@
-export { resolveBinary } from './resolver'
+export { resolveBinary, resolveBinaryDetailed } from './resolver'
+export type { BinaryKind, NativeResolution } from './resolver'
 export { execSandbox, probeSandbox, startPluginHost } from './sandbox'
 export { computeDiff, countTokens, readLarge } from './fs'
 export { astQuery, search } from './search'
