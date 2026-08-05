@@ -9,6 +9,8 @@
     "release:evidence:generate": "node scripts/generate-l4-evidence-matrix.mjs --input docs/releases/l4-evidence.json --output docs/releases/L4-EVIDENCE-MATRIX.md",
     "release:evidence:check": "node scripts/generate-l4-evidence-matrix.mjs --input docs/releases/l4-evidence.json --output docs/releases/L4-EVIDENCE-MATRIX.md --check",
     "release:evidence:assert": "node scripts/generate-l4-evidence-matrix.mjs --input docs/releases/l4-evidence.json --output docs/releases/L4-EVIDENCE-MATRIX.md --check --assert-release",
+    "release:channels:generate": "node scripts/generate-channel-manifests.mjs --input docs/releases/channel-dry-run.json --output docs/releases/channel-dry-run",
+    "release:channels:check": "node scripts/generate-channel-manifests.mjs --input docs/releases/channel-dry-run.json --output docs/releases/channel-dry-run --check",
     "release:version:dry-run": "changeset version --snapshot dry-run",
     "release": "changeset publish",
     "check:typescript-config": "node --test scripts/verify-typescript-config.test.mjs scripts/rewrite-esm-specifiers.test.mjs && node scripts/verify-typescript-config.mjs",
@@ -16,7 +18,7 @@
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test && node --test scripts/build-standalone.test.mjs scripts/generate-l4-evidence-matrix.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs",
+    "test": "turbo run test && node --test scripts/build-standalone.test.mjs scripts/generate-channel-manifests.test.mjs scripts/generate-l4-evidence-matrix.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
