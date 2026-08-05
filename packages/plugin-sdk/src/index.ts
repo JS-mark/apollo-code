@@ -55,6 +55,15 @@ export interface ExecOptions {
   timeoutMs?: number
   signal?: AbortSignal
 }
+export const PLUGIN_UI_SURFACES = ['status-bar'] as const
+export type PluginUiSurface = (typeof PLUGIN_UI_SURFACES)[number]
+export interface PluginUiContribution {
+  id: string
+  surface: PluginUiSurface
+  /** Plain text only; executable components and markup are intentionally unsupported. */
+  text: string
+  priority?: number
+}
 
 export interface PluginManifest {
   kind?: 'plugin' | 'provider'
@@ -63,7 +72,7 @@ export interface PluginManifest {
   engines: { apollo: string }
   main: string
   type: 'module'
-  contributes?: Record<string, readonly string[]>
+  contributes?: { ui?: readonly PluginUiContribution[]; [key: string]: unknown }
   provider?: {
     name: string
     displayName: string

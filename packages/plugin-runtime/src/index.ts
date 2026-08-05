@@ -11,6 +11,7 @@ import type {
   HookHandler,
   HookResult,
   PluginManifest,
+  PluginUiContribution,
 } from '@apollo-code/plugin-sdk'
 import type {
   Disposable as ProviderDisposable,
@@ -54,6 +55,44 @@ export function satisfies(version: string, range: string): boolean {
     : minor! > rMinor! || (minor === rMinor && patch! >= rPatch!)
 }
 const safeRelative = (value: string) => !isAbsolute(value) && !value.split(/[\\/]/).includes('..')
+const UI_SURFACES = new Set(['status-bar'])
+const UI_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/
+const hasControlCharacter = (value: string) =>
+  [...value].some((character) => {
+    const code = character.codePointAt(0)!
+    return code < 32 || code === 127
+  })
+function validateUiContributions(manifest: Partial<PluginManifest>) {
+  const contributions = manifest.contributes?.ui
+  if (contributions === undefined) return
+  if (!Array.isArray(contributions))
+    throw new PluginError('plugin_ui_invalid', 'contributes.ui must be an array')
+  if (!manifest.permissions?.apollo.includes('ui.contribute'))
+    throw new PluginError('plugin_ui_permission_required', 'ui.contribute')
+  const ids = new Set<string>()
+  for (const item of contributions as readonly PluginUiContribution[]) {
+    const keys = item && typeof item === 'object' ? Object.keys(item) : []
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      keys.some((key) => !['id', 'surface', 'text', 'priority'].includes(key)) ||
+      !UI_ID.test(item.id) ||
+      !UI_SURFACES.has(item.surface) ||
+      typeof item.text !== 'string' ||
+      item.text.length === 0 ||
+      item.text.length > 160 ||
+      hasControlCharacter(item.text) ||
+      (item.priority !== undefined &&
+        (!Number.isSafeInteger(item.priority) || item.priority < -100 || item.priority > 100)) ||
+      ids.has(item.id)
+    )
+      throw new PluginError(
+        'plugin_ui_invalid',
+        `invalid UI contribution: ${item?.id ?? '(unknown)'}`,
+      )
+    ids.add(item.id)
+  }
+}
 export function validateManifest(value: unknown, apolloVersion: string): PluginManifest {
   if (!value || typeof value !== 'object')
     throw new PluginError('plugin_manifest_invalid', 'manifest must be an object')
@@ -73,6 +112,7 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
     )
   if (!m.permissions || !Array.isArray(m.permissions.apollo))
     throw new PluginError('plugin_manifest_invalid', 'permissions.apollo is required')
+  validateUiContributions(m)
   if (m.kind === 'provider') {
     const provider = m.provider
     if (
@@ -94,7 +134,11 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
   return m as PluginManifest
 }
 export const permissionHash = (manifest: PluginManifest) =>
-  createHash('sha256').update(JSON.stringify(manifest.permissions)).digest('hex')
+  createHash('sha256')
+    .update(
+      JSON.stringify({ permissions: manifest.permissions, ui: manifest.contributes?.ui ?? [] }),
+    )
+    .digest('hex')
 export function sandboxProfile(
   manifest: PluginManifest,
   pluginDir: string,
@@ -482,6 +526,7 @@ export class PluginRuntime {
         approval.permissionHash !== permissionHash(manifest)
       )
         throw new PluginError('plugin_approval_stale', name)
+      this.bridge.registerUiContributions(manifest)
       const dataDir = join(this.options.dataRoot, name)
       await mkdir(dataDir, { recursive: true })
       const host = await this.#start({
@@ -662,7 +707,7 @@ export interface BridgeSessionSnapshot {
 }
 export interface BridgeHost {
   readonly session: BridgeSessionSnapshot
-  register(kind: 'tool' | 'command' | 'prompt', value: unknown, plugin: string): Disposable
+  register(kind: 'tool' | 'command' | 'prompt' | 'ui', value: unknown, plugin: string): Disposable
   fs: {
     readFile(path: string, encoding?: string): Promise<string | Uint8Array>
     writeFile(path: string, data: string | Uint8Array): Promise<void>
@@ -724,6 +769,15 @@ export class BridgeRuntime {
     readonly host: BridgeHost,
     readonly options: { timeoutMs?: number; maxCallsPerTurn?: number; hookKvBytes?: number } = {},
   ) {}
+
+  registerUiContributions(manifest: PluginManifest) {
+    for (const contribution of manifest.contributes?.ui ?? []) {
+      const disposable = this.host.register('ui', clone(contribution), manifest.name)
+      const set = this.#disposables.get(manifest.name) ?? new Set<Disposable>()
+      set.add(disposable)
+      this.#disposables.set(manifest.name, set)
+    }
+  }
 
   create(manifest: PluginManifest, dataDir: string, turnId = 'activation'): ApolloBridge {
     const guard = createRpcGuard(

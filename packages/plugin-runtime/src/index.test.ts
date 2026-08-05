@@ -31,6 +31,43 @@ async function fixture() {
   return root
 }
 describe('plugin runtime', () => {
+  it('accepts only permission-gated allowlisted declarative UI', () => {
+    const ui = [{ id: 'branch', surface: 'status-bar', text: 'main' }] as const
+    expect(
+      validateManifest(
+        {
+          ...manifest,
+          contributes: { ui },
+          permissions: { ...manifest.permissions, apollo: ['tools.register', 'ui.contribute'] },
+        },
+        '1.0.0',
+      ).contributes?.ui,
+    ).toEqual(ui)
+    expect(() => validateManifest({ ...manifest, contributes: { ui } }, '1.0.0')).toThrow(
+      'plugin_ui_permission_required',
+    )
+    expect(() =>
+      validateManifest(
+        {
+          ...manifest,
+          contributes: { ui: [{ ...ui[0], surface: 'sidebar' }] },
+          permissions: { ...manifest.permissions, apollo: ['ui.contribute'] },
+        },
+        '1.0.0',
+      ),
+    ).toThrow('plugin_ui_invalid')
+    expect(() =>
+      validateManifest(
+        {
+          ...manifest,
+          contributes: { ui: [{ ...ui[0], component: 'file://evil.js' }] },
+          permissions: { ...manifest.permissions, apollo: ['ui.contribute'] },
+        },
+        '1.0.0',
+      ),
+    ).toThrow('plugin_ui_invalid')
+  })
+
   it('loads enabled plugins over NDJSON and cleans up registrations', async () => {
     const source = await fixture(),
       root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
@@ -316,6 +353,10 @@ describe('plugin runtime', () => {
       },
     } as const
     const bridge = runtime.create(bridgeManifest, join(cwd, 'data'), 'turn-1')
+    runtime.registerUiContributions({
+      ...bridgeManifest,
+      contributes: { ui: [{ id: 'status', surface: 'status-bar', text: 'ready' }] },
+    })
     bridge.tools.register({ name: 'x', description: 'x', inputSchema: {}, async handler() {} })
     expect(await bridge.fs.readFile('allowed.txt')).toBe('ok')
     await expect(bridge.exec('git status')).resolves.toMatchObject({ code: 0 })
@@ -332,6 +373,7 @@ describe('plugin runtime', () => {
     expect(JSON.stringify(logs)).not.toContain('secret')
     await runtime.deactivate(manifest.name)
     expect(registrations).toContain('dispose:tool')
+    expect(registrations).toContain('dispose:ui')
   })
 
   it('orders hooks by priority, short-circuits veto, enforces kv quota and timeout', async () => {
