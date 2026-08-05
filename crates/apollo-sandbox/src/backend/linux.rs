@@ -54,7 +54,7 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
     let (command, _bundled) = command(request)?;
     execute(command, SandboxTier::Full)
 }
-fn command(request: &ExecRequest) -> Result<(Command, bundled_bwrap::BundledBwrap), String> {
+fn command(request: &ExecRequest) -> Result<(Command, bundled_bwrap::MaterializedBwrap), String> {
     let bundled = bundled_bwrap::materialize()
         .map_err(|error| format!("bundled bwrap unavailable; refusing execution: {error}"))?;
     seccomp_arch()?;
