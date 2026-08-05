@@ -107,6 +107,9 @@ importers:
       '@apollo-code/plugin-runtime':
         specifier: workspace:*
         version: link:../../packages/plugin-runtime
+      '@apollo-code/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
       '@apollo-code/provider-anthropic':
         specifier: workspace:*
         version: link:../../packages/provider-anthropic

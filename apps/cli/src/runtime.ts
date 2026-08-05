@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { access, glob, readFile, stat, writeFile } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -16,12 +16,14 @@ import {
   EvolutionEngine,
   Runner,
   updateSession,
+  wrapUntrusted,
 } from '@apollo-code/core'
 import type { RunnerToolPort, SessionState } from '@apollo-code/core'
 import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
-import { PluginManager } from '@apollo-code/plugin-runtime'
+import { BridgeRuntime, PluginManager, PluginRuntime } from '@apollo-code/plugin-runtime'
+import type { ToolSpec } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { SingleProviderRouter } from '@apollo-code/router'
@@ -59,6 +61,7 @@ export class RuntimeSessionPort implements SessionPort {
     readonly sessionsDir: string,
     readonly createRunner: RunnerFactory,
     readonly onSecurity?: (input: { skipPermissions: boolean }) => void,
+    readonly onEnd?: (sessionId: string) => void | Promise<void>,
   ) {}
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
@@ -98,6 +101,7 @@ export class RuntimeSessionPort implements SessionPort {
   }
   async end(): Promise<void> {
     if (!this.#runner || !this.#events) return
+    const sessionId = this.#runner.state.id
     await this.#events.emit({
       type: 'session.ended',
       version: this.#runner.state.version,
@@ -105,6 +109,7 @@ export class RuntimeSessionPort implements SessionPort {
       payload: {},
     })
     await this.snapshot()
+    await this.onEnd?.(sessionId)
     this.#runner = undefined
     this.#events = undefined
     this.#store = undefined
@@ -234,6 +239,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     },
   )
   const pluginsReady = plugins.init()
+  const pluginRuntimes = new Set<PluginRuntime>()
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
@@ -423,6 +429,118 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       {},
       contextPolicy,
     )
+    await pluginsReady
+    const pluginStorage = new Map<string, unknown>()
+    const pluginRuntime = new PluginRuntime(
+      plugins,
+      new BridgeRuntime({
+        get session() {
+          return {
+            id: runner.state.id,
+            cwd: runner.state.cwd,
+            messages: runner.state.messages,
+            usage: {
+              inputTokens: runner.state.cumulativeUsage.input,
+              outputTokens: runner.state.cumulativeUsage.output,
+              cost: runner.state.cumulativeUsage.costUSD,
+            },
+          }
+        },
+        register(kind, value, plugin) {
+          if (kind !== 'tool') throw new Error(`plugin_${kind}_registration_not_supported`)
+          const spec = value as ToolSpec
+          const dispose = registry.register(
+            {
+              name: spec.name,
+              description: spec.description,
+              inputSchema: spec.inputSchema as never,
+              permissionSpec: () => ({}),
+              async invoke(input, context) {
+                const result = await spec.handler(input, {
+                  session: context.session,
+                  aborted: context.abortSignal.aborted,
+                })
+                const content =
+                  result &&
+                  typeof result === 'object' &&
+                  Array.isArray((result as { content?: unknown }).content)
+                    ? (result as { content: Array<{ type: 'text'; text: string }> }).content
+                    : [
+                        {
+                          type: 'text' as const,
+                          text: typeof result === 'string' ? result : JSON.stringify(result),
+                        },
+                      ]
+                return {
+                  content: wrapUntrusted(content, `plugin:${plugin}:${spec.name}`),
+                  meta: { durationMs: 0 },
+                }
+              },
+            },
+            { kind: 'plugin', plugin },
+          )
+          return { dispose }
+        },
+        fs: {
+          readFile: (path, encoding) => readFile(path, encoding === 'binary' ? undefined : 'utf8'),
+          writeFile,
+          exists: async (path) =>
+            access(path).then(
+              () => true,
+              () => false,
+            ),
+          glob: async (pattern, cwd) => Array.fromAsync(glob(pattern, { cwd })),
+          stat: async (path) => {
+            const value = await stat(path)
+            return {
+              size: value.size,
+              type: value.isFile() ? 'file' : value.isDirectory() ? 'directory' : 'other',
+              modifiedAt: value.mtimeMs,
+            }
+          },
+        },
+        exec: async (command, rawOptions, signal) => {
+          const execOptions = (rawOptions ?? {}) as { cwd?: string; timeoutMs?: number }
+          const result = await execSandbox(
+            {
+              command,
+              cwd: execOptions.cwd ?? runner.state.cwd,
+              ...(execOptions.timeoutMs === undefined ? {} : { timeout_ms: execOptions.timeoutMs }),
+              permissions: {
+                fs: { read: [runner.state.cwd], write: [runner.state.cwd] },
+                net: false,
+                env: { read: [] },
+              },
+            },
+            signal,
+          )
+          return { stdout: result.stdout, stderr: result.stderr, code: result.exit_code }
+        },
+        fetch: async () => {
+          throw new Error('plugin_http_not_connected')
+        },
+        ui: () => {
+          throw new Error('plugin_ui_not_connected')
+        },
+        storage: async (plugin, operation, key, value) => {
+          const isolated = `${plugin}:${key}`
+          if (operation === 'set') pluginStorage.set(isolated, value)
+          if (operation === 'delete') pluginStorage.delete(isolated)
+          return pluginStorage.get(isolated)
+        },
+        config: () => undefined,
+        log: (level, message) => {
+          if (level === 'error') logger.error(message)
+          else if (level === 'warn') logger.warn(message)
+          else if (level === 'debug') logger.debug(message)
+          else logger.info(message)
+        },
+      }),
+      { dataRoot: join(home, 'plugin-data') },
+    )
+    for (const failure of await pluginRuntime.loadEnabled())
+      logger.warn(`Plugin activation failed: ${failure.name}`)
+    pluginRuntimes.add(pluginRuntime)
     return runner
   }
   dispatcher = new SubagentDispatcher({
@@ -436,9 +554,17 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       toolCallMax: 100,
     },
   })
-  const session = new RuntimeSessionPort(join(home, 'sessions'), createRunner, (input) => {
-    permissionOptions.dangerouslySkip = input.skipPermissions
-  })
+  const session = new RuntimeSessionPort(
+    join(home, 'sessions'),
+    createRunner,
+    (input) => {
+      permissionOptions.dangerouslySkip = input.skipPermissions
+    },
+    async () => {
+      await Promise.all([...pluginRuntimes].map((runtime) => runtime.dispose()))
+      pluginRuntimes.clear()
+    },
+  )
   return {
     version: options.version ?? '0.0.0',
     session,
@@ -451,10 +577,13 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     plugin: {
       async install(source) {
         await pluginsReady
-        return plugins.install(source)
+        const manifest = await plugins.install(source)
+        await Promise.all([...pluginRuntimes].map((runtime) => runtime.load(manifest.name)))
+        return manifest
       },
       async uninstall(name) {
         await pluginsReady
+        await Promise.all([...pluginRuntimes].map((runtime) => runtime.deactivate(name)))
         await plugins.uninstall(name)
       },
       async list() {
@@ -464,6 +593,8 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       async setEnabled(name, enabled) {
         await pluginsReady
         await plugins.setEnabled(name, enabled)
+        if (enabled) await Promise.all([...pluginRuntimes].map((runtime) => runtime.load(name)))
+        else await Promise.all([...pluginRuntimes].map((runtime) => runtime.deactivate(name)))
       },
       async doctor(name) {
         await pluginsReady

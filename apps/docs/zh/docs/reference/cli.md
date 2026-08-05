@@ -17,7 +17,7 @@
 | `apollo plugin <action>`       | 安装、列出、诊断、启停或卸载本地插件。 |
 | `apollo hook list`             | 列出内置 hooks。                       |
 
-`apollo plugin install <本地目录>` 会校验 manifest 与 bundle、展示权限，并仅在明确批准后安装。可用 `plugin list [--json]`、`plugin doctor <name>`、`plugin enable|disable <name>` 和 `plugin uninstall <name>` 管理。registry/GitHub spec、升级与 L4 热重载尚未实现。
+`apollo plugin install <本地目录>` 会校验 manifest 与 bundle、展示权限，并仅在明确批准后安装。新建和恢复会话只会通过原生沙箱宿主激活已安装、已批准且 enabled 的插件。工具必须使用 `plugin:<manifest-name>:<tool-name>` 命名空间，返回内容会标记为 untrusted；disable 或 uninstall 会终止宿主并清除注册，enable 会在活动会话中恢复加载。可用 `plugin list [--json]`、`plugin doctor <name>`、`plugin enable|disable <name>` 和 `plugin uninstall <name>` 管理。registry/GitHub spec、升级与 L4 热重载尚未实现。
 | `apollo version` | 输出版本。 |
 | `apollo help` | 显示帮助。 |
 
