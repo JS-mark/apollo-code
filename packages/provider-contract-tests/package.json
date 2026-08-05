@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@apollo-code/provider-anthropic": "workspace:*",
+    "@apollo-code/provider-gemini": "workspace:*",
     "@apollo-code/provider-ollama": "workspace:*",
     "@apollo-code/provider-openai": "workspace:*"
   },
