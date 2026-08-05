@@ -196,6 +196,41 @@ describe('runCli', () => {
     )
   })
 
+  it('uses NDJSON only for a JSON chat and disables human/TUI output', async () => {
+    const testPorts = ports()
+    testPorts.session.configureOutput = vi.fn(({ write }) => {
+      write('{"v":1,"type":"final"}\n')
+    })
+    const result = await runCli(['chat', 'hello', '--json'], testPorts)
+    expect(result).toEqual({ exitCode: 0, stderr: '', stdout: '{"v":1,"type":"final"}\n' })
+    expect(testPorts.session.configureOutput).toHaveBeenCalledWith({
+      json: true,
+      write: expect.any(Function),
+    })
+  })
+
+  it('keeps management --json output as one JSON document', async () => {
+    const result = await runCli(['doctor', '--json'], ports())
+    expect(result.stdout.trim().split('\n')).toHaveLength(1)
+    expect(Array.isArray(JSON.parse(result.stdout))).toBe(true)
+  })
+
+  it('returns stable error and final events for invalid JSON chat usage', async () => {
+    const result = await runCli(['chat', '--json'], ports())
+    const events = result.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(result).toMatchObject({ exitCode: 2, stderr: '' })
+    expect(events).toMatchObject([
+      {
+        type: 'error',
+        data: { code: 'prompt_required', category: 'usage', retryable: false, exitCode: 2 },
+      },
+      { type: 'final', data: { status: 'error', exitCode: 2 } },
+    ])
+  })
+
   it('rejects dangerous mode without an explicit confirmation and emits one event', async () => {
     const testPorts = ports()
     const result = await runCli(['--dangerous-no-sandbox'], testPorts)

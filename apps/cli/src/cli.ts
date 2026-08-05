@@ -1,4 +1,4 @@
-import { validateWorkspacePath } from '@apollo-code/shared'
+import { sanitize, validateWorkspacePath } from '@apollo-code/shared'
 import {
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
@@ -54,11 +54,15 @@ export async function runCli(
   const subcommand = args._[0]
   let stdout = ''
   let stderr = ''
+  const jsonMode = Boolean(args.json)
   let cwd: string
   try {
     cwd = await validateWorkspacePath(String(args.cwd ?? process.cwd()))
   } catch (error) {
-    return { exitCode: 1, stdout, stderr: error instanceof Error ? error.message : String(error) }
+    const message = error instanceof Error ? error.message : String(error)
+    return jsonMode
+      ? jsonFailure(message, 1, 'invalid_workspace')
+      : { exitCode: 1, stdout, stderr: message }
   }
   const dangerousModes: DangerousMode[] = []
   if (args.yolo || args.dangerouslySkipPermissions) {
@@ -77,10 +81,16 @@ export async function runCli(
   }
   const probe = await ports.native.probe()
   const startsSession = subcommand === undefined || subcommand === 'chat'
-  if (startsSession) stdout += `${renderPrivacyDisclosure()}\n`
-  stdout += `${renderSandboxDisclosure(probe)}\n`
-  if (args.strictSandbox && probe.tier !== 'full')
-    return { exitCode: 3, stdout, stderr: `Full sandbox required; detected ${probe.tier}.` }
+  if (!jsonMode) {
+    if (startsSession) stdout += `${renderPrivacyDisclosure()}\n`
+    stdout += `${renderSandboxDisclosure(probe)}\n`
+  }
+  if (args.strictSandbox && probe.tier !== 'full') {
+    const message = `Full sandbox required; detected ${probe.tier}.`
+    return jsonMode
+      ? jsonFailure(message, 3, 'sandbox_unavailable')
+      : { exitCode: 3, stdout, stderr: message }
+  }
   if (startsSession && probe.tier === 'none' && !args.dangerousNoSandbox) {
     await ports.telemetry.securityEvent('sandbox.probe.failed', { cwd, mechanism: probe.mechanism })
     if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
@@ -97,10 +107,11 @@ export async function runCli(
   ports.session.configureSecurity?.({
     skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
   })
+  ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })
   if (subcommand === 'doctor') {
     const checks = await runDoctor(cwd, ports)
     stdout += args.json
-      ? `${checks.map((check) => JSON.stringify(check)).join('\n')}\n`
+      ? `${JSON.stringify(checks)}\n`
       : `${checks.map((check) => `${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`).join('\n')}\n`
     return { exitCode: args.strict && checks.some((check) => !check.ok) ? 1 : 0, stdout, stderr }
   }
@@ -137,9 +148,7 @@ export async function runCli(
       if (action === 'list') {
         const plugins = await ports.plugin.list()
         stdout += args.json
-          ? `${Object.entries(plugins)
-              .map(([name, state]) => JSON.stringify({ name, ...state }))
-              .join('\n')}${Object.keys(plugins).length ? '\n' : ''}`
+          ? `${JSON.stringify(Object.entries(plugins).map(([name, state]) => ({ name, ...state })))}\n`
           : `${Object.entries(plugins)
               .map(
                 ([name, state]) =>
@@ -186,7 +195,7 @@ export async function runCli(
     if (action === 'list') {
       const servers = await ports.mcp.list()
       stdout += args.json
-        ? `${servers.map((server) => JSON.stringify(server)).join('\n')}${servers.length ? '\n' : ''}`
+        ? `${JSON.stringify(servers)}\n`
         : `${servers.map((server) => `${server.name}\t${redactTransport(server.transport)}`).join('\n')}${servers.length ? '\n' : ''}`
       return { exitCode: 0, stdout, stderr }
     }
@@ -288,7 +297,7 @@ export async function runCli(
         ...(args.since ? { since: new Date(String(args.since)) } : {}),
       })
       stdout += args.json
-        ? `${records.map((record) => JSON.stringify(record)).join('\n')}${records.length ? '\n' : ''}`
+        ? `${JSON.stringify(records)}\n`
         : records.length
           ? `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
           : 'No evolution adjustments recorded.\n'
@@ -377,8 +386,38 @@ export async function runCli(
       stderr: `${subcommand} integration port is not connected in the L1 shell.`,
     }
   const prompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ') || undefined
-  await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })
-  return { exitCode: 0, stdout, stderr }
+  if (jsonMode && !prompt)
+    return jsonFailure('JSON chat requires a prompt.', 2, 'prompt_required', 'usage')
+  try {
+    const session = await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })
+    return { exitCode: session.exitCode ?? 0, stdout, stderr }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (jsonMode) {
+      return jsonFailure(message, 1, 'internal_error')
+    }
+    return { exitCode: 1, stdout, stderr: message }
+  }
+}
+
+function jsonFailure(
+  message: string,
+  exitCode: number,
+  code: string,
+  category = 'runtime',
+): CliResult {
+  const timestamp = new Date().toISOString()
+  const data = sanitize({ code, category, retryable: false, exitCode, message })
+  const error = { v: 1, type: 'error', seq: 1, sessionId: '', timestamp, data }
+  const final = {
+    v: 1,
+    type: 'final',
+    seq: 2,
+    sessionId: '',
+    timestamp,
+    data: { status: 'error', exitCode },
+  }
+  return { exitCode, stdout: `${JSON.stringify(error)}\n${JSON.stringify(final)}\n`, stderr: '' }
 }
 
 function redactTransport(value: string): string {
