@@ -17,7 +17,8 @@ export interface ConfigLayerOptions {
   warning?: (key: string) => void
 }
 const forbidden = (key: string) =>
-  /^provider\..*\.baseurl$/i.test(key) ||
+  /^provider\..*\.(?:baseurl|endpoint)$/i.test(key) ||
+  /(?:^|\.)(?:baseurl|endpoint)$/i.test(key) ||
   /^telemetry\.(?:sink|otel\.endpoint)$/i.test(key) ||
   /^router(?:\.|$)/i.test(key) ||
   /^auth(?:\.|$)/i.test(key) ||

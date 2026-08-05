@@ -3,6 +3,7 @@ import {
   mapAnthropicError,
   parseAnthropicSse,
 } from '@apollo-code/provider-anthropic'
+import { mapOllamaError, ollamaCapabilities, parseOllamaNdjson } from '@apollo-code/provider-ollama'
 import { mapOpenAIError, openaiCapabilities, parseOpenAISse } from '@apollo-code/provider-openai'
 import { describe, expect, it } from 'vitest'
 
@@ -18,6 +19,7 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 describe.each([
   ['anthropic', anthropicCapabilities, mapAnthropicError, parseAnthropicSse],
   ['openai', openaiCapabilities, mapOpenAIError, parseOpenAISse],
+  ['ollama', ollamaCapabilities, mapOllamaError, parseOllamaNdjson],
 ] as const)('%s shared provider contract', (_name, capabilities, mapError, parser) => {
   it('declares streaming, tools, vision, and bounded context capabilities', () => {
     expect(capabilities.streaming).toBe(true)
