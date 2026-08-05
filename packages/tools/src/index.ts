@@ -17,6 +17,9 @@ import type { ContentPart } from '@apollo-code/provider-kit'
 import type { DispatchParent, SubagentBudget, SubagentDispatcher } from '@apollo-code/subagent'
 import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
 
+import { WebSearchTool, type WebSearchProvider } from './web-search'
+export * from './web-search'
+
 const objectSchema = (properties: Record<string, unknown>, required: string[]) =>
   ({ type: 'object', additionalProperties: false, properties, required }) as never
 const stringProp = { type: 'string', minLength: 1 }
@@ -48,6 +51,7 @@ export interface FileBackupPort {
 export interface BuiltinToolsOptions {
   backups?: FileBackupPort
   task?: { dispatcher: SubagentDispatcher; parent: (signal: AbortSignal) => DispatchParent }
+  webSearch?: { provider?: WebSearchProvider }
 }
 
 async function safeMutationPath(cwd: string, input: string): Promise<string> {
@@ -480,6 +484,7 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new GrepTool(),
   new GlobTool(),
   new TodoTool(),
+  new WebSearchTool(options.webSearch?.provider),
   ...(options.task ? [new TaskTool(options.task.dispatcher, options.task.parent)] : []),
 ]
 function validate(schema: Record<string, unknown>, input: unknown): string | undefined {
