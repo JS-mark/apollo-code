@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { cp, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-import type { PluginSandboxProfile } from '@apollo-code/native-bridge'
+import { startPluginHost } from '@apollo-code/native-bridge'
+import type { PluginHost, PluginSandboxProfile } from '@apollo-code/native-bridge'
 import type {
   ApolloBridge,
   Disposable,
@@ -100,9 +101,17 @@ export function sandboxProfile(
   dataDir: string,
 ): PluginSandboxProfile {
   const fs = manifest.permissions.fs
+  const runtimeRoots = [dirname(process.execPath)]
+  const homebrew = /^(.+)\/Cellar\/node\//.exec(process.execPath)?.[1]
+  if (process.platform === 'darwin' && homebrew)
+    runtimeRoots.push(join(homebrew, 'Cellar'), join(homebrew, 'etc', 'openssl@3'))
   return {
     fs: {
-      read: [pluginDir, ...(fs?.read ?? []).map((path) => resolve(pluginDir, path))],
+      read: [
+        pluginDir,
+        ...runtimeRoots,
+        ...(fs?.read ?? []).map((path) => resolve(pluginDir, path)),
+      ],
       write: [dataDir, ...(fs?.write ?? []).map((path) => resolve(dataDir, path))],
     },
     net: manifest.permissions.net ? { allowlist: [...manifest.permissions.net.allowlist] } : false,
@@ -224,6 +233,314 @@ export class PluginManager {
   }
   list() {
     return structuredClone(this.state.approvals)
+  }
+}
+
+type RpcFrame = {
+  jsonrpc: '2.0'
+  bridgeVersion: 1
+  id?: number
+  method?: string
+  params?: unknown
+  result?: unknown
+  error?: { code: number; message: string }
+}
+const RPC_MAX_FRAME = 1024 * 1024
+const RPC_METHODS = new Set([
+  'tools.register',
+  'tools.unregister',
+  'hooks.on',
+  'hooks.off',
+  'hooks.kv.get',
+  'hooks.kv.set',
+  'hooks.kv.delete',
+  'hooks.kv.clear',
+  'commands.register',
+  'prompt.contribute',
+  'prompt.revoke',
+  'session.getMessages',
+  'session.getUsage',
+  'session.on',
+  'fs.readFile',
+  'fs.writeFile',
+  'fs.exists',
+  'fs.glob',
+  'fs.stat',
+  'exec',
+  'http.fetch',
+  'ui.confirm',
+  'ui.prompt',
+  'ui.pick',
+  'ui.notify',
+  'storage.get',
+  'storage.set',
+  'storage.delete',
+  'config.get',
+  'log.debug',
+  'log.info',
+  'log.warn',
+  'log.error',
+  'call',
+])
+
+class PluginConnection {
+  #buffer = ''
+  #nextId = 1
+  #pending = new Map<
+    number,
+    { resolve(value: unknown): void; reject(error: Error): void; timeout: NodeJS.Timeout }
+  >()
+  #activatedResolve!: () => void
+  #activatedReject!: (error: Error) => void
+  readonly activated = new Promise<void>((resolve, reject) => {
+    this.#activatedResolve = resolve
+    this.#activatedReject = reject
+  })
+  constructor(
+    readonly process: PluginHost,
+    readonly bridge: ApolloBridge,
+    readonly timeoutMs: number,
+  ) {
+    void this.activated.catch(() => {})
+    process.bridge.setEncoding('utf8')
+    process.bridge.on('data', (chunk: string | Buffer) => this.onData(String(chunk)))
+    process.bridge.on('error', (error) => this.fail(error))
+    void process.exited.then(({ code, signal }) => {
+      if (code !== 0 || signal)
+        this.fail(new PluginError('plugin_host_exited', `code=${code} signal=${signal ?? 'none'}`))
+    })
+  }
+  async invoke(callbackId: string, args: unknown[], signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) throw signal.reason
+    const id = this.#nextId++
+    const result = new Promise<unknown>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.#pending.delete(id)
+        reject(new PluginError('plugin_callback_timeout', callbackId))
+      }, this.timeoutMs)
+      this.#pending.set(id, { resolve, reject, timeout })
+    })
+    const abort = () =>
+      this.rejectPending(id, new PluginError('plugin_callback_cancelled', callbackId))
+    signal?.addEventListener('abort', abort, { once: true })
+    try {
+      await this.write({
+        jsonrpc: '2.0',
+        bridgeVersion: 1,
+        id,
+        method: 'callback.invoke',
+        params: { callbackId, args },
+      })
+      return await result
+    } finally {
+      signal?.removeEventListener('abort', abort)
+    }
+  }
+  dispose() {
+    this.fail(new PluginError('plugin_deactivated', 'plugin connection closed'))
+    this.process.terminate()
+  }
+  private onData(chunk: string) {
+    this.#buffer += chunk
+    if (Buffer.byteLength(this.#buffer) > RPC_MAX_FRAME) {
+      this.process.terminate()
+      return this.fail(new PluginError('plugin_rpc_frame_too_large', 'bridge frame exceeds limit'))
+    }
+    for (;;) {
+      const newline = this.#buffer.indexOf('\n')
+      if (newline < 0) return
+      const line = this.#buffer.slice(0, newline)
+      this.#buffer = this.#buffer.slice(newline + 1)
+      if (!line) continue
+      let frame: RpcFrame
+      try {
+        frame = JSON.parse(line) as RpcFrame
+      } catch {
+        this.process.terminate()
+        return this.fail(new PluginError('plugin_rpc_invalid_json', 'invalid bridge JSON'))
+      }
+      void this.dispatch(frame).catch((error: unknown) => {
+        this.process.terminate()
+        this.fail(error instanceof Error ? error : new Error(String(error)))
+      })
+    }
+  }
+  private async dispatch(frame: RpcFrame) {
+    if (frame.jsonrpc !== '2.0' || frame.bridgeVersion !== 1) {
+      this.process.terminate()
+      return this.fail(new PluginError('plugin_rpc_version', 'unsupported bridge protocol'))
+    }
+    if (frame.id !== undefined && !frame.method) {
+      const pending = this.#pending.get(frame.id)
+      if (!pending) return
+      this.#pending.delete(frame.id)
+      clearTimeout(pending.timeout)
+      if (frame.error)
+        pending.reject(new PluginError('plugin_callback_failed', frame.error.message))
+      else pending.resolve(frame.result)
+      return
+    }
+    if (frame.method === 'host.ready') return
+    if (frame.method === 'host.activated') return this.#activatedResolve()
+    if (!frame.method || frame.id === undefined) return
+    try {
+      const result = await this.callBridge(frame.method, this.decode(frame.params))
+      await this.write({ jsonrpc: '2.0', bridgeVersion: 1, id: frame.id, result })
+    } catch (error) {
+      await this.write({
+        jsonrpc: '2.0',
+        bridgeVersion: 1,
+        id: frame.id,
+        error: { code: -32000, message: error instanceof Error ? error.message : String(error) },
+      })
+    }
+  }
+  private decode(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((item) => this.decode(item))
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      if (typeof record.$callback === 'string')
+        return (...args: unknown[]) => this.invoke(record.$callback as string, args)
+      return Object.fromEntries(
+        Object.entries(record).map(([key, item]) => [key, this.decode(item)]),
+      )
+    }
+    return value
+  }
+  private async callBridge(method: string, params: unknown) {
+    if (!method.startsWith('apollo.')) throw new PluginError('plugin_rpc_method_denied', method)
+    const rpcPath = method.slice('apollo.'.length)
+    if (!RPC_METHODS.has(rpcPath)) throw new PluginError('plugin_rpc_method_denied', method)
+    const path = rpcPath.split('.')
+    let target: unknown = this.bridge
+    for (const part of path) target = (target as Record<string, unknown>)?.[part]
+    if (typeof target !== 'function') throw new PluginError('plugin_rpc_method_denied', method)
+    const result = await (target as (value: unknown) => unknown)(params)
+    return result && typeof result === 'object' && 'dispose' in result ? {} : result
+  }
+  private async write(frame: RpcFrame) {
+    const line = `${JSON.stringify(frame)}\n`
+    if (Buffer.byteLength(line) > RPC_MAX_FRAME)
+      throw new PluginError('plugin_rpc_frame_too_large', 'bridge frame exceeds limit')
+    if (!this.process.bridge.write(line))
+      await new Promise<void>((resolve) => this.process.bridge.once('drain', resolve))
+  }
+  private rejectPending(id: number, error: Error) {
+    const pending = this.#pending.get(id)
+    if (!pending) return
+    this.#pending.delete(id)
+    clearTimeout(pending.timeout)
+    pending.reject(error)
+  }
+  private fail(error: Error) {
+    this.#activatedReject(error)
+    for (const id of this.#pending.keys()) this.rejectPending(id, error)
+  }
+}
+
+export interface PluginRuntimeOptions {
+  dataRoot: string
+  activationTimeoutMs?: number
+  start?: typeof startPluginHost
+}
+export class PluginRuntime {
+  readonly #active = new Map<string, PluginConnection>()
+  readonly #start: typeof startPluginHost
+  readonly #activationTimeoutMs: number
+  constructor(
+    readonly manager: PluginManager,
+    readonly bridge: BridgeRuntime,
+    readonly options: PluginRuntimeOptions,
+  ) {
+    this.#start = options.start ?? startPluginHost
+    this.#activationTimeoutMs = options.activationTimeoutMs ?? 10_000
+  }
+  async loadEnabled() {
+    const failures: Array<{ name: string; error: Error }> = []
+    for (const [name, approval] of Object.entries(this.manager.list())) {
+      if (!approval.enabled) continue
+      try {
+        await this.load(name)
+      } catch (error) {
+        failures.push({ name, error: error instanceof Error ? error : new Error(String(error)) })
+      }
+    }
+    return failures
+  }
+  async load(name: string, signal?: AbortSignal) {
+    if (this.#active.has(name)) throw new PluginError('plugin_already_loaded', name)
+    if (signal?.aborted) throw new PluginError('plugin_activation_cancelled', name)
+    const approval = this.manager.list()[name]
+    if (!approval?.enabled) throw new PluginError('plugin_not_enabled', name)
+    let timer: NodeJS.Timeout | undefined
+    let cancel: (() => void) | undefined
+    try {
+      const pluginDir = join(this.manager.root, name)
+      const manifest = await this.manager.inspect(pluginDir)
+      if (
+        approval.version !== manifest.version ||
+        approval.permissionHash !== permissionHash(manifest)
+      )
+        throw new PluginError('plugin_approval_stale', name)
+      const dataDir = join(this.options.dataRoot, name)
+      await mkdir(dataDir, { recursive: true })
+      const host = await this.#start({
+        entry: join(pluginDir, manifest.main),
+        dataDir,
+        profile: sandboxProfile(manifest, pluginDir, dataDir),
+        activationTimeoutMs: this.#activationTimeoutMs,
+        ...(signal ? { signal } : {}),
+      })
+      const connection = new PluginConnection(
+        host,
+        this.bridge.create(manifest, dataDir),
+        this.#activationTimeoutMs,
+      )
+      this.#active.set(name, connection)
+      if (signal?.aborted) throw new PluginError('plugin_activation_cancelled', name)
+      const cancelled = new Promise<never>((_, reject) => {
+        cancel = () => reject(new PluginError('plugin_activation_cancelled', name))
+        signal?.addEventListener('abort', cancel, { once: true })
+      })
+      await Promise.race([
+        connection.activated,
+        cancelled,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new PluginError('plugin_activation_timeout', name)),
+            this.#activationTimeoutMs,
+          )
+        }),
+      ])
+    } catch (error) {
+      await this.deactivate(name)
+      await this.manager.recordFailure(name)
+      throw error
+    } finally {
+      if (timer) clearTimeout(timer)
+      if (cancel) signal?.removeEventListener('abort', cancel)
+    }
+  }
+  async deactivate(name: string) {
+    const connection = this.#active.get(name)
+    if (connection) connection.dispose()
+    this.#active.delete(name)
+    await this.bridge.deactivate(name)
+  }
+  async setEnabled(name: string, enabled: boolean) {
+    if (!enabled) await this.deactivate(name)
+    await this.manager.setEnabled(name, enabled)
+    if (enabled) await this.load(name)
+  }
+  async uninstall(name: string) {
+    await this.deactivate(name)
+    await this.manager.uninstall(name)
+  }
+  async dispose() {
+    for (const name of this.#active.keys()) await this.deactivate(name)
+  }
+  active() {
+    return [...this.#active.keys()]
   }
 }
 export function createRpcGuard(manifest: PluginManifest, maxCallsPerTurn = 500) {

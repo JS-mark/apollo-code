@@ -2,6 +2,8 @@
 
 This bundled single-file ESM example requests only `tools.register`; it has no filesystem or network permission.
 
+The tool name is namespaced as `plugin:apollo-plugin-community-example:community.echo`, as required for all plugin-contributed tools. Apollo activates it only after installation and explicit permission approval, and executes its handler in the native sandbox host.
+
 ```sh
 npm pack --dry-run
 apollo plugin install .

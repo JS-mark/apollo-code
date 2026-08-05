@@ -3,13 +3,16 @@ import { readFile, symlink, writeFile } from 'node:fs/promises'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Duplex, PassThrough } from 'node:stream'
 
+import type { PluginHost } from '@apollo-code/native-bridge'
 import { describe, expect, it } from 'vitest'
 
 import {
   BridgeRuntime,
   createRpcGuard,
   PluginManager,
+  PluginRuntime,
   validateManifest,
   verifyBundle,
 } from './index'
@@ -28,6 +31,197 @@ async function fixture() {
   return root
 }
 describe('plugin runtime', () => {
+  it('loads enabled plugins over NDJSON and cleans up registrations', async () => {
+    const source = await fixture(),
+      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
+      manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+    await manager.install(source)
+    let registered: { handler(input: unknown): Promise<unknown> } | undefined
+    let disposed = false
+    const bridge = new BridgeRuntime({
+      session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+      register: (_kind, value) => {
+        registered = value as typeof registered
+        return {
+          dispose: () => {
+            disposed = true
+          },
+        }
+      },
+      fs: {
+        readFile: async () => '',
+        writeFile: async () => {},
+        exists: async () => false,
+        glob: async () => [],
+        stat: async () => ({}),
+      },
+      exec: async () => ({}),
+      fetch: async () => ({}),
+      ui: () => undefined,
+      storage: async () => undefined,
+      config: () => undefined,
+      log: () => undefined,
+    })
+    let terminated = false
+    const start = async (): Promise<PluginHost> => {
+      const childToParent = new PassThrough(),
+        parentToChild = new PassThrough()
+      const transport = new Duplex({
+        read() {},
+        write(chunk, _encoding, callback) {
+          parentToChild.write(chunk, callback)
+        },
+        final(callback) {
+          parentToChild.end(callback)
+        },
+      })
+      childToParent.on('data', (chunk) => transport.push(chunk))
+      childToParent.on('end', () => transport.push(null))
+      parentToChild.setEncoding('utf8')
+      let buffer = ''
+      parentToChild.on('data', (chunk: string) => {
+        buffer += chunk
+        for (;;) {
+          const newline = buffer.indexOf('\n')
+          if (newline < 0) break
+          const frame = JSON.parse(buffer.slice(0, newline)) as { id: number; method?: string }
+          buffer = buffer.slice(newline + 1)
+          if (frame.method === 'callback.invoke')
+            childToParent.write(
+              `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, id: frame.id, result: { echoed: true } })}\n`,
+            )
+        }
+      })
+      queueMicrotask(() => {
+        childToParent.write(
+          `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, id: 1, method: 'apollo.tools.register', params: { name: 'echo', description: 'echo', inputSchema: {}, handler: { $callback: 'handler-1' } } })}\n`,
+        )
+        childToParent.write(
+          `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, method: 'host.activated', params: {} })}\n`,
+        )
+      })
+      return {
+        pid: 1,
+        bridge: transport,
+        terminate: () => {
+          terminated = true
+          transport.destroy()
+        },
+        exited: new Promise(() => {}),
+      }
+    }
+    const runtime = new PluginRuntime(manager, bridge, { dataRoot, start })
+    await runtime.loadEnabled()
+    expect(runtime.active()).toEqual([manifest.name])
+    await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_already_loaded')
+    await expect(registered!.handler({ text: 'hi' })).resolves.toEqual({ echoed: true })
+    await runtime.setEnabled(manifest.name, false)
+    expect(terminated).toBe(true)
+    expect(disposed).toBe(true)
+    expect(manager.list()[manifest.name]?.enabled).toBe(false)
+  })
+
+  it('times out activation, cleans the process, and disables after three failures', async () => {
+    const source = await fixture(),
+      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
+      manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+    await manager.install(source)
+    let terminated = 0
+    const runtime = new PluginRuntime(
+      manager,
+      new BridgeRuntime({
+        session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+        register: () => ({ dispose() {} }),
+        fs: {
+          readFile: async () => '',
+          writeFile: async () => {},
+          exists: async () => false,
+          glob: async () => [],
+          stat: async () => ({}),
+        },
+        exec: async () => ({}),
+        fetch: async () => ({}),
+        ui: () => undefined,
+        storage: async () => undefined,
+        config: () => undefined,
+        log: () => undefined,
+      }),
+      {
+        dataRoot,
+        activationTimeoutMs: 5,
+        start: async () => {
+          const bridge = new PassThrough()
+          return {
+            pid: 1,
+            bridge,
+            terminate: () => {
+              terminated++
+              bridge.destroy()
+            },
+            exited: new Promise(() => {}),
+          }
+        },
+      },
+    )
+    for (let attempt = 0; attempt < 3; attempt++)
+      await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_activation_timeout')
+    expect(terminated).toBe(3)
+    expect(manager.list()[manifest.name]?.enabled).toBe(false)
+  })
+
+  it('cancels activation and rejects a changed approval hash', async () => {
+    const source = await fixture(),
+      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
+      manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+    await manager.install(source)
+    const runtime = new PluginRuntime(
+      manager,
+      new BridgeRuntime({
+        session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+        register: () => ({ dispose() {} }),
+        fs: {
+          readFile: async () => '',
+          writeFile: async () => {},
+          exists: async () => false,
+          glob: async () => [],
+          stat: async () => ({}),
+        },
+        exec: async () => ({}),
+        fetch: async () => ({}),
+        ui: () => undefined,
+        storage: async () => undefined,
+        config: () => undefined,
+        log: () => undefined,
+      }),
+      {
+        dataRoot,
+        start: async () => {
+          const bridge = new PassThrough()
+          return {
+            pid: 1,
+            bridge,
+            terminate: () => bridge.destroy(),
+            exited: new Promise(() => {}),
+          }
+        },
+      },
+    )
+    const controller = new AbortController()
+    const loading = runtime.load(manifest.name, controller.signal)
+    controller.abort()
+    await expect(loading).rejects.toThrow('plugin_activation_cancelled')
+    await writeFile(
+      join(root, manifest.name, 'manifest.json'),
+      JSON.stringify({ ...manifest, permissions: { apollo: ['tools.register', 'log.write'] } }),
+    )
+    await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_approval_stale')
+  })
   it('validates engines and rejects path escapes', () => {
     expect(validateManifest(manifest, '1.4.0').name).toBe(manifest.name)
     expect(() => validateManifest({ ...manifest, main: '../x' }, '1.0.0')).toThrow('invalid')
