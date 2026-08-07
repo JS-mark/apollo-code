@@ -487,9 +487,15 @@ class PluginConnection {
   >()
   #activatedResolve!: () => void
   #activatedReject!: (error: Error) => void
+  #closedResolve!: (error: Error) => void
+  #heartbeatTimer: NodeJS.Timeout | undefined
+  #disposed = false
   readonly activated = new Promise<void>((resolve, reject) => {
     this.#activatedResolve = resolve
     this.#activatedReject = reject
+  })
+  readonly closed = new Promise<Error>((finish) => {
+    this.#closedResolve = finish
   })
   constructor(
     readonly process: PluginHost,
@@ -532,6 +538,8 @@ class PluginConnection {
     }
   }
   dispose() {
+    this.#disposed = true
+    if (this.#heartbeatTimer) clearTimeout(this.#heartbeatTimer)
     this.fail(new PluginError('plugin_deactivated', 'plugin connection closed'))
     this.process.terminate()
   }
@@ -576,7 +584,11 @@ class PluginConnection {
       return
     }
     if (frame.method === 'host.ready') return
-    if (frame.method === 'host.activated') return this.#activatedResolve()
+    if (frame.method === 'host.activated') {
+      this.#activatedResolve()
+      return this.armHeartbeat()
+    }
+    if (frame.method === 'host.heartbeat') return this.armHeartbeat()
     if (!frame.method || frame.id === undefined) return
     try {
       const result = await this.callBridge(frame.method, this.decode(frame.params))
@@ -628,20 +640,32 @@ class PluginConnection {
     pending.reject(error)
   }
   private fail(error: Error) {
+    if (this.#heartbeatTimer) clearTimeout(this.#heartbeatTimer)
     this.#activatedReject(error)
     for (const id of this.#pending.keys()) this.rejectPending(id, error)
+    if (!this.#disposed) this.#closedResolve(error)
+  }
+  private armHeartbeat() {
+    if (this.#heartbeatTimer) clearTimeout(this.#heartbeatTimer)
+    this.#heartbeatTimer = setTimeout(() => {
+      const error = new PluginError('plugin_heartbeat_timeout', 'plugin host stopped responding')
+      this.fail(error)
+    }, this.timeoutMs)
+    this.#heartbeatTimer.unref?.()
   }
 }
 
 export interface PluginRuntimeOptions {
   dataRoot: string
   activationTimeoutMs?: number
+  heartbeatTimeoutMs?: number
   start?: typeof startPluginHost
 }
 export class PluginRuntime {
   readonly #active = new Map<string, PluginConnection>()
   readonly #start: typeof startPluginHost
   readonly #activationTimeoutMs: number
+  readonly #heartbeatTimeoutMs: number
   constructor(
     readonly manager: PluginManager,
     readonly bridge: BridgeRuntime,
@@ -649,6 +673,7 @@ export class PluginRuntime {
   ) {
     this.#start = options.start ?? startPluginHost
     this.#activationTimeoutMs = options.activationTimeoutMs ?? 10_000
+    this.#heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 30_000
   }
   async loadEnabled() {
     const failures: Array<{ name: string; error: Error }> = []
@@ -690,9 +715,12 @@ export class PluginRuntime {
       const connection = new PluginConnection(
         host,
         this.bridge.create(manifest, dataDir),
-        this.#activationTimeoutMs,
+        this.#heartbeatTimeoutMs,
       )
       this.#active.set(name, connection)
+      void connection.closed.then(async () => {
+        if (this.#active.get(name) === connection) await this.deactivate(name)
+      })
       if (signal?.aborted) throw new PluginError('plugin_activation_cancelled', name)
       const cancelled = new Promise<never>((_, reject) => {
         cancel = () => reject(new PluginError('plugin_activation_cancelled', name))
