@@ -12,6 +12,7 @@ export interface RouterContext {
   attemptCount: number
   budget?: { costUSDMax?: number; timeMsMax?: number }
   elapsedTimeMs?: number
+  estimatedUsage?: { inputTokens: number; outputTokens: number }
   signal?: AbortSignal
 }
 export interface RouterHint {
@@ -91,6 +92,8 @@ export interface FallbackRouterOptions {
   clock?: () => number
   sleep?: Sleeper
   jitter?: (milliseconds: number) => number
+  routePolicy?: (route: FallbackRoute, ctx: RouterContext) => boolean
+  decisionMetadata?: (route: FallbackRoute, ctx: RouterContext) => Record<string, unknown>
 }
 
 interface ProviderHealth {
@@ -127,6 +130,8 @@ export class FallbackRouter implements RouterPolicy {
   readonly #clock: () => number
   readonly #sleep: Sleeper
   readonly #jitter: (milliseconds: number) => number
+  readonly #routePolicy: (route: FallbackRoute, ctx: RouterContext) => boolean
+  readonly #decisionMetadata?: FallbackRouterOptions['decisionMetadata']
 
   constructor(chain: readonly FallbackRoute[], options: FallbackRouterOptions = {}) {
     if (chain.length === 0) throw new Error('fallback_chain_empty')
@@ -149,6 +154,8 @@ export class FallbackRouter implements RouterPolicy {
     this.#clock = options.clock ?? Date.now
     this.#sleep = options.sleep ?? defaultSleep
     this.#jitter = options.jitter ?? ((value) => value)
+    this.#routePolicy = options.routePolicy ?? (() => true)
+    this.#decisionMetadata = options.decisionMetadata
   }
 
   async pick(ctx: RouterContext, hint?: RouterHint): Promise<RouterDecision> {
@@ -156,7 +163,8 @@ export class FallbackRouter implements RouterPolicy {
     if (sticky) {
       const route = this.#route(sticky)
       if (!route) throw new Error(`sticky_provider_not_in_fallback_chain: ${sticky}`)
-      return this.#decision(route, 'sticky-provider')
+      if (!this.#routePolicy(route, ctx)) throw new Error('router_route_not_eligible')
+      return this.#decision(route, 'sticky-provider', route.model, ctx)
     }
     if (this.#exhausted(ctx)) throw new Error('router_budget_exhausted')
     const explicit = hint?.explicitModel
@@ -164,11 +172,14 @@ export class FallbackRouter implements RouterPolicy {
       const [providerName, ...model] = explicit.split('/')
       const route = this.#route(providerName!)
       if (!route) throw new Error(`provider_not_in_fallback_chain: ${providerName}`)
-      return { ...this.#decision(route, 'explicit-provider'), model: model.join('/') }
+      return {
+        ...this.#decision(route, 'explicit-provider', route.model, ctx),
+        model: model.join('/'),
+      }
     }
-    const route = this.#availableRoute()
+    const route = this.#availableRoute(ctx)
     if (!route) throw new Error('all_providers_cooling_down')
-    return this.#decision(route, 'fallback-primary', explicit)
+    return this.#decision(route, 'fallback-primary', explicit, ctx)
   }
 
   async onError(error: ProviderError, ctx: RouterContext): Promise<RouterDecision | 'give-up'> {
@@ -188,24 +199,27 @@ export class FallbackRouter implements RouterPolicy {
     if (sticky) {
       if (sticky !== error.provider || health.retryCount >= this.#maxRetries) return 'give-up'
       await this.#backoff(error, health.retryCount++, ctx.signal)
-      return this.#decision(route, 'sticky-retry')
+      if (!this.#routePolicy(route, ctx)) return 'give-up'
+      return this.#decision(route, 'sticky-retry', route.model, ctx)
     }
 
     if (!FALLBACK_IMMEDIATELY.has(error.category) && health.retryCount < this.#maxRetries) {
       await this.#backoff(error, health.retryCount++, ctx.signal)
-      return this.#decision(route, 'retry')
+      if (!this.#routePolicy(route, ctx)) return 'give-up'
+      return this.#decision(route, 'retry', route.model, ctx)
     }
 
     health.cooldownUntil = this.#clock() + Math.max(this.#cooldownMs, error.retryAfterMs ?? 0)
-    const fallback = this.#availableRoute(error.provider)
+    const fallback = this.#availableRoute(ctx, error.provider)
     if (fallback) {
       health.retryCount = 0
-      return this.#decision(fallback, 'fallback')
+      return this.#decision(fallback, 'fallback', fallback.model, ctx)
     }
     if (error.category === 'rate_limit' && health.retryCount < this.#maxRetries) {
       await this.#backoff(error, health.retryCount++, ctx.signal)
       health.cooldownUntil = 0
-      return this.#decision(route, 'retry')
+      if (!this.#routePolicy(route, ctx)) return 'give-up'
+      return this.#decision(route, 'retry', route.model, ctx)
     }
     return 'give-up'
   }
@@ -225,10 +239,11 @@ export class FallbackRouter implements RouterPolicy {
     )
   }
 
-  #availableRoute(exclude?: string): FallbackRoute | undefined {
+  #availableRoute(ctx: RouterContext, exclude?: string): FallbackRoute | undefined {
     const now = this.#clock()
     for (const route of this.#chain) {
       if (route.provider.name === exclude) continue
+      if (!this.#routePolicy(route, ctx)) continue
       const health = this.#health.get(route.provider.name)!
       if (health.cooldownUntil === 0) return route
       if (health.cooldownUntil <= now && !health.halfOpen) {
@@ -242,8 +257,14 @@ export class FallbackRouter implements RouterPolicy {
     return this.#chain.find((entry) => entry.provider.name === name)
   }
 
-  #decision(route: FallbackRoute, reason: string, model = route.model): RouterDecision {
-    return { provider: route.provider, model, reason }
+  #decision(
+    route: FallbackRoute,
+    reason: string,
+    model = route.model,
+    ctx?: RouterContext,
+  ): RouterDecision {
+    const metadata = ctx && this.#decisionMetadata?.(route, ctx)
+    return { provider: route.provider, model, reason, ...(metadata ? { metadata } : {}) }
   }
 
   #exhausted(ctx: RouterContext): boolean {
@@ -270,6 +291,142 @@ export class FallbackRouter implements RouterPolicy {
       ...(error.status === undefined ? {} : { status: error.status }),
       ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }),
     })
+  }
+}
+
+export interface StaticModelPricing {
+  inputUSDPerMillionTokens: number
+  outputUSDPerMillionTokens: number
+}
+
+export interface CostAwareRoute extends FallbackRoute {
+  pricing: StaticModelPricing
+}
+
+export interface CostAwareRouterOptions extends Omit<
+  FallbackRouterOptions,
+  'routePolicy' | 'decisionMetadata'
+> {
+  defaultEstimatedUsage?: { inputTokens: number; outputTokens: number }
+}
+
+/** Deterministic budget routing from local pricing and token estimates only. */
+export class CostAwareRouter implements RouterPolicy {
+  readonly name = 'cost-aware'
+  readonly #routes: readonly CostAwareRoute[]
+  readonly #fallback: FallbackRouter
+  readonly #defaultEstimatedUsage: { inputTokens: number; outputTokens: number } | undefined
+
+  constructor(routes: readonly CostAwareRoute[], options: CostAwareRouterOptions = {}) {
+    if (routes.length === 0) throw new Error('cost_router_routes_empty')
+    for (const route of routes) {
+      if (!route.pricing) throw new Error('cost_router_pricing_missing')
+      this.#assertNonNegativeFinite(route.pricing.inputUSDPerMillionTokens, 'input_pricing')
+      this.#assertNonNegativeFinite(route.pricing.outputUSDPerMillionTokens, 'output_pricing')
+    }
+    if (options.defaultEstimatedUsage) this.#assertUsage(options.defaultEstimatedUsage)
+    this.#routes = [...routes]
+    this.#defaultEstimatedUsage = options.defaultEstimatedUsage
+    this.#fallback = new FallbackRouter(routes, {
+      ...options,
+      routePolicy: (route, ctx) => this.#isAffordable(route, ctx),
+      decisionMetadata: (route, ctx) => this.#metadata(route, ctx),
+    })
+  }
+
+  async pick(ctx: RouterContext, hint?: RouterHint): Promise<RouterDecision> {
+    this.#preflight(ctx, hint)
+    if (!this.#routes.some((route) => this.#isAffordable(route, ctx)))
+      throw new Error('cost_router_no_affordable_route')
+    return this.#explain(await this.#fallback.pick(ctx, hint))
+  }
+
+  async onError(error: ProviderError, ctx: RouterContext): Promise<RouterDecision | 'give-up'> {
+    this.#preflight(ctx)
+    const decision = await this.#fallback.onError(error, ctx)
+    return decision === 'give-up' ? decision : this.#explain(decision)
+  }
+
+  onSuccess(decision: RouterDecision, ctx: RouterContext): void {
+    this.#fallback.onSuccess(decision, ctx)
+  }
+
+  #preflight(ctx: RouterContext, hint?: RouterHint): void {
+    const usage = this.#usage(ctx)
+    if (ctx.budget?.costUSDMax !== undefined && !usage)
+      throw new Error('cost_router_usage_estimate_missing')
+    if (usage) this.#assertUsage(usage)
+    if (hint?.explicitModel) {
+      const parts = hint.explicitModel.split('/')
+      const providerName = parts.length > 1 ? parts.shift() : undefined
+      const model = parts.join('/')
+      const matched = this.#routes.some(
+        (route) => (!providerName || route.provider.name === providerName) && route.model === model,
+      )
+      if (!matched) throw new Error('cost_router_explicit_model_unpriced')
+    }
+  }
+
+  #isAffordable(route: FallbackRoute, ctx: RouterContext): boolean {
+    const max = ctx.budget?.costUSDMax
+    if (max === undefined) return true
+    this.#assertNonNegativeFinite(max, 'budget')
+    this.#assertNonNegativeFinite(ctx.session.cumulativeCostUSD, 'cumulative_cost')
+    const priced = this.#routes.find(
+      (candidate) =>
+        candidate.provider.name === route.provider.name && candidate.model === route.model,
+    )
+    if (!priced) return false
+    const usage = this.#usage(ctx)
+    if (!usage) return false
+    return ctx.session.cumulativeCostUSD + this.#projectedCost(priced, usage) <= max
+  }
+
+  #metadata(route: FallbackRoute, ctx: RouterContext): Record<string, unknown> {
+    const priced = this.#routes.find(
+      (candidate) =>
+        candidate.provider.name === route.provider.name && candidate.model === route.model,
+    )!
+    const usage = this.#usage(ctx)
+    const projectedCostUSD = usage ? this.#projectedCost(priced, usage) : undefined
+    const limit = ctx.budget?.costUSDMax
+    return {
+      pricingSource: 'static-fixture',
+      pricing: { ...priced.pricing },
+      ...(usage ? { estimatedUsage: { ...usage } } : {}),
+      ...(projectedCostUSD === undefined ? {} : { projectedCostUSD }),
+      ...(limit === undefined
+        ? {}
+        : { remainingBudgetUSD: Math.max(0, limit - ctx.session.cumulativeCostUSD) }),
+    }
+  }
+
+  #projectedCost(
+    route: CostAwareRoute,
+    usage: { inputTokens: number; outputTokens: number },
+  ): number {
+    return (
+      (usage.inputTokens * route.pricing.inputUSDPerMillionTokens +
+        usage.outputTokens * route.pricing.outputUSDPerMillionTokens) /
+      1_000_000
+    )
+  }
+
+  #usage(ctx: RouterContext) {
+    return ctx.estimatedUsage ?? this.#defaultEstimatedUsage
+  }
+
+  #assertUsage(usage: { inputTokens: number; outputTokens: number }): void {
+    this.#assertNonNegativeFinite(usage.inputTokens, 'input_tokens')
+    this.#assertNonNegativeFinite(usage.outputTokens, 'output_tokens')
+  }
+
+  #assertNonNegativeFinite(value: number, label: string): void {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`cost_router_${label}_invalid`)
+  }
+
+  #explain(decision: RouterDecision): RouterDecision {
+    return { ...decision, reason: `cost-aware:${decision.reason}` }
   }
 }
 
