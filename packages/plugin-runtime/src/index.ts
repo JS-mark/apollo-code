@@ -11,6 +11,8 @@ import type {
   HookHandler,
   HookResult,
   PluginManifest,
+  PluginRegistryMetadata,
+  PluginRegistrySignedPayload,
   PluginUiContribution,
 } from '@apollo-code/plugin-sdk'
 import type {
@@ -28,6 +30,138 @@ export class PluginError extends Error {
     message: string,
   ) {
     super(`${code}: ${message}`)
+  }
+}
+
+export interface PluginRegistryVerifier {
+  verify(
+    payload: PluginRegistrySignedPayload,
+    signature: Readonly<PluginRegistryMetadata['signature']>,
+  ): boolean | Promise<boolean>
+}
+
+export interface PluginRegistryClientOptions {
+  /** Pinned registry origin. Production network access is intentionally outside this client. */
+  source: string
+  fetchMetadata(name: string, version: string): Promise<unknown>
+  verifier: PluginRegistryVerifier
+}
+
+const REGISTRY_METADATA_KEYS = [
+  'schemaVersion',
+  'name',
+  'version',
+  'source',
+  'bundle',
+  'signature',
+  'revoked',
+] as const
+const exactKeys = (value: object, expected: readonly string[]) => {
+  const keys = Object.keys(value)
+  return keys.length === expected.length && keys.every((key) => expected.includes(key))
+}
+const plainRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) &&
+  typeof value === 'object' &&
+  [Object.prototype, null].includes(Object.getPrototypeOf(value))
+const pinnedRegistryUrl = (value: string) => {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      url.pathname === '/' &&
+      url.toString() === value
+    )
+  } catch {
+    return false
+  }
+}
+
+export async function verifyPluginRegistryMetadata(
+  value: unknown,
+  expected: Readonly<{ name: string; version: string; source: string; digest: string }>,
+  verifier: PluginRegistryVerifier,
+): Promise<PluginRegistryMetadata> {
+  if (!plainRecord(value) || !exactKeys(value, REGISTRY_METADATA_KEYS))
+    throw new PluginError('plugin_registry_metadata_invalid', 'metadata shape is not trusted')
+  const bundle = value.bundle
+  const signature = value.signature
+  if (
+    value.schemaVersion !== 1 ||
+    value.name !== expected.name ||
+    value.version !== expected.version ||
+    value.source !== expected.source ||
+    typeof value.source !== 'string' ||
+    !pinnedRegistryUrl(value.source) ||
+    typeof value.revoked !== 'boolean' ||
+    !plainRecord(bundle) ||
+    !exactKeys(bundle, ['url', 'digest']) ||
+    typeof bundle.url !== 'string' ||
+    typeof bundle.digest !== 'string' ||
+    !bundle.digest.match(/^sha256-[a-f0-9]{64}$/) ||
+    !plainRecord(signature) ||
+    !exactKeys(signature, ['keyId', 'value']) ||
+    typeof signature.keyId !== 'string' ||
+    signature.keyId.length === 0 ||
+    typeof signature.value !== 'string' ||
+    signature.value.length === 0
+  )
+    throw new PluginError('plugin_registry_metadata_invalid', 'metadata fields are not trusted')
+  if (value.revoked)
+    throw new PluginError('plugin_registry_revoked', `${expected.name}@${expected.version}`)
+  if (bundle.digest !== expected.digest)
+    throw new PluginError('plugin_registry_digest_mismatch', `${expected.name}@${expected.version}`)
+  const bundleUrl = new URL(bundle.url)
+  if (
+    bundleUrl.protocol !== 'https:' ||
+    bundleUrl.origin !== new URL(expected.source).origin ||
+    bundleUrl.username ||
+    bundleUrl.password ||
+    bundleUrl.search ||
+    bundleUrl.hash
+  )
+    throw new PluginError(
+      'plugin_registry_source_pollution',
+      'bundle URL escaped the pinned source',
+    )
+  const metadata = value as unknown as PluginRegistryMetadata
+  const payload: PluginRegistrySignedPayload = {
+    schemaVersion: metadata.schemaVersion,
+    name: metadata.name,
+    version: metadata.version,
+    source: metadata.source,
+    bundle: metadata.bundle,
+    revoked: metadata.revoked,
+  }
+  if (!(await verifier.verify(payload, metadata.signature)))
+    throw new PluginError(
+      'plugin_registry_signature_invalid',
+      `${expected.name}@${expected.version}`,
+    )
+  return structuredClone(metadata)
+}
+
+/** Dependency-injected registry fixture: it performs no network or account access itself. */
+export class PluginRegistryClient {
+  constructor(private readonly options: PluginRegistryClientOptions) {
+    if (!pinnedRegistryUrl(options.source))
+      throw new PluginError(
+        'plugin_registry_source_invalid',
+        'registry source must be a pinned HTTPS origin',
+      )
+  }
+
+  async resolve(name: string, version: string, digest: string) {
+    const metadata = await this.options.fetchMetadata(name, version)
+    return verifyPluginRegistryMetadata(
+      metadata,
+      { name, version, source: this.options.source, digest },
+      this.options.verifier,
+    )
   }
 }
 export interface PluginApproval {
