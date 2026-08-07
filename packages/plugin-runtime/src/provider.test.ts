@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   BufferedProviderStream,
   PluginError,
+  redactSigningValues,
   registerProviderPlugin,
   renderAuthHeaders,
   validateManifest,
@@ -47,6 +48,26 @@ const capabilities: ProviderCapabilities = {
   toolChoiceRequired: false,
   interleavedThinking: false,
 }
+const signingManifest = {
+  ...manifest,
+  name: 'apollo-plugin-provider-bedrock' as const,
+  provider: {
+    name: 'plugin-bedrock',
+    displayName: 'Bedrock fixture',
+    auth: {
+      mode: 'signing' as const,
+      credentialScope: 'bedrock-fixture',
+      signing: {
+        algorithm: 'aws-sigv4' as const,
+        envKeys: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'] as const,
+      },
+    },
+  },
+  permissions: {
+    ...manifest.permissions,
+    apollo: ['provider.register', 'auth.getSigningEnvKeys'],
+  },
+}
 
 describe('provider plugin boundary', () => {
   it('requires provider permissions and a network allowlist', () => {
@@ -57,6 +78,18 @@ describe('provider plugin boundary', () => {
         '1.2.0',
       ),
     ).toThrow('provider requires a net allowlist')
+    expect(() =>
+      validateManifest(
+        {
+          ...signingManifest,
+          provider: {
+            ...signingManifest.provider,
+            auth: { ...signingManifest.provider.auth, mode: 'unknown' },
+          },
+        },
+        '1.2.0',
+      ),
+    ).toThrow('invalid provider authentication')
   })
   it('rejects header injection', () => {
     expect(renderAuthHeaders('Authorization: Bearer {{key}}', 'secret')).toEqual({
@@ -91,6 +124,103 @@ describe('provider plugin boundary', () => {
     expect(chunks).toEqual([{ kind: 'text.delta', text: 'ok' }])
     expect(seen[0]).toEqual({ ...request, authHeaders: { Authorization: 'Bearer raw-secret' } })
     expect(JSON.stringify(seen[0])).not.toContain('credentialScope')
+  })
+  it('requires explicit signing approval before reading fixture credentials', async () => {
+    const credentials = vi.fn(async () => ({
+      AWS_ACCESS_KEY_ID: 'fixture-access',
+      AWS_SECRET_ACCESS_KEY: 'fixture-secret',
+    }))
+    const registry = new InMemoryProviderRegistry()
+    registerProviderPlugin({
+      manifest: signingManifest,
+      capabilities,
+      registry,
+      credentials: vi.fn(),
+      signing: {
+        approve: async () => false,
+        credentials,
+        environment: { open: vi.fn() },
+      },
+      transport: {
+        async *stream() {
+          yield { kind: 'text.delta', text: 'unexpected' }
+        },
+        dispose: vi.fn(async () => {}),
+      },
+    })
+    await expect(async () => {
+      for await (const _chunk of registry
+        .get('plugin-bedrock')!
+        .stream({ model: 'fixture', messages: [] }, new AbortController().signal)) {
+        // The approval gate rejects before iteration produces a chunk.
+      }
+    }).rejects.toThrow('plugin_signing_approval_required')
+    expect(credentials).not.toHaveBeenCalled()
+  })
+  it('scopes declared signing fixture values and always cleans them up', async () => {
+    const registry = new InMemoryProviderRegistry(),
+      childEnvironment = new Map<string, string>(),
+      dispose = vi.fn(() => childEnvironment.clear())
+    registerProviderPlugin({
+      manifest: signingManifest,
+      capabilities,
+      registry,
+      credentials: vi.fn(),
+      signing: {
+        approve: async () => true,
+        credentials: async (_scope, keys) => ({
+          [keys[0]!]: 'fixture-access',
+          [keys[1]!]: 'fixture-secret',
+          UNDECLARED_SECRET: 'must-not-be-injected',
+        }),
+        environment: {
+          async open(environment) {
+            for (const [key, value] of Object.entries(environment)) childEnvironment.set(key, value)
+            return { dispose }
+          },
+        },
+      },
+      transport: {
+        async *stream() {
+          expect(Object.fromEntries(childEnvironment)).toEqual({
+            AWS_ACCESS_KEY_ID: 'fixture-access',
+            AWS_SECRET_ACCESS_KEY: 'fixture-secret',
+          })
+          yield { kind: 'text.delta', text: 'ok' }
+          throw new Error('fixture transport failure')
+        },
+        dispose: vi.fn(async () => {}),
+      },
+    })
+    await expect(async () => {
+      for await (const _chunk of registry
+        .get('plugin-bedrock')!
+        .stream({ model: 'fixture', messages: [] }, new AbortController().signal)) {
+        // Consume the fixture stream so its failure exercises finally cleanup.
+      }
+    }).rejects.toThrow('fixture transport failure')
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(childEnvironment.size).toBe(0)
+  })
+  it('redacts declared signing keys and values from structured logs', () => {
+    const environment = {
+      AWS_ACCESS_KEY_ID: 'fixture-access',
+      AWS_SECRET_ACCESS_KEY: 'fixture-secret',
+    }
+    expect(
+      redactSigningValues(
+        {
+          AWS_SECRET_ACCESS_KEY: 'fixture-secret',
+          message: 'signing with fixture-access / fixture-secret',
+          safe: 'fixture',
+        },
+        environment,
+      ),
+    ).toEqual({
+      AWS_SECRET_ACCESS_KEY: '[REDACTED]',
+      message: 'signing with [REDACTED] / [REDACTED]',
+      safe: 'fixture',
+    })
   })
   it('fails explicitly instead of dropping chunks on overflow', () => {
     try {

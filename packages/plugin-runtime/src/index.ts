@@ -118,14 +118,31 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
     if (
       !provider?.name ||
       !provider.displayName ||
-      provider.auth?.mode !== 'header-template' ||
-      !provider.auth.credentialScope ||
+      !provider.auth?.credentialScope ||
+      !['header-template', 'signing'].includes(provider.auth.mode)
+    )
+      throw new PluginError('plugin_provider_invalid', 'invalid provider authentication')
+    if (
+      provider.auth.mode === 'header-template' &&
       !provider.auth.headerTemplate?.includes('{{key}}')
     )
       throw new PluginError('plugin_provider_invalid', 'invalid header-template provider')
+    if (provider.auth.mode === 'signing') {
+      const signing = provider.auth.signing
+      if (
+        !['aws-sigv4', 'acs3', 'custom'].includes(signing?.algorithm) ||
+        !Array.isArray(signing?.envKeys) ||
+        signing.envKeys.length === 0 ||
+        new Set(signing.envKeys).size !== signing.envKeys.length ||
+        signing.envKeys.some((key) => !/^[A-Z_][A-Z0-9_]*$/.test(key))
+      )
+        throw new PluginError('plugin_provider_invalid', 'invalid signing provider')
+    }
     if (!m.permissions.net || m.permissions.net.allowlist.length === 0)
       throw new PluginError('plugin_provider_net_required', 'provider requires a net allowlist')
-    for (const permission of ['provider.register', 'auth.getAuthHeaders'])
+    const authPermission =
+      provider.auth.mode === 'signing' ? 'auth.getSigningEnvKeys' : 'auth.getAuthHeaders'
+    for (const permission of ['provider.register', authPermission])
       if (!m.permissions.apollo.includes(permission))
         throw new PluginError('plugin_provider_permission_required', permission)
   } else if (m.provider) {
@@ -600,6 +617,40 @@ export function createRpcGuard(manifest: PluginManifest, maxCallsPerTurn = 500) 
 }
 
 export type CredentialReader = (scope: string) => Promise<string | undefined>
+export type SigningCredentialReader = (
+  scope: string,
+  envKeys: readonly string[],
+) => Promise<Readonly<Record<string, string>>>
+
+export interface SigningEnvironmentScope {
+  dispose(): void | Promise<void>
+}
+
+export interface SigningEnvironment {
+  open(environment: Readonly<Record<string, string>>): Promise<SigningEnvironmentScope>
+}
+
+export function redactSigningValues(
+  value: unknown,
+  environment: Readonly<Record<string, string>>,
+): unknown {
+  const secrets = Object.values(environment).filter(Boolean)
+  const redactString = (text: string) =>
+    secrets.reduce((result, secret) => result.replaceAll(secret, '[REDACTED]'), text)
+  const visit = (item: unknown): unknown => {
+    if (typeof item === 'string') return redactString(item)
+    if (Array.isArray(item)) return item.map(visit)
+    if (item && typeof item === 'object')
+      return Object.fromEntries(
+        Object.entries(item).map(([key, nested]) => [
+          key,
+          Object.hasOwn(environment, key) ? '[REDACTED]' : visit(nested),
+        ]),
+      )
+    return item
+  }
+  return visit(value)
+}
 
 export function renderAuthHeaders(template: string, key: string): Record<string, string> {
   const separator = template.indexOf(':')
@@ -629,9 +680,14 @@ export function registerProviderPlugin(options: {
   capabilities: ProviderCapabilities
   registry: ProviderRegistry
   credentials: CredentialReader
+  signing?: {
+    approve(manifest: PluginManifest): Promise<boolean>
+    credentials: SigningCredentialReader
+    environment: SigningEnvironment
+  }
   transport: ProviderStreamTransport
 }): ProviderDisposable {
-  const { manifest, capabilities, registry, credentials, transport } = options
+  const { manifest, capabilities, registry, credentials, signing, transport } = options
   if (manifest.kind !== 'provider' || !manifest.provider)
     throw new PluginError('plugin_provider_invalid', 'not a provider plugin')
   const provider = manifest.provider
@@ -639,9 +695,27 @@ export function registerProviderPlugin(options: {
     name: provider.name,
     capabilities: Object.freeze(structuredClone(capabilities)),
     async *stream(request, signal) {
-      const key = await credentials(provider.auth.credentialScope)
-      const authHeaders = key ? renderAuthHeaders(provider.auth.headerTemplate, key) : {}
-      yield* transport.stream(provider.name, { ...request, authHeaders }, signal)
+      if (provider.auth.mode === 'header-template') {
+        const key = await credentials(provider.auth.credentialScope)
+        const authHeaders = key ? renderAuthHeaders(provider.auth.headerTemplate, key) : {}
+        yield* transport.stream(provider.name, { ...request, authHeaders }, signal)
+        return
+      }
+      if (!signing || !(await signing.approve(manifest)))
+        throw new PluginError('plugin_signing_approval_required', provider.name)
+      const declaredKeys = provider.auth.signing.envKeys
+      const values = await signing.credentials(provider.auth.credentialScope, declaredKeys)
+      const environment = Object.fromEntries(
+        declaredKeys.filter((key) => values[key] !== undefined).map((key) => [key, values[key]!]),
+      )
+      if (Object.keys(environment).length !== declaredKeys.length)
+        throw new PluginError('plugin_signing_credentials_missing', provider.name)
+      const scope = await signing.environment.open(environment)
+      try {
+        yield* transport.stream(provider.name, { ...request, authHeaders: {} }, signal)
+      } finally {
+        await scope.dispose()
+      }
     },
     dispose: () => transport.dispose(),
   }
