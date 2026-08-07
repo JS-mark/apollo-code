@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Duplex, PassThrough } from 'node:stream'
 
 import type { PluginHost } from '@apollo-code/native-bridge'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   BridgeRuntime,
@@ -285,6 +285,71 @@ describe('plugin runtime', () => {
       await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_activation_timeout')
     expect(terminated).toBe(3)
     expect(manager.list()[manifest.name]?.enabled).toBe(false)
+  })
+
+  it('kills a no-response host and disposes its worker registrations', async () => {
+    vi.useFakeTimers()
+    const source = await fixture(),
+      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
+      manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+    await manager.install(source)
+    let registrationsDisposed = 0
+    let terminated = 0
+    const bridge = new BridgeRuntime({
+      session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+      register: () => ({
+        dispose: () => {
+          registrationsDisposed++
+        },
+      }),
+      fs: {
+        readFile: async () => '',
+        writeFile: async () => {},
+        exists: async () => false,
+        glob: async () => [],
+        stat: async () => ({}),
+      },
+      exec: async () => ({}),
+      fetch: async () => ({}),
+      ui: () => undefined,
+      storage: async () => undefined,
+      config: () => undefined,
+      log: () => undefined,
+    })
+    const runtime = new PluginRuntime(manager, bridge, {
+      dataRoot,
+      heartbeatTimeoutMs: 20,
+      start: async () => {
+        const transport = new PassThrough()
+        queueMicrotask(() => {
+          transport.write(
+            `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, id: 1, method: 'apollo.tools.register', params: { name: 'stalled', description: 'stalled', inputSchema: {}, handler: { $callback: 'handler-1' } } })}\n`,
+          )
+          transport.write(
+            `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, method: 'host.activated', params: {} })}\n`,
+          )
+        })
+        return {
+          pid: 1,
+          bridge: transport,
+          terminate: () => {
+            terminated++
+            transport.destroy()
+          },
+          exited: new Promise(() => {}),
+        }
+      },
+    })
+    await runtime.load(manifest.name)
+    expect(runtime.active()).toEqual([manifest.name])
+    await vi.advanceTimersByTimeAsync(21)
+    await Promise.resolve()
+    expect(terminated).toBe(1)
+    expect(registrationsDisposed).toBe(1)
+    expect(runtime.active()).toEqual([])
+    vi.useRealTimers()
   })
 
   it('cancels activation and rejects a changed approval hash', async () => {

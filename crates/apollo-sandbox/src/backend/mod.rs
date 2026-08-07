@@ -1,6 +1,22 @@
 use crate::profile::{ExecRequest, ExecResult, ProbeInfo, SandboxTier};
 use std::{collections::BTreeMap, process::Command, time::Instant};
 
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SeccompArch {
+    X86_64,
+    Aarch64,
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn seccomp_arch_for(arch: &str) -> Result<SeccompArch, String> {
+    match arch {
+        "x86_64" => Ok(SeccompArch::X86_64),
+        "aarch64" => Ok(SeccompArch::Aarch64),
+        arch => Err(format!("unsupported seccomp architecture: {arch}")),
+    }
+}
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -83,4 +99,21 @@ fn execute(mut command: Command, tier: SandboxTier) -> Result<ExecResult, String
         sandbox_tier: tier,
         sandbox_violations: vec![],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seccomp_arch_matrix_selects_only_reviewed_native_targets() {
+        assert_eq!(seccomp_arch_for("x86_64"), Ok(SeccompArch::X86_64));
+        assert_eq!(seccomp_arch_for("aarch64"), Ok(SeccompArch::Aarch64));
+        for arch in ["amd64", "arm64", "x86", "riscv64", ""] {
+            assert_eq!(
+                seccomp_arch_for(arch),
+                Err(format!("unsupported seccomp architecture: {arch}"))
+            );
+        }
+    }
 }

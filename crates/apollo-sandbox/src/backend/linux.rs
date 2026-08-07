@@ -1,19 +1,10 @@
-use super::execute;
+use super::{execute, seccomp_arch_for, SeccompArch};
 use crate::bundled_bwrap;
 use crate::profile::{ExecRequest, ExecResult, ProbeInfo, SandboxTier};
 use std::{collections::BTreeMap, process::Command};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SeccompArch {
-    X86_64,
-    Aarch64,
-}
-pub fn seccomp_arch() -> Result<SeccompArch, String> {
-    match std::env::consts::ARCH {
-        "x86_64" => Ok(SeccompArch::X86_64),
-        "aarch64" => Ok(SeccompArch::Aarch64),
-        arch => Err(format!("unsupported seccomp architecture: {arch}")),
-    }
+fn seccomp_arch() -> Result<SeccompArch, String> {
+    seccomp_arch_for(std::env::consts::ARCH)
 }
 pub fn probe() -> ProbeInfo {
     let bwrap = bundled_bwrap::verify_embedded().is_ok();
@@ -98,14 +89,6 @@ pub(crate) fn exec_persistent(request: &ExecRequest) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn seccomp_table_matches_l1_architectures() {
-        assert!(matches!(
-            seccomp_arch(),
-            Ok(SeccompArch::X86_64 | SeccompArch::Aarch64)
-        ));
-    }
-
     #[test]
     fn runtime_selects_digest_verified_bundled_bwrap() {
         let bundled = bundled_bwrap::materialize().expect("materialize reviewed payload");
