@@ -12,9 +12,11 @@ import {
   BridgeRuntime,
   createRpcGuard,
   PluginManager,
+  PluginRegistryClient,
   PluginRuntime,
   validateManifest,
   verifyBundle,
+  verifyPluginRegistryMetadata,
 } from './index'
 const manifest = {
   name: 'apollo-plugin-test',
@@ -31,6 +33,81 @@ async function fixture() {
   return root
 }
 describe('plugin runtime', () => {
+  const registryDigest = `sha256-${'a'.repeat(64)}`
+  const registryMetadata = {
+    schemaVersion: 1,
+    name: manifest.name,
+    version: manifest.version,
+    source: 'https://registry.fixture.invalid/',
+    bundle: {
+      url: 'https://registry.fixture.invalid/bundles/apollo-plugin-test-1.0.0.tgz',
+      digest: registryDigest,
+    },
+    signature: { keyId: 'fixture-key', value: 'fixture-signature' },
+    revoked: false,
+  } as const
+  const fixtureVerifier = { verify: async () => true }
+
+  it('resolves registry trust metadata through a local-only injected fixture', async () => {
+    const client = new PluginRegistryClient({
+      source: registryMetadata.source,
+      fetchMetadata: async (name, version) => {
+        expect([name, version]).toEqual([manifest.name, manifest.version])
+        return registryMetadata
+      },
+      verifier: fixtureVerifier,
+    })
+    await expect(client.resolve(manifest.name, manifest.version, registryDigest)).resolves.toEqual(
+      registryMetadata,
+    )
+  })
+
+  it('fails closed for missing signatures, revocation, digest mismatch, and source pollution', async () => {
+    const expected = {
+      name: manifest.name,
+      version: manifest.version,
+      source: registryMetadata.source,
+      digest: registryDigest,
+    }
+    const verify = (value: unknown) =>
+      verifyPluginRegistryMetadata(value, expected, fixtureVerifier)
+    const { signature: _signature, ...unsigned } = registryMetadata
+    await expect(verify(unsigned)).rejects.toThrow('plugin_registry_metadata_invalid')
+    await expect(verify({ ...registryMetadata, revoked: true })).rejects.toThrow(
+      'plugin_registry_revoked',
+    )
+    await expect(
+      verify({
+        ...registryMetadata,
+        bundle: { ...registryMetadata.bundle, digest: `sha256-${'b'.repeat(64)}` },
+      }),
+    ).rejects.toThrow('plugin_registry_digest_mismatch')
+    await expect(
+      verify({
+        ...registryMetadata,
+        bundle: { ...registryMetadata.bundle, url: 'https://evil.invalid/plugin.tgz' },
+      }),
+    ).rejects.toThrow('plugin_registry_source_pollution')
+    await expect(
+      verify(Object.assign(Object.create({ polluted: true }), registryMetadata)),
+    ).rejects.toThrow('plugin_registry_metadata_invalid')
+  })
+
+  it('fails closed when the fixture signature verifier rejects the signed payload', async () => {
+    await expect(
+      verifyPluginRegistryMetadata(
+        registryMetadata,
+        {
+          name: manifest.name,
+          version: manifest.version,
+          source: registryMetadata.source,
+          digest: registryDigest,
+        },
+        { verify: () => false },
+      ),
+    ).rejects.toThrow('plugin_registry_signature_invalid')
+  })
+
   it('accepts only permission-gated allowlisted declarative UI', () => {
     const ui = [{ id: 'branch', surface: 'status-bar', text: 'main' }] as const
     expect(

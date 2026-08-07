@@ -91,6 +91,33 @@ export interface PluginManifest {
   }
   config?: Readonly<Record<string, unknown>>
 }
+
+/** Versioned, data-only metadata returned by a plugin registry. */
+export interface PluginRegistryMetadata {
+  schemaVersion: 1
+  name: `apollo-plugin-${string}`
+  version: string
+  source: string
+  bundle: {
+    url: string
+    digest: `sha256-${string}`
+  }
+  signature: {
+    keyId: string
+    value: string
+  }
+  revoked: boolean
+}
+
+/** The signed payload excludes the signature bytes but binds every trust decision field. */
+export interface PluginRegistrySignedPayload {
+  schemaVersion: 1
+  name: `apollo-plugin-${string}`
+  version: string
+  source: string
+  bundle: PluginRegistryMetadata['bundle']
+  revoked: boolean
+}
 export type {
   ModelDescriptor,
   ProviderCapabilities,
