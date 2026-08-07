@@ -1,7 +1,14 @@
-import type { Message, ProviderCapabilities } from '@apollo-code/provider-kit'
+import type { EmbeddingProvider, Message, ProviderCapabilities } from '@apollo-code/provider-kit'
 import { describe, expect, it } from 'vitest'
 
-import { SlidingWindowPolicy, SummaryPolicy } from './index'
+import {
+  SEMANTIC_INDEX_SCHEMA_VERSION,
+  SemanticPolicy,
+  SlidingWindowPolicy,
+  SummaryPolicy,
+  pruneSemanticIndexDocument,
+  validateSemanticIndexDocument,
+} from './index'
 const msg = (id: string, role: Message['role'], text: string): Message => ({
   id,
   role,
@@ -135,4 +142,95 @@ describe('SlidingWindowPolicy', () => {
     })
     expect(snapshot.messages.map((message) => message.id)).toContain('pinned')
   })
+})
+
+const localEmbeddings = (): EmbeddingProvider => ({
+  name: 'fixture-local',
+  scope: 'local',
+  model: 'fixture-bow-v1',
+  dimensions: 4,
+  embed: async (request) => ({
+    embeddings: request.input.map((text) => [
+      /\bauth|oauth|login\b/i.test(text) ? 1 : 0,
+      /\bvector|embedding|semantic|recall\b/i.test(text) ? 1 : 0,
+      /\bbilling|invoice|cost\b/i.test(text) ? 1 : 0,
+      1,
+    ]),
+  }),
+})
+
+describe('SemanticPolicy', () => {
+  const semanticMessages = [
+    msg('m0', 'user', 'billing invoice export keeps cost evidence'),
+    msg('m1', 'assistant', 'oauth login regression notes'),
+    msg('m2', 'user', 'semantic embedding vector recall fixture'),
+    msg('m3', 'user', 'please recall embedding evidence'),
+  ]
+  const semanticContext = {
+    session: { messages: semanticMessages },
+    capabilities: caps,
+    turnId: 'turn-semantic',
+    model: 'main',
+  }
+
+  it('fails closed to non-semantic fallback when no local embedding is configured', async () => {
+    const policy = new SemanticPolicy({ keepRecent: 1, topK: 3 })
+    const snapshot = await policy.compact(semanticContext)
+    expect(snapshot.strategy).toBe('semantic-fallback')
+    expect(snapshot.messages.map((message) => message.id)).toEqual(['m3'])
+    expect(policy.getIndex()).toBeUndefined()
+  })
+
+  it('writes and validates a versioned local semantic index schema', async () => {
+    const policy = new SemanticPolicy({ topK: 2 }, { embedding: localEmbeddings() })
+    await policy.refreshIndex(semanticContext)
+    const index = policy.getIndex()
+    expect(index).toMatchObject({
+      schemaVersion: SEMANTIC_INDEX_SCHEMA_VERSION,
+      embedding: {
+        provider: 'fixture-local',
+        model: 'fixture-bow-v1',
+        dimensions: 4,
+        scope: 'local',
+      },
+    })
+    expect(validateSemanticIndexDocument(index).ok).toBe(true)
+    expect(validateSemanticIndexDocument({ ...index, schemaVersion: 'future' }).ok).toBe(false)
+    expect(pruneSemanticIndexDocument(index!, new Set(['m2', 'm3'])).records).toHaveLength(2)
+  })
+
+  it('recalls deterministic golden semantic matches without a model callout', async () => {
+    const policy = new SemanticPolicy(
+      { keepRecent: 1, minScore: 0.6, topK: 2 },
+      { embedding: localEmbeddings() },
+    )
+    const hits = await policy.recall(semanticContext)
+    expect(hits.map((hit) => hit.message.id)).toEqual(['m2', 'm3'])
+    const snapshot = await policy.compact(semanticContext)
+    expect(snapshot.strategy).toBe('semantic')
+    expect(snapshot.messages.map((message) => message.id)).toEqual(['m2', 'm3'])
+  })
+
+  it.each(['denied', 'pending'] as const)(
+    'denies cloud embeddings when authorization is %s',
+    async (cloudAuthorization) => {
+      let calls = 0
+      const cloud: EmbeddingProvider = {
+        ...localEmbeddings(),
+        name: 'cloud-fixture',
+        scope: 'cloud',
+        embed: async (request, signal) => {
+          calls++
+          return localEmbeddings().embed(request, signal)
+        },
+      }
+      const policy = new SemanticPolicy(
+        { keepRecent: 1 },
+        { allowCloudEmbeddings: true, cloudAuthorization, embedding: cloud },
+      )
+      const snapshot = await policy.compact(semanticContext)
+      expect(snapshot.strategy).toBe('semantic-fallback')
+      expect(calls).toBe(0)
+    },
+  )
 })

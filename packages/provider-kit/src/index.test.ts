@@ -6,6 +6,7 @@ import type {
   ProviderCapabilities,
   ProviderChunk,
   ProviderClient,
+  EmbeddingProvider,
   ProviderRequest,
   RawMeta,
 } from './index'
@@ -50,5 +51,19 @@ describe('provider contract', () => {
     expectTypeOf<ContextPolicy>().toHaveProperty('buildPrompt')
     expectTypeOf<ContextPolicy>().toHaveProperty('compact')
     expectTypeOf<ContextPolicy>().toHaveProperty('estimateTokens')
+  })
+
+  it('keeps embedding providers local-first and explicit at the provider boundary', () => {
+    expectTypeOf<EmbeddingProvider>().toHaveProperty('scope').toEqualTypeOf<'cloud' | 'local'>()
+    expectTypeOf<EmbeddingProvider['embed']>().parameters.toEqualTypeOf<
+      [
+        {
+          readonly model: string
+          readonly input: readonly string[]
+          readonly purpose: 'semantic-recall'
+        },
+        AbortSignal,
+      ]
+    >()
   })
 })
