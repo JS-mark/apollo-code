@@ -76,11 +76,20 @@ export interface PluginManifest {
   provider?: {
     name: string
     displayName: string
-    auth: {
-      mode: 'header-template'
-      credentialScope: string
-      headerTemplate: string
-    }
+    auth:
+      | {
+          mode: 'header-template'
+          credentialScope: string
+          headerTemplate: string
+        }
+      | {
+          mode: 'signing'
+          credentialScope: string
+          signing: {
+            algorithm: 'aws-sigv4' | 'acs3' | 'custom'
+            envKeys: readonly string[]
+          }
+        }
     models?: readonly { id: string; maxContext?: number }[]
   }
   permissions: {
