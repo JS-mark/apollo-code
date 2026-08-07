@@ -5,7 +5,13 @@ import {
 } from '@apollo-code/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
-import { FallbackRouter, parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from './index'
+import {
+  CostAwareRouter,
+  FallbackRouter,
+  parseRoleRouterConfig,
+  RoleRouter,
+  SingleProviderRouter,
+} from './index'
 
 const client = {
   name: 'fake',
@@ -172,6 +178,94 @@ describe('FallbackRouter', () => {
       await router.onError(providerError('fake', 'rate_limit', true, 12_345), ctx),
     ).toMatchObject({ provider: client, reason: 'retry' })
     expect(sleep).toHaveBeenCalledWith(12_345, undefined)
+  })
+})
+
+describe('CostAwareRouter', () => {
+  const expensive = {
+    provider: client,
+    model: 'quality',
+    priority: 100,
+    pricing: { inputUSDPerMillionTokens: 10, outputUSDPerMillionTokens: 20 },
+  }
+  const cheap = {
+    provider: otherClient,
+    model: 'economy',
+    priority: 50,
+    pricing: { inputUSDPerMillionTokens: 1, outputUSDPerMillionTokens: 2 },
+  }
+  const estimatedUsage = { inputTokens: 1_000, outputTokens: 500 }
+
+  it('uses exact budget thresholds and deterministically falls back to an affordable route', async () => {
+    const router = new CostAwareRouter([expensive, cheap])
+    const exact = await router.pick({
+      ...ctx,
+      estimatedUsage,
+      budget: { costUSDMax: 0.02 },
+    })
+    expect(exact).toMatchObject({
+      provider: client,
+      model: 'quality',
+      reason: 'cost-aware:fallback-primary',
+      metadata: {
+        pricingSource: 'static-fixture',
+        projectedCostUSD: 0.02,
+        remainingBudgetUSD: 0.02,
+      },
+    })
+
+    const fallback = await router.pick({
+      ...ctx,
+      estimatedUsage,
+      budget: { costUSDMax: 0.019 },
+    })
+    expect(fallback).toMatchObject({
+      provider: otherClient,
+      model: 'economy',
+      metadata: { projectedCostUSD: 0.002 },
+    })
+  })
+
+  it('keeps cooldown and sticky-provider behavior inside the budget gate', async () => {
+    let now = 0
+    const router = new CostAwareRouter([expensive, cheap], {
+      clock: () => now,
+      cooldownMs: 100,
+      defaultEstimatedUsage: estimatedUsage,
+    })
+    const budgeted = { ...ctx, budget: { costUSDMax: 1 } }
+    expect(await router.onError(providerError('fake', 'rate_limit'), budgeted)).toMatchObject({
+      provider: otherClient,
+      reason: 'cost-aware:fallback',
+    })
+    expect((await router.pick(budgeted)).provider).toBe(otherClient)
+    now = 101
+    expect((await router.pick(budgeted)).provider).toBe(client)
+    await expect(
+      router.pick({
+        ...budgeted,
+        session: { ...ctx.session, stickyProvider: 'other' },
+      }),
+    ).resolves.toMatchObject({ provider: otherClient, reason: 'cost-aware:sticky-provider' })
+  })
+
+  it('fails closed for missing pricing, estimates, unaffordable routes, and unpriced models', async () => {
+    expect(
+      () =>
+        new CostAwareRouter([
+          { provider: client, model: 'missing', priority: 1 } as typeof expensive,
+        ]),
+    ).toThrow('cost_router_pricing_missing')
+    const router = new CostAwareRouter([expensive, cheap])
+    await expect(router.pick({ ...ctx, budget: { costUSDMax: 1 } })).rejects.toThrow(
+      'cost_router_usage_estimate_missing',
+    )
+    await expect(
+      router.pick({ ...ctx, estimatedUsage, budget: { costUSDMax: 0.001 } }),
+    ).rejects.toThrow('cost_router_no_affordable_route')
+    await expect(router.pick(ctx, { explicitModel: 'fake/unlisted' })).rejects.toThrow(
+      'cost_router_explicit_model_unpriced',
+    )
   })
 })
 
