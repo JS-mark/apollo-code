@@ -130,6 +130,24 @@ export interface ProviderClient {
   dispose(): Promise<void>
 }
 
+export type EmbeddingProviderScope = 'cloud' | 'local'
+export type EmbeddingAuthorizationStatus = 'denied' | 'granted' | 'pending'
+export interface EmbeddingRequest {
+  readonly model: string
+  readonly input: readonly string[]
+  readonly purpose: 'semantic-recall'
+}
+export interface EmbeddingResponse {
+  readonly embeddings: readonly (readonly number[])[]
+}
+export interface EmbeddingProvider {
+  readonly name: string
+  readonly scope: EmbeddingProviderScope
+  readonly model: string
+  readonly dimensions: number
+  embed(request: EmbeddingRequest, signal: AbortSignal): Promise<EmbeddingResponse>
+}
+
 export interface Disposable {
   dispose(): void | Promise<void>
 }
