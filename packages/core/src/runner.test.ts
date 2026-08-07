@@ -158,7 +158,7 @@ describe('Runner', () => {
     await running
     expect(seen?.aborted).toBe(true)
   })
-  it('locks at first tool_use and rejects cross-provider retry without persisting partial output', async () => {
+  it('fails closed on partial tool_use without consulting retry routing or executing it', async () => {
     const first = provider(
       [
         [
@@ -175,19 +175,47 @@ describe('Runner', () => {
     bus.subscribe((event) => {
       if (event.type === 'error.raised') events.push((event.payload as { code: string }).code)
     })
-    const policy = router(first, async () => ({
+    const retry = vi.fn(async () => ({
       provider: second,
       model: 'm2',
       reason: 'fallback',
     }))
+    const policy = router(first, retry)
     const state = await new Runner(context(), policy, composer, tools, bus).run('hi')
-    expect(events).toContain('provider_sticky_violation')
+    expect(events).toContain('stream_resume_unsafe_partial_tool_use')
+    expect(retry).not.toHaveBeenCalled()
     expect(
       state.messages.some((message) =>
         message.content.some((part) => part.type === 'text' && part.text === 'partial'),
       ),
     ).toBe(false)
     expect(tools.execute).not.toHaveBeenCalled()
+  })
+  it('does not replay a completed side-effect tool when the following stream is retried', async () => {
+    const client = provider([
+      [
+        { kind: 'tool_use.start', id: 'side-effect-1', name: 'write' },
+        { kind: 'tool_use.delta', id: 'side-effect-1', argsFragment: '{"value":1}' },
+        { kind: 'tool_use.end', id: 'side-effect-1' },
+        { kind: 'message.stop', stopReason: 'tool_use' },
+      ],
+      [
+        { kind: 'text.delta', text: 'discarded' },
+        { kind: 'message.interrupted', reason: 'rst' },
+      ],
+      [
+        { kind: 'text.delta', text: 'done' },
+        { kind: 'message.stop', stopReason: 'end_turn' },
+      ],
+    ])
+    const policy = router(client, async () => ({ provider: client, model: 'm', reason: 'retry' }))
+    const state = await new Runner(context(), policy, composer, tools).run('hi')
+    expect(tools.execute).toHaveBeenCalledTimes(1)
+    expect(tools.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'side-effect-1' }),
+      expect.any(AbortSignal),
+    )
+    expect(state.messages.at(-1)?.content).toContainEqual({ type: 'text', text: 'done' })
   })
   it('injects composed system prompt', async () => {
     const client = provider([[{ kind: 'message.stop', stopReason: 'end_turn' }]])

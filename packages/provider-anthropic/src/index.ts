@@ -75,6 +75,7 @@ export const anthropicCapabilities: ProviderCapabilities = {
   files: false,
   thinking: { budgetTokens: true },
   streaming: true,
+  streamResume: false,
   streamingReasoning: true,
   cache: 'ephemeral',
   jsonMode: false,

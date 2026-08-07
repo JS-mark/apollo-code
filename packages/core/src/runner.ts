@@ -208,11 +208,20 @@ export class Runner {
         if (chunk.kind === 'tool_use.start') sticky ??= decision.provider
         if (chunk.kind === 'message.interrupted') {
           interrupted = true
+          const hadPartialToolUse = current.tools.size > 0
           await this.emit('error.raised', turnId, {
             code: 'stream_interrupted',
             reason: chunk.reason,
-            hadPartialToolUse: current.tools.size > 0,
+            hadPartialToolUse,
           })
+          if (hadPartialToolUse) {
+            failed = true
+            await this.emit('error.raised', turnId, {
+              code: 'stream_resume_unsafe_partial_tool_use',
+              reason: 'partial tool_use cannot be resumed or replayed safely',
+            })
+            break outer
+          }
           const error = Object.assign(new Error(chunk.reason), {
             provider: decision.provider.name,
             model: decision.model,

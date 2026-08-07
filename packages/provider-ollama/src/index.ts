@@ -113,6 +113,7 @@ export const ollamaCapabilities: ProviderCapabilities = {
   files: false,
   thinking: false,
   streaming: true,
+  streamResume: false,
   streamingReasoning: false,
   cache: 'none',
   jsonMode: true,
