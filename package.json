@@ -11,6 +11,7 @@
     "release:evidence:assert": "node scripts/generate-l4-evidence-matrix.mjs --input docs/releases/l4-evidence.json --output docs/releases/L4-EVIDENCE-MATRIX.md --check --assert-release",
     "release:channels:generate": "node scripts/generate-channel-manifests.mjs --input docs/releases/channel-dry-run.json --output docs/releases/channel-dry-run",
     "release:channels:check": "node scripts/generate-channel-manifests.mjs --input docs/releases/channel-dry-run.json --output docs/releases/channel-dry-run --check",
+    "release:update:check": "node scripts/verify-update-manifest.mjs --input docs/releases/update-dry-run/manifest.json",
     "release:windows:dry-run": "node scripts/verify-windows-release-evidence.mjs --input docs/releases/windows-signing-fixture.json",
     "release:version:dry-run": "changeset version --snapshot dry-run",
     "release": "changeset publish",
@@ -19,7 +20,7 @@
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test && node --test scripts/build-standalone.test.mjs scripts/generate-channel-manifests.test.mjs scripts/generate-l4-evidence-matrix.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs scripts/verify-windows-release-evidence.test.mjs",
+    "test": "turbo run test && node --test scripts/build-standalone.test.mjs scripts/generate-channel-manifests.test.mjs scripts/generate-l4-evidence-matrix.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs scripts/verify-update-manifest.test.mjs scripts/verify-windows-release-evidence.test.mjs",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {

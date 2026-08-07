@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "fixtureOnly": true,
+  "channel": "dry-run",
+  "version": "0.2.0-rc.1",
+  "previousVersion": "0.1.0-rc.1",
+  "published": false,
+  "artifacts": [
+    {
+      "target": "darwin-arm64",
+      "path": "artifacts/apollo-code-darwin-arm64.txt",
+      "sha256": "c296891f24618031a19311b8d3cb133f0899d7cb9899e01d8064cc31952a88dd"
+    }
+  ],
+  "rollback": {
+    "strategy": "restore-previous",
+    "targetVersion": "0.1.0-rc.1"
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "keyUsage": "test-fixture-only",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAD2sbG/ltl44bmPqqcdFwnDPZqwWDwLmp4SlEDz3MTns=\n-----END PUBLIC KEY-----\n",
+    "value": "i5IqoILa6evsfn7osXgf5SzkGE5B6b/7UVviOtqIicBJk9p7VtChaZd/GMEDm2hOE99QeSBalNwg+t8M3ssxAQ=="
+  }
+}
