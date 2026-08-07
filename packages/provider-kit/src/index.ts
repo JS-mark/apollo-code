@@ -60,6 +60,8 @@ export interface ProviderCapabilities {
   files: false | { formats: string[]; maxSizeMB: number }
   thinking: false | { budgetTokens: boolean }
   streaming: boolean
+  /** Omitted and false both mean that a stream must be restarted from the request boundary. */
+  streamResume?: false | { mode: 'opaque-cursor'; idempotency: 'provider-guaranteed' }
   streamingReasoning: boolean
   cache: 'none' | 'ephemeral' | 'persistent'
   jsonMode: boolean
@@ -81,7 +83,31 @@ export interface ProviderRequest {
   responseFormat?: 'text' | 'json'
   reasoning?: { enabled: boolean; budgetTokens?: number }
   cache?: { strategy: 'ephemeral' | 'persistent' | 'off'; ttlSeconds?: number }
+  streamResume?: StreamResumeRequest
   rawMeta?: RawMeta
+}
+export interface StreamResumeRequest {
+  mode: 'opaque-cursor'
+  cursor: string
+  idempotencyKey: string
+}
+
+/** Fail closed before an adapter can mistake byte/token offsets for a supported resume cursor. */
+export function assertStreamResumeSupported(
+  capabilities: ProviderCapabilities,
+  request: unknown,
+): asserts request is StreamResumeRequest {
+  if (!capabilities.streamResume) throw new Error('stream_resume_unsupported')
+  if (
+    typeof request !== 'object' ||
+    request === null ||
+    (request as { mode?: unknown }).mode !== 'opaque-cursor' ||
+    typeof (request as { cursor?: unknown }).cursor !== 'string' ||
+    !(request as { cursor: string }).cursor ||
+    typeof (request as { idempotencyKey?: unknown }).idempotencyKey !== 'string' ||
+    !(request as { idempotencyKey: string }).idempotencyKey
+  )
+    throw new Error('stream_resume_invalid')
 }
 export interface RawMeta {
   anthropic?: {

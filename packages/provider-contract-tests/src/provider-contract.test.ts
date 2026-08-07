@@ -4,6 +4,7 @@ import {
   parseAnthropicSse,
 } from '@apollo-code/provider-anthropic'
 import { geminiCapabilities, mapGeminiError, parseGeminiSse } from '@apollo-code/provider-gemini'
+import { assertStreamResumeSupported } from '@apollo-code/provider-kit'
 import { mapOllamaError, ollamaCapabilities, parseOllamaNdjson } from '@apollo-code/provider-ollama'
 import { mapOpenAIError, openaiCapabilities, parseOpenAISse } from '@apollo-code/provider-openai'
 import { describe, expect, it } from 'vitest'
@@ -28,6 +29,18 @@ describe.each([
     expect(capabilities.toolUse).not.toBe('none')
     expect(capabilities.vision).not.toBe(false)
     expect(capabilities.maxContextTokens).toBeGreaterThan(0)
+    expect(capabilities.streamResume).toBe(false)
+  })
+
+  it('fails closed for byte/token offset resume requests', () => {
+    expect(() =>
+      assertStreamResumeSupported(capabilities, {
+        mode: 'offset',
+        byteOffset: 10,
+        tokenOffset: 2,
+        idempotencyKey: 'fixture-only',
+      }),
+    ).toThrow('stream_resume_unsupported')
   })
 
   it('classifies auth, throttling, and server errors consistently', () => {

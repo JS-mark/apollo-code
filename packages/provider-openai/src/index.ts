@@ -48,6 +48,7 @@ export const openaiCapabilities: ProviderCapabilities = {
   files: false,
   thinking: { budgetTokens: false },
   streaming: true,
+  streamResume: false,
   streamingReasoning: false,
   cache: 'none',
   jsonMode: true,

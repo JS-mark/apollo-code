@@ -391,6 +391,9 @@ importers:
       '@apollo-code/provider-gemini':
         specifier: workspace:*
         version: link:../provider-gemini
+      '@apollo-code/provider-kit':
+        specifier: workspace:*
+        version: link:../provider-kit
       '@apollo-code/provider-ollama':
         specifier: workspace:*
         version: link:../provider-ollama

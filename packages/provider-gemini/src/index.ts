@@ -56,6 +56,7 @@ export const geminiCapabilities: ProviderCapabilities = {
   files: false,
   thinking: false,
   streaming: true,
+  streamResume: false,
   streamingReasoning: false,
   cache: 'persistent',
   jsonMode: true,
