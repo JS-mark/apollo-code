@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildStatusViewModel,
   createProductionPorts,
+  createStatusSnapshotAdapter,
   FileInputHistoryStore,
   RuntimeSessionPort,
 } from './runtime'
@@ -225,6 +226,12 @@ describe('buildStatusViewModel', () => {
 
     const serialized = JSON.stringify(view)
     expect(view.auth.configured).toBeNull()
+    expect(view.identity.workspace).toEqual({
+      status: 'not_available',
+      reason: { code: 'workspace_adapter_unavailable' },
+    })
+    expect(view.identity.cwd).toBe('/repo?token=[REDACTED]')
+    expect(view.identity.workspace).not.toEqual({ status: 'available', value: view.identity.cwd })
     expect(view.config.sources).toMatchObject({ status: 'not_available' })
     expect(view.runtime.memory).toMatchObject({ status: 'not_available' })
     expect(view.capabilities.skills).toMatchObject({ status: 'not_available' })
@@ -233,6 +240,32 @@ describe('buildStatusViewModel', () => {
     expect(serialized).not.toContain('top-secret')
     expect(serialized).not.toContain('password')
     expect(serialized).not.toContain('authorization_header')
+  })
+
+  it('does not call credential-returning APIs while building a production status snapshot', async () => {
+    const getCredential = vi.fn(async () => 'must-not-be-read')
+    const credentialApi = { getCredential }
+    const adapter = createStatusSnapshotAdapter({
+      ...credentialApi,
+      version: '0.0.0',
+      dangerousPermissions: () => false,
+      sandbox: async () => undefined,
+      configAvailable: async () => false,
+    })
+    const state = createSession({
+      id: 'session-auth',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'x',
+    })
+
+    const view = await adapter(state)
+
+    expect(getCredential).not.toHaveBeenCalled()
+    expect(view.auth).toEqual({
+      configured: null,
+      method: { status: 'not_available', reason: { code: 'auth_method_adapter_unavailable' } },
+    })
   })
 })
 

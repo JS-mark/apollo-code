@@ -128,7 +128,7 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
       cwd: sanitize(input.state.cwd),
       workspace: input.workspace
         ? { status: 'available', value: sanitize(input.workspace) }
-        : { status: 'available', value: sanitize(input.state.cwd) },
+        : statusUnavailable('workspace_adapter_unavailable'),
       project: input.project
         ? { status: 'available', value: sanitize(input.project) }
         : statusUnavailable('project_adapter_unavailable'),
@@ -233,6 +233,29 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
       context: { ...input.state.contextBudget },
       costUSD: input.state.cumulativeUsage.costUSD,
     },
+  }
+}
+
+export interface StatusSnapshotAdapterOptions {
+  version: string
+  sandbox(): Promise<SandboxDisclosure | undefined>
+  configAvailable(): Promise<boolean>
+  dangerousPermissions(): boolean
+}
+
+export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
+  return async (state: SessionState): Promise<StatusViewModel> => {
+    const [sandbox, userConfigAvailable] = await Promise.all([
+      options.sandbox(),
+      options.configAvailable(),
+    ])
+    return buildStatusViewModel({
+      state,
+      version: options.version,
+      ...(sandbox ? { sandbox } : {}),
+      dangerousPermissions: options.dangerousPermissions(),
+      configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
+    })
   }
 }
 
@@ -957,42 +980,29 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     (handler) => {
       interactivePermissionPrompt = handler
     },
-    async (state) => {
-      const [sandbox, authConfigured, userConfigAvailable] = await Promise.all([
-        probeSandbox().catch(() => undefined),
-        auth
-          .getCredential('anthropic')
-          .then(Boolean)
-          .catch(() => undefined),
+    createStatusSnapshotAdapter({
+      version: options.version ?? '0.0.0',
+      dangerousPermissions: () => permissionOptions.dangerouslySkip,
+      configAvailable: () =>
         access(join(home, 'config.toml')).then(
           () => true,
           () => false,
         ),
-      ])
-      const sandboxFeatures = sandbox?.features
-      const disclosure = sandbox
-        ? {
-            tier: sandbox.tier,
-            mechanism:
-              typeof sandboxFeatures?.mechanism === 'string'
-                ? sandboxFeatures.mechanism
-                : 'apollo-sandbox',
-            features: {
-              filesystem: Boolean(sandboxFeatures?.filesystem ?? sandbox.tier !== 'none'),
-              network: Boolean(sandboxFeatures?.network),
-            },
-            degradationReasons: sandbox.known_limitations,
-          }
-        : undefined
-      return buildStatusViewModel({
-        state,
-        version: options.version ?? '0.0.0',
-        ...(disclosure ? { sandbox: disclosure } : {}),
-        dangerousPermissions: permissionOptions.dangerouslySkip,
-        ...(authConfigured === undefined ? {} : { authConfigured }),
-        configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
-      })
-    },
+      async sandbox() {
+        const value = await probeSandbox().catch(() => undefined)
+        if (!value) return undefined
+        const features = value.features
+        return {
+          tier: value.tier,
+          mechanism: typeof features.mechanism === 'string' ? features.mechanism : 'apollo-sandbox',
+          features: {
+            filesystem: Boolean(features.filesystem ?? value.tier !== 'none'),
+            network: Boolean(features.network),
+          },
+          degradationReasons: value.known_limitations,
+        }
+      },
+    }),
   )
   return {
     version: options.version ?? '0.0.0',
