@@ -6,11 +6,18 @@ import { PanelFrame } from './PanelFrame'
 export interface WelcomePanelProps {
   compact?: boolean
   data: WelcomePanelData
+  footer?: string
+  title?: string
 }
 
-export function WelcomePanel({ compact = false, data }: WelcomePanelProps) {
+export function WelcomePanel({
+  compact = false,
+  data,
+  footer = 'Ready. Type a message or /help.',
+  title = `Apollo Code  v${data.version}`,
+}: WelcomePanelProps) {
   return (
-    <PanelFrame footer="Ready. Type a message or /help." title={`Apollo Code  v${data.version}`}>
+    <PanelFrame footer={footer} title={title}>
       <WelcomeRow label="Session" value={shortSessionId(data.sessionId)} />
       <WelcomeRow label="Project" value={compactPath(data.cwd, compact)} />
       <WelcomeRow label="Model" value={formatModel(data.model)} />

@@ -133,5 +133,5 @@ export function InputBox({
 function slashSuggestions(value: string, commands: readonly SlashCommand[]) {
   if (!value.startsWith('/') || value.includes(' ')) return []
   const prefix = value.slice(1).toLowerCase()
-  return commands.filter((command) => command.name.toLowerCase().startsWith(prefix)).slice(0, 6)
+  return commands.filter((command) => command.name.toLowerCase().startsWith(prefix)).slice(0, 8)
 }

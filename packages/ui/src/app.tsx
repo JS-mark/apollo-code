@@ -8,6 +8,7 @@ import { ModelPicker } from './components/ModelPicker'
 import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
+import { StatusPanel } from './components/StatusPanel'
 import { TopBar } from './components/TopBar'
 import { WelcomePanel } from './components/WelcomePanel'
 import { useSessionEvents } from './hooks/useSessionEvents'
@@ -77,6 +78,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
   const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
   const [activeModelId, setActiveModelId] = useState(options.modelPicker?.currentModelId ?? '')
   const [permissionRequests, setPermissionRequests] = useState(
@@ -205,9 +207,26 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         description: 'Clear the transcript',
         run: () => {
           setShowWelcome(false)
+          setStatusPanelOpen(false)
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
+      options.welcome
+        ? {
+            name: 'status',
+            description: 'Show runtime status',
+            run: () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'status',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('status', 'Show runtime status'),
       unavailableSlashCommand('context', 'Show context status'),
       unavailableSlashCommand('compact', 'Compact conversation context'),
       hasModelPicker
@@ -216,6 +235,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             description: 'Switch model',
             run: () => {
               setShowWelcome(false)
+              setStatusPanelOpen(false)
               setModelPickerOpen(true)
               setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
               setState((current) => ({
@@ -228,7 +248,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         : unavailableSlashCommand('model', 'Switch model'),
     ]
     return commands
-  }, [currentModelId, exit, options.modelPicker, options.onExit, options.slashCommands])
+  }, [
+    currentModelId,
+    exit,
+    options.modelPicker,
+    options.onExit,
+    options.slashCommands,
+    options.welcome,
+  ])
 
   const transcript = useMemo(() => {
     if (!state.pendingAssistantText) return state.transcript
@@ -242,6 +269,15 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     <Box flexDirection="column">
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
       {showWelcome && options.welcome ? <WelcomePanel data={options.welcome} /> : null}
+      {statusPanelOpen && options.welcome ? (
+        <StatusPanel
+          data={options.welcome}
+          onClose={() => {
+            setStatusPanelOpen(false)
+            setState((current) => ({ ...current, status: 'status closed' }))
+          }}
+        />
+      ) : null}
       {modelPickerOpen && options.modelPicker ? (
         <ModelPicker
           activeId={activeModelId}
@@ -273,7 +309,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       </StatusLine>
       <InputBox
         disabled={
-          modelPickerOpen || state.statusLevel === 'active' || permissionRequests.length > 0
+          statusPanelOpen ||
+          modelPickerOpen ||
+          state.statusLevel === 'active' ||
+          permissionRequests.length > 0
         }
         history={historyEntries}
         initialValue={options.initialInput ?? ''}

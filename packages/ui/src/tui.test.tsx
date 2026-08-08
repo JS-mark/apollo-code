@@ -148,6 +148,7 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
 
     expect(stdout.output).toContain('> /help Show slash commands')
+    expect(stdout.output).toContain('/status Show runtime status (not available)')
     expect(stdout.output).toContain('/context Show context status (not available)')
   })
 
@@ -215,6 +216,41 @@ describe('renderInteractiveApp', () => {
 
     expect(stdout.output).toContain('/model Switch model')
     expect(stdout.output).not.toContain('/model Switch model (not available)')
+  })
+
+  it('opens /status and closes it with escape', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/status',
+        welcome: welcomeFixture(),
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Status')
+    expect(stdout.output).toContain('Runtime')
+    expect(stdout.output).toContain('MCP')
+    expect(stdout.output).toContain('History')
+
+    stdin.write('\u001B')
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('status closed')
   })
 
   it('opens /model and moves between available and unavailable models', async () => {
