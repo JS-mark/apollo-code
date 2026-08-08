@@ -71,9 +71,14 @@ export function InputBox({
         void onSubmit?.('/exit')
         return
       }
+      if ((key.return || input === '\r' || input === '\n') && key.shift) {
+        setValue((current) => `${current}\n`)
+        return
+      }
       if (key.return || input === '\r' || input === '\n') {
         const selectedSuggestion = suggestions[slashSuggestionIndex]
         const submitted = selectedSuggestion ? `/${selectedSuggestion.name}` : value
+        if (!submitted.trim()) return
         setHistoryIndex(null)
         setDraftBeforeHistory('')
         setSlashSuggestionIndex(0)
@@ -103,7 +108,13 @@ export function InputBox({
   )
 
   return (
-    <Box borderColor={disabled ? 'gray' : 'cyan'} borderStyle="single" paddingX={1}>
+    <Box
+      borderBottom
+      borderColor={disabled ? 'gray' : 'cyan'}
+      borderStyle="single"
+      borderTop
+      paddingX={1}
+    >
       <Box flexDirection="column" width="100%">
         <Box>
           <Text color={disabled ? 'gray' : 'cyan'} bold>
@@ -112,6 +123,7 @@ export function InputBox({
           <Text color={disabled ? 'gray' : 'green'}>{' > '}</Text>
           {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
         </Box>
+        <Text color="gray">Enter send / Shift+Enter newline</Text>
         {suggestions.length > 0 ? (
           <Box flexDirection="column" marginLeft={2} marginTop={1}>
             {suggestions.map((command, index) => {

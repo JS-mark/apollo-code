@@ -50,7 +50,12 @@ export interface UiPort {
   }): Promise<DirectoryTrustDecision>
 }
 export interface TrustPort {
-  check(path: string): Promise<{ canonicalPath: string; trusted: boolean }>
+  check(path: string): Promise<{
+    canonicalPath: string
+    trusted: boolean
+    matchedPath?: string
+    scope?: 'exact' | 'tree'
+  }>
   grant(path: string, scope: 'exact' | 'tree'): Promise<{ path: string; scope: 'exact' | 'tree' }>
   list(): Promise<Array<{ path: string; scope: 'exact' | 'tree'; trustedAt: string }>>
   revoke(path: string): Promise<number>

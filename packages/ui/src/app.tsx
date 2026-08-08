@@ -1,5 +1,5 @@
 import type { CoreEvent, EventBus } from '@apollo-code/core'
-import { Box, useApp } from 'ink'
+import { Box, useApp, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -10,7 +10,8 @@ import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { StatusPanel } from './components/StatusPanel'
 import { TopBar } from './components/TopBar'
-import { WelcomePanel } from './components/WelcomePanel'
+import { WelcomeScreen } from './components/welcome/WelcomeScreen'
+import { buildWelcomeScreenState } from './components/welcome/welcomeStateAdapter'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
@@ -68,6 +69,7 @@ interface InteractiveAppState {
 
 export function InteractiveApp(options: InteractiveAppOptions) {
   const { exit } = useApp()
+  const { stdout } = useStdout()
   const [state, setState] = useState<InteractiveAppState>(() => ({
     pendingAssistantText: '',
     sessionId: options.sessionId ?? 'new',
@@ -268,7 +270,12 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   return (
     <Box flexDirection="column">
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
-      {showWelcome && options.welcome ? <WelcomePanel data={options.welcome} /> : null}
+      {showWelcome && options.welcome ? (
+        <WelcomeScreen
+          state={buildWelcomeScreenState({ data: options.welcome })}
+          terminalSize={{ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 }}
+        />
+      ) : null}
       {statusPanelOpen && options.welcome ? (
         <StatusPanel
           data={options.welcome}
@@ -316,6 +323,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         }
         history={historyEntries}
         initialValue={options.initialInput ?? ''}
+        placeholder="Ask Apollo to inspect, change, test, or explain this repo"
         slashCommands={slashCommands}
         onSubmit={async (input) => {
           const trimmed = input.trim()
