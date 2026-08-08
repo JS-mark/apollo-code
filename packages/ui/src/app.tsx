@@ -292,15 +292,17 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             setModelPickerOpen(false)
             setState((current) => ({ ...current, status: 'model selection cancelled' }))
           }}
-          onSubmit={async (id) => {
-            const model = options.modelPicker?.models.find((item) => item.id === id)
-            if (!model || model.disabled) return
-            setCurrentModelId(model.id)
-            setActiveModelId(model.id)
-            setModelPickerOpen(false)
-            await options.onModelSelect?.(`${model.provider}/${model.model}`)
-            appendSystemMessage(setState, `Model set to ${model.label}`)
-            setState((current) => ({ ...current, status: `model ${model.label}` }))
+          onSubmit={(id) => {
+            void (async () => {
+              const model = options.modelPicker?.models.find((item) => item.id === id)
+              if (!model || model.disabled) return
+              setCurrentModelId(model.id)
+              setActiveModelId(model.id)
+              setModelPickerOpen(false)
+              await options.onModelSelect?.(`${model.provider}/${model.model}`)
+              appendSystemMessage(setState, `Model set to ${model.label}`)
+              setState((current) => ({ ...current, status: `model ${model.label}` }))
+            })()
           }}
         />
       ) : null}

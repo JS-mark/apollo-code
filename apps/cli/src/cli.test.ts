@@ -105,7 +105,7 @@ describe('runCli', () => {
     expect(JSON.parse(result.stdout)).toEqual(
       expect.objectContaining({ status: expect.any(Array) }),
     )
-    expect(result.stdout).not.toMatch(/\u001b|token|secret/i)
+    expect(result.stdout).not.toMatch(new RegExp(String.raw`\u001B|token|secret`, 'i'))
   })
 
   it('renders help flags before sandbox probing or session startup', async () => {
