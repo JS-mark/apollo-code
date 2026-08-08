@@ -6,6 +6,8 @@ import type {
   InteractiveAppHandle,
   InteractiveAppOptions,
   SandboxDisclosure,
+  StatusPanelData,
+  StatusValue,
   SubmitOptions,
 } from '@apollo-code/ui'
 
@@ -95,7 +97,15 @@ export interface ApolloPorts {
     }): Promise<{ detail: string }>
     logout(provider: string): Promise<{ detail: string }>
   }
-  config: { health(cwd: string): Promise<DoctorHealth> }
+  config: {
+    health(cwd: string): Promise<DoctorHealth>
+    status?(input: { cwd: string; sessionId?: string }): Promise<StatusPanelData>
+    updatePreference?(
+      id: string,
+      value: StatusValue,
+      input: { cwd: string; sessionId: string },
+    ): Promise<StatusPanelData>
+  }
   telemetry: {
     securityEvent(name: string, payload: Record<string, boolean | string>): Promise<void>
     summary(): Promise<TelemetrySummary>

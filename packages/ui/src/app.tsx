@@ -15,6 +15,7 @@ import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
+import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
 import type { WelcomePanelData } from './welcome'
 
 export interface TranscriptEntry {
@@ -55,6 +56,8 @@ export interface InteractiveAppOptions {
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   status?: string
+  statusPanel?: StatusPanelData
+  statusPanelController?: StatusPanelController
   welcome?: WelcomePanelData
 }
 
@@ -269,9 +272,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     <Box flexDirection="column">
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
       {showWelcome && options.welcome ? <WelcomePanel data={options.welcome} /> : null}
-      {statusPanelOpen && options.welcome ? (
+      {statusPanelOpen && (options.statusPanel || options.welcome) ? (
         <StatusPanel
-          data={options.welcome}
+          data={options.statusPanel ?? statusPanelFromWelcome(options.welcome!)}
+          {...(options.statusPanelController ? { controller: options.statusPanelController } : {})}
           onClose={() => {
             setStatusPanelOpen(false)
             setState((current) => ({ ...current, status: 'status closed' }))
