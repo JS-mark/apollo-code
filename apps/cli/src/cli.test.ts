@@ -310,7 +310,9 @@ describe('runCli', () => {
     const testPorts = ports()
     const result = await runCli(['chat'], testPorts)
     expect(result.exitCode).toBe(0)
-    expect(testPorts.session.start).toHaveBeenCalledWith(expect.objectContaining({ cwd: process.cwd() }))
+    expect(testPorts.session.start).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: process.cwd() }),
+    )
     expect(testPorts.session.start).not.toHaveBeenCalledWith(
       expect.objectContaining({ prompt: '' }),
     )

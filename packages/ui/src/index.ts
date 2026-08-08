@@ -384,3 +384,11 @@ export function resumeSessionView(view: SessionView, transcript: readonly string
   view.interruptedText = null
   view.status = 'active'
 }
+
+export * from './app'
+export * from './tui'
+export * from './components/InputBox'
+export * from './components/MessageBlock'
+export * from './components/ScrollableTranscript'
+export * from './components/StatusLine'
+export * from './components/TopBar'
