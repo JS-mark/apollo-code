@@ -26,12 +26,32 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
   if (!request) return null
 
   return (
-    <Box borderColor="yellow" borderStyle="round" flexDirection="column" paddingX={1}>
-      <Text color="yellow">Permission required: {request.toolName}</Text>
-      <Text color="gray">{JSON.stringify(request.spec)}</Text>
+    <Box
+      borderColor="yellow"
+      borderStyle="single"
+      flexDirection="column"
+      marginBottom={1}
+      paddingX={1}
+    >
+      <Text color="yellow" bold>
+        Permission required: {request.toolName}
+      </Text>
+      <Text color="gray" wrap="wrap">
+        {JSON.stringify(request.spec)}
+      </Text>
       <Text>
-        <Text color="green">a</Text> allow once <Text color="cyan">s</Text> allow session{' '}
-        <Text color="red">d</Text> deny
+        <Text color="green" bold>
+          a
+        </Text>{' '}
+        allow once{' '}
+        <Text color="cyan" bold>
+          s
+        </Text>{' '}
+        allow session{' '}
+        <Text color="red" bold>
+          d
+        </Text>{' '}
+        deny
       </Text>
       {requests.length > 1 ? <Text color="gray">{requests.length - 1} queued</Text> : null}
     </Box>

@@ -80,14 +80,17 @@ export function InputBox({
   const suggestions = slashSuggestions(value, slashCommands)
 
   return (
-    <Box>
-      <Box flexDirection="column">
+    <Box borderColor={disabled ? 'gray' : 'cyan'} borderStyle="single" paddingX={1}>
+      <Box flexDirection="column" width="100%">
         <Box>
-          <Text color="green">{'> '}</Text>
+          <Text color={disabled ? 'gray' : 'cyan'} bold>
+            apollo
+          </Text>
+          <Text color={disabled ? 'gray' : 'green'}>{' > '}</Text>
           {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
         </Box>
         {suggestions.length > 0 ? (
-          <Box flexDirection="column" marginLeft={2}>
+          <Box flexDirection="column" marginLeft={2} marginTop={1}>
             {suggestions.map((command) => (
               <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
                 /{command.name} {command.description}

@@ -1,4 +1,4 @@
-import { Text } from 'ink'
+import { Box, Text } from 'ink'
 import type { PropsWithChildren } from 'react'
 
 export type StatusLevel = 'active' | 'error' | 'muted' | 'warning'
@@ -8,7 +8,13 @@ export interface StatusLineProps extends PropsWithChildren {
 }
 
 export function StatusLine({ children, level = 'muted' }: StatusLineProps) {
-  return <Text color={statusColor(level)}>{children}</Text>
+  return (
+    <Box marginBottom={1}>
+      <Text color={statusColor(level)}>
+        {statusIcon(level)} {children}
+      </Text>
+    </Box>
+  )
 }
 
 function statusColor(level: StatusLevel) {
@@ -16,4 +22,11 @@ function statusColor(level: StatusLevel) {
   if (level === 'error') return 'red'
   if (level === 'warning') return 'yellow'
   return 'gray'
+}
+
+function statusIcon(level: StatusLevel) {
+  if (level === 'active') return '*'
+  if (level === 'error') return '!'
+  if (level === 'warning') return '!'
+  return '-'
 }

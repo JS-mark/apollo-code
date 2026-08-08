@@ -1,3 +1,5 @@
+import { basename } from 'node:path'
+
 import { Box, Text } from 'ink'
 
 export interface TopBarProps {
@@ -8,11 +10,22 @@ export interface TopBarProps {
 
 export function TopBar({ cwd, sessionId, status }: TopBarProps) {
   return (
-    <Box justifyContent="space-between">
-      <Text bold>Apollo</Text>
-      <Text color="gray">
-        {shortSessionId(sessionId)} {cwd} {status}
-      </Text>
+    <Box flexDirection="column" marginBottom={1}>
+      <Box justifyContent="space-between">
+        <Text>
+          <Text bold color="cyan">
+            Apollo
+          </Text>{' '}
+          <Text color="gray">Code</Text>
+        </Text>
+        <Text color="gray">
+          {shortSessionId(sessionId)} | {basename(cwd) || cwd}
+        </Text>
+      </Box>
+      <Box justifyContent="space-between">
+        <Text color="gray">{cwd}</Text>
+        <Text color={statusColor(status)}>{status}</Text>
+      </Box>
     </Box>
   )
 }
@@ -20,4 +33,11 @@ export function TopBar({ cwd, sessionId, status }: TopBarProps) {
 function shortSessionId(sessionId: string) {
   if (sessionId.length <= 12) return sessionId
   return sessionId.slice(0, 12)
+}
+
+function statusColor(status: string) {
+  if (status.includes('error')) return 'red'
+  if (status.includes('permission') || status.includes('aborted')) return 'yellow'
+  if (status.includes('streaming') || status.startsWith('running ')) return 'cyan'
+  return 'gray'
 }
