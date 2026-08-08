@@ -6,7 +6,7 @@ import {
   renderSecurityBanner,
   renderTelemetryPanel,
 } from '@apollo-code/ui'
-import type { DangerousMode } from '@apollo-code/ui'
+import type { DangerousMode, SandboxDisclosure, WelcomePanelData } from '@apollo-code/ui'
 import { parseArgs, renderUsage } from 'citty'
 
 import { command } from './command'
@@ -421,6 +421,13 @@ export async function runCli(
       const permissions = new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
         interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
+      const welcome = await buildWelcomePanelData({
+        cwd,
+        dangerousPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
+        ports,
+        probe,
+        sessionId: interactive.id,
+      })
       const app = ports.ui!.renderInteractiveApp({
         cwd,
         events: interactive.events,
@@ -432,6 +439,7 @@ export async function runCli(
           args.yolo || args.dangerouslySkipPermissions
             ? `sandbox ${probe.tier}; permissions bypassed`
             : `sandbox ${probe.tier}`,
+        welcome,
       })
       await app.waitUntilExit()
       return { exitCode: interactive.exitCode(), stdout, stderr }
@@ -444,6 +452,108 @@ export async function runCli(
       return jsonFailure(message, 1, 'internal_error')
     }
     return { exitCode: 1, stdout, stderr: message }
+  }
+}
+
+async function buildWelcomePanelData(input: {
+  cwd: string
+  dangerousPermissions: boolean
+  ports: ApolloPorts
+  probe: SandboxDisclosure
+  sessionId: string
+}): Promise<WelcomePanelData> {
+  const config = await welcomeConfig(input.ports, input.cwd)
+  const mcp = await welcomeMcp(input.ports)
+  return {
+    version: input.ports.version,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    model: {
+      status: 'unknown',
+      reason: { code: 'runtime_resolved', message: 'model is resolved by runtime router' },
+    },
+    sandbox: {
+      status: 'available',
+      tier: input.probe.tier,
+      mechanism: input.probe.mechanism,
+      filesystem: input.probe.features.filesystem ? 'isolated' : 'unknown',
+      network: input.probe.features.network ? 'available' : 'unavailable',
+    },
+    permission: {
+      mode: input.dangerousPermissions ? 'bypassed' : 'ask',
+      dangerous: input.dangerousPermissions,
+      source: input.dangerousPermissions ? 'flag' : 'default',
+    },
+    config,
+    mcp,
+    history: {
+      status: 'available',
+      path: 'apollo input history',
+      entries: 0,
+      maxEntries: 1000,
+    },
+  }
+}
+
+async function welcomeConfig(ports: ApolloPorts, cwd: string): Promise<WelcomePanelData['config']> {
+  try {
+    const health = await ports.config.health(cwd)
+    if (health.valid === false)
+      return {
+        effectiveSources: ['defaults'],
+        user: {
+          status: 'unavailable',
+          reason: { code: 'config_invalid', message: health.detail },
+        },
+        project: {
+          status: 'blocked',
+          path: `${cwd}/.apollo/config.toml`,
+          trusted: false,
+          reason: { code: 'config_invalid', message: health.detail },
+        },
+      }
+    return {
+      effectiveSources: ['defaults', 'user'],
+      user: { status: 'available', path: 'user config', trusted: true },
+      project: { status: 'disabled' },
+    }
+  } catch (error) {
+    return {
+      effectiveSources: ['defaults'],
+      user: {
+        status: 'unavailable',
+        reason: {
+          code: 'config_unavailable',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      },
+      project: { status: 'disabled' },
+    }
+  }
+}
+
+async function welcomeMcp(ports: ApolloPorts): Promise<WelcomePanelData['mcp']> {
+  if (!ports.mcp)
+    return {
+      status: 'unavailable',
+      reason: { code: 'mcp_port_unavailable', message: 'MCP integration port is not connected' },
+    }
+  try {
+    const servers = await ports.mcp.list()
+    return {
+      status: 'available',
+      connected: servers.length,
+      total: servers.length,
+      servers: servers.map((server) => ({ name: server.name, status: 'connected' })),
+    }
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason: {
+        code: 'mcp_list_failed',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }
   }
 }
 

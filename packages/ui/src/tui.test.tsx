@@ -1,11 +1,16 @@
 import { PassThrough, Writable } from 'node:stream'
 
 import { EventBus } from '@apollo-code/core'
+import { render } from 'ink'
+import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { runSlashCommand, type SlashCommand } from './app'
+import { SelectList } from './components/SelectList'
+import { TabBar } from './components/TabBar'
 import { PermissionPromptController } from './permission'
 import { renderInteractiveApp } from './tui'
+import type { WelcomePanelData } from './welcome'
 
 class MemoryWriteStream extends Writable {
   columns = 80
@@ -35,6 +40,38 @@ class MemoryReadStream extends PassThrough {
 }
 
 describe('renderInteractiveApp', () => {
+  it('renders the welcome panel before the first turn', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        sessionId: 'session-1234567890',
+        status: 'ready',
+        welcome: welcomeFixture(),
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('Apollo Code  v0.0.0-test')
+    expect(stdout.output).toContain('Session')
+    expect(stdout.output).toContain('session-1234')
+    expect(stdout.output).toContain('Model')
+    expect(stdout.output).toContain('runtime resolved')
+    expect(stdout.output).toContain('MCP')
+    expect(stdout.output).toContain('1 connected / 2 configured')
+  })
+
   it('renders the static Ink shell and stream updates', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
@@ -216,4 +253,98 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('Permission required: Bash')
     expect(stdout.output).toContain('1 queued')
   })
+
+  it('renders focused list and tab affordances', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const list = render(
+      createElement(SelectList, {
+        activeId: 'gpt-5',
+        items: [
+          {
+            id: 'default',
+            label: 'Default',
+            description: 'Use configured default',
+          },
+          {
+            id: 'gpt-5',
+            label: 'gpt-5',
+            description: 'Current session',
+            selected: true,
+          },
+        ],
+      }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await list.waitUntilRenderFlush()
+    list.unmount()
+    await list.waitUntilExit()
+
+    const tabStdout = new MemoryWriteStream()
+    const tabs = render(
+      createElement(TabBar, {
+        activeId: 'status',
+        tabs: [
+          { id: 'settings', label: 'Settings' },
+          { id: 'status', label: 'Status' },
+          { id: 'config', label: 'Config' },
+        ],
+      }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: tabStdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await tabs.waitUntilRenderFlush()
+    tabs.unmount()
+    await tabs.waitUntilExit()
+
+    expect(stdout.output).toContain('> * gpt-5  Current session')
+    expect(tabStdout.output).toContain('[Status]')
+  })
 })
+
+function welcomeFixture(): WelcomePanelData {
+  return {
+    version: '0.0.0-test',
+    sessionId: 'session-1234567890',
+    cwd: '/repo',
+    model: {
+      status: 'unknown',
+      reason: { code: 'runtime_resolved', message: 'runtime resolved' },
+    },
+    sandbox: {
+      status: 'available',
+      tier: 'partial',
+      mechanism: 'apollo-sandbox',
+      filesystem: 'isolated',
+      network: 'unavailable',
+    },
+    permission: { mode: 'ask', dangerous: false, source: 'default' },
+    config: {
+      effectiveSources: ['defaults', 'user'],
+      user: { status: 'available', path: 'user config', trusted: true },
+      project: { status: 'disabled' },
+    },
+    mcp: {
+      status: 'available',
+      connected: 1,
+      total: 2,
+      servers: [
+        { name: 'git', status: 'connected' },
+        { name: 'docs', status: 'failed' },
+      ],
+    },
+    history: { status: 'available', path: 'history', entries: 0, maxEntries: 1000 },
+  }
+}

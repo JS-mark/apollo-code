@@ -366,6 +366,13 @@ describe('runCli', () => {
         permissions: expect.any(Object),
         sessionId: 'session-1',
         status: 'sandbox full',
+        welcome: expect.objectContaining({
+          cwd: process.cwd(),
+          sessionId: 'session-1',
+          version: '0.0.0-test',
+          sandbox: expect.objectContaining({ status: 'available', tier: 'full' }),
+          permission: expect.objectContaining({ mode: 'ask', dangerous: false }),
+        }),
       }),
     )
     expect(interactive.setPermissionPromptHandler).toHaveBeenCalledWith(expect.any(Function))
@@ -410,6 +417,9 @@ describe('runCli', () => {
     expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'sandbox full; permissions bypassed',
+        welcome: expect.objectContaining({
+          permission: expect.objectContaining({ mode: 'bypassed', dangerous: true }),
+        }),
       }),
     )
   })

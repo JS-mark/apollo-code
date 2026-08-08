@@ -8,9 +8,11 @@ import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { TopBar } from './components/TopBar'
+import { WelcomePanel } from './components/WelcomePanel'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { PermissionPromptController } from './permission'
+import type { WelcomePanelData } from './welcome'
 
 export interface TranscriptEntry {
   id: string
@@ -48,6 +50,7 @@ export interface InteractiveAppOptions {
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   status?: string
+  welcome?: WelcomePanelData
 }
 
 interface InteractiveAppState {
@@ -68,6 +71,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     transcript: [],
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
+  const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
   const [permissionRequests, setPermissionRequests] = useState(
     () => options.permissions?.requests() ?? [],
   )
@@ -107,6 +111,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       (event) => {
         if (event.type === 'stream.started') {
           streamBuffer.reset()
+          setShowWelcome(false)
           setState((current) => applyInteractiveEvent(current, event))
           return
         }
@@ -141,6 +146,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           })
           return
         }
+        if (event.type === 'tool.started') setShowWelcome(false)
         setState((current) => applyInteractiveEvent(current, event))
       },
       [flushPendingToTranscript, streamBuffer],
@@ -174,6 +180,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         name: 'help',
         description: 'Show slash commands',
         run: () => {
+          setShowWelcome(false)
           appendSystemMessage(setState, slashHelpText(commands))
         },
       },
@@ -189,6 +196,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         name: 'clear',
         description: 'Clear the transcript',
         run: () => {
+          setShowWelcome(false)
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
@@ -210,6 +218,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   return (
     <Box flexDirection="column">
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
+      {showWelcome && options.welcome ? <WelcomePanel data={options.welcome} /> : null}
       <ScrollableTranscript entries={transcript} />
       {options.permissions ? (
         <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
@@ -231,6 +240,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             return
           }
           if (trimmed.startsWith('/')) {
+            setShowWelcome(false)
             const message = await runSlashCommand(trimmed, slashCommands)
             if (message) {
               appendSystemMessage(setState, message)
@@ -238,6 +248,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             }
             return
           }
+          setShowWelcome(false)
           try {
             await options.history?.append(input)
             setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
