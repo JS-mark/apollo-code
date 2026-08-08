@@ -73,6 +73,7 @@ describe('runCli', () => {
       'login',
       'logout',
       'config',
+      'status',
       'history',
       'context',
       'evolution',
@@ -84,6 +85,27 @@ describe('runCli', () => {
       'version',
       'help',
     ])
+  })
+
+  it('renders status as stable JSON without ANSI or secrets', async () => {
+    const result = await runCli(
+      ['status', '--json'],
+      ports({
+        config: {
+          health: vi.fn(async () => ({ valid: true, detail: 'valid' })),
+          status: vi.fn(async () => ({
+            settings: [],
+            config: [],
+            status: [{ label: 'Auth method', value: 'keychain (value hidden)' }],
+          })),
+        },
+      }),
+    )
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(JSON.parse(result.stdout)).toEqual(
+      expect.objectContaining({ status: expect.any(Array) }),
+    )
+    expect(result.stdout).not.toMatch(/\u001b|token|secret/i)
   })
 
   it('renders help flags before sandbox probing or session startup', async () => {

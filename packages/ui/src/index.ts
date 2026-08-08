@@ -178,6 +178,7 @@ export function renderTelemetryPanel(state: TelemetryPanelState, now = Date.now(
   ].join('\n')
 }
 export type DangerousMode = 'no-sandbox' | 'skip-permissions'
+export * from './status'
 
 export interface ContextPanelState {
   strategy: string

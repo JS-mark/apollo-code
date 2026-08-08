@@ -4,6 +4,7 @@ export interface UnavailableReason {
 }
 
 export interface WelcomePanelData {
+  authMethod?: string
   config: WelcomeConfigStatus
   cwd: string
   history: WelcomeHistoryStatus
@@ -13,6 +14,13 @@ export interface WelcomePanelData {
   sandbox: WelcomeSandboxStatus
   sessionId: string
   version: string
+  liteModel?: string
+  reasoningModel?: string
+  memoryMode?: string
+  workspace?: string
+  skillsSummary?: string
+  pluginsSummary?: string
+  statusConfig?: import('./status').StatusPanelData['config']
 }
 
 export type WelcomeModelStatus =

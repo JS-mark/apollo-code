@@ -9,6 +9,7 @@ import { runSlashCommand, type SlashCommand } from './app'
 import { InputBox } from './components/InputBox'
 import { ModelPicker } from './components/ModelPicker'
 import { SelectList } from './components/SelectList'
+import { StatusPanel } from './components/StatusPanel'
 import { TabBar } from './components/TabBar'
 import { PermissionPromptController } from './permission'
 import { renderInteractiveApp } from './tui'
@@ -42,6 +43,47 @@ class MemoryReadStream extends PassThrough {
 }
 
 describe('renderInteractiveApp', () => {
+  it('renders and switches all three status tabs at narrow width', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 42
+    const stdin = new MemoryReadStream()
+    const panel = render(
+      createElement(StatusPanel, {
+        data: {
+          settings: [{ label: 'Language', value: 'system' }],
+          status: [{ label: 'Version', value: '1.0.0' }],
+          config: [
+            {
+              id: 'notifications',
+              label: 'Notifications',
+              value: false,
+              editable: true,
+              kind: 'boolean',
+            },
+          ],
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('> /status')
+    expect(stdout.output).toContain('Version')
+    stdin.write('\u001B[C')
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Notifications')
+    stdin.write('\u001B[C')
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Language')
+    panel.unmount()
+    await panel.waitUntilExit()
+  })
+
   it('renders the welcome panel before the first turn', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()

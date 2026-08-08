@@ -116,6 +116,17 @@ Use `--no-tui` to force the line-mode fallback:
 node apps/cli/dist/apollo.js chat --no-tui
 ```
 
+Inside the Ink chat, `/status` opens a three-tab `Settings` / `Status` / `Config`
+panel. Use Tab or Left/Right to change tabs, Up/Down to move, Enter to edit an
+allowed preference, and Esc to return to the unchanged chat input. The Config
+tab only writes the documented preference whitelist; authentication, session,
+enterprise policy, MCP, filesystem, and external-account state is read-only and
+credential values are never displayed.
+
+For scripts and non-TTY environments, use `apollo status --json` for a single
+ANSI-free JSON document or `apollo status --no-tui` for concise text. Neither
+form starts Ink.
+
 Use `--json` only with a prompt. It writes NDJSON machine output and never starts
 Ink or emits ANSI TUI frames:
 

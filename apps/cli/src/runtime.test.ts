@@ -5,7 +5,7 @@ import { updateSession } from '@apollo-code/core'
 import type { EventBus, Runner, SessionState } from '@apollo-code/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { FileInputHistoryStore, RuntimeSessionPort } from './runtime'
+import { createProductionPorts, FileInputHistoryStore, RuntimeSessionPort } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>
@@ -100,5 +100,21 @@ describe('FileInputHistoryStore', () => {
     const text = await readFile(path, 'utf8')
     expect(text).not.toContain('secret-value')
     expect((await stat(path)).mode & 0o777).toBe(0o600)
+  })
+})
+
+describe('status configuration adapter', () => {
+  it('persists whitelisted preferences atomically and rejects readonly state', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.status-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({ apolloHome: root, version: 'test' })
+    const input = { cwd: process.cwd(), sessionId: 'session-test' }
+    const updated = await ports.config.updatePreference?.('notifications', true, input)
+    expect(updated?.config.find((item) => item.id === 'notifications')?.value).toBe(true)
+    expect(await readFile(join(root, 'config.toml'), 'utf8')).toContain('notifications = true')
+    await expect(ports.config.updatePreference?.('authMethod', 'env', input)).rejects.toThrow(
+      'read-only',
+    )
+    expect(JSON.stringify(updated)).not.toContain('sk-secret-value')
   })
 })
