@@ -1,3 +1,5 @@
+import { dirname } from 'node:path'
+
 import { sanitize, validateWorkspacePath } from '@apollo-code/shared'
 import {
   PermissionPromptController,
@@ -40,6 +42,8 @@ const argsDefinition = {
   skipVerify: { type: 'boolean' as const },
   dangerous: { type: 'boolean' as const },
   dryRun: { type: 'boolean' as const },
+  all: { type: 'boolean' as const },
+  trustWorkspace: { type: 'boolean' as const },
   namespace: { type: 'string' as const },
   since: { type: 'string' as const },
   to: { type: 'string' as const },
@@ -116,6 +120,35 @@ export async function runCli(
       return { exitCode: 0, stdout: `${stdout}Cleared local telemetry.\n`, stderr }
     }
     return { exitCode: 2, stdout, stderr: `Unknown telemetry action: ${action}` }
+  }
+  if (subcommand === 'trust') {
+    const action = args._[1] ?? 'list'
+    if (action === 'list') {
+      const rules = await ports.trust.list()
+      return {
+        exitCode: 0,
+        stdout: args.json
+          ? `${JSON.stringify(rules)}\n`
+          : rules.length
+            ? `${rules.map((rule) => `${rule.scope}\t${rule.path}\t${rule.trustedAt}`).join('\n')}\n`
+            : 'No trusted directories.\n',
+        stderr,
+      }
+    }
+    if (action === 'revoke') {
+      const target = args._[2]
+      if (!target && !args.all)
+        return { exitCode: 2, stdout, stderr: 'trust revoke requires a path or --all' }
+      const removed = args.all ? await ports.trust.revokeAll() : await ports.trust.revoke(target!)
+      return {
+        exitCode: 0,
+        stdout: args.json
+          ? `${JSON.stringify({ removed })}\n`
+          : `Revoked ${removed} trust rule(s).\n`,
+        stderr,
+      }
+    }
+    return { exitCode: 2, stdout, stderr: `Unknown trust action: ${action}` }
   }
   if (subcommand === 'version')
     return { exitCode: 0, stdout: `${stdout}${ports.version}\n`, stderr }
@@ -390,6 +423,57 @@ export async function runCli(
   const prompt = rawPrompt || undefined
   if (jsonMode && !prompt)
     return jsonFailure('JSON chat requires a prompt.', 2, 'prompt_required', 'usage')
+  const interactiveTrustPrompt =
+    prompt === undefined &&
+    !jsonMode &&
+    !noTui &&
+    Boolean(io.isInteractiveTerminal?.()) &&
+    Boolean(ports.ui?.renderDirectoryTrustPrompt)
+  let trustCheck
+  try {
+    trustCheck = await ports.trust.check(cwd)
+  } catch (error) {
+    const message = `Unable to check directory trust: ${error instanceof Error ? error.message : String(error)}`
+    return jsonMode
+      ? jsonFailure(message, 2, 'trust_store_unavailable', 'security')
+      : { exitCode: 2, stdout, stderr: message }
+  }
+  cwd = trustCheck.canonicalPath
+  if (!trustCheck.trusted) {
+    try {
+      if (args.trustWorkspace) {
+        await ports.trust.grant(cwd, 'exact')
+        await ports.telemetry.securityEvent('directory.trusted', { cwd, scope: 'exact' })
+      } else if (interactiveTrustPrompt) {
+        const decision = await ports.ui!.renderDirectoryTrustPrompt!({
+          canonicalPath: cwd,
+          parentPath: dirname(cwd),
+        })
+        if (decision === 'exit') {
+          await ports.telemetry.securityEvent('directory.trust_denied', { cwd })
+          return {
+            exitCode: 1,
+            stdout,
+            stderr: 'Directory was not trusted; nothing was started.',
+          }
+        }
+        const target = decision === 'parent' ? dirname(cwd) : cwd
+        const scope = decision === 'current' ? 'exact' : 'tree'
+        await ports.trust.grant(target, scope)
+        await ports.telemetry.securityEvent('directory.trusted', { cwd: target, scope })
+      } else {
+        const message = `Directory is not trusted: ${cwd}. Re-run with --trust-workspace to trust this exact folder, or use an interactive terminal.`
+        return jsonMode
+          ? jsonFailure(message, 1, 'directory_untrusted', 'security')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    } catch (error) {
+      const message = `Unable to persist directory trust: ${error instanceof Error ? error.message : String(error)}`
+      return jsonMode
+        ? jsonFailure(message, 2, 'trust_store_unavailable', 'security')
+        : { exitCode: 2, stdout, stderr: message }
+    }
+  }
   const dangerousModes: DangerousMode[] = []
   if (args.yolo || args.dangerouslySkipPermissions) {
     dangerousModes.push('skip-permissions')
@@ -665,6 +749,7 @@ const chatGlobalFlags = new Set([
   '--strict-sandbox',
   '--dangerous-no-sandbox',
   '--dangerously-skip-permissions',
+  '--trust-workspace',
   '--yolo',
 ])
 const valueFlags = new Set(['--cwd', '--namespace', '--since', '--to'])
