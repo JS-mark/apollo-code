@@ -59,6 +59,14 @@ export async function runCli(
   let stdout = ''
   let stderr = ''
   const jsonMode = Boolean(args.json)
+  const unsupportedGlobalFlag =
+    subcommand === undefined ? firstUnsupportedGlobalFlag(rawArgs) : undefined
+  if (unsupportedGlobalFlag) {
+    const message = `Unsupported global flag without a command: ${unsupportedGlobalFlag}`
+    return jsonMode
+      ? jsonFailure(message, 2, 'unsupported_flag', 'usage')
+      : { exitCode: 2, stdout, stderr: message }
+  }
   let cwd: string
   try {
     cwd = await validateWorkspacePath(String(args.cwd ?? process.cwd()))
@@ -434,4 +442,27 @@ function redactTransport(value: string): string {
   } catch {
     return value.replace(/(authorization|token|secret|key)=\S+/gi, '$1=<hidden>')
   }
+}
+
+const chatGlobalFlags = new Set([
+  '--cwd',
+  '--json',
+  '--no-color',
+  '--no-tui',
+  '--strict-sandbox',
+  '--dangerous-no-sandbox',
+  '--dangerously-skip-permissions',
+  '--yolo',
+])
+const valueFlags = new Set(['--cwd', '--namespace', '--since', '--to'])
+
+function firstUnsupportedGlobalFlag(rawArgs: string[]): string | undefined {
+  for (let i = 0; i < rawArgs.length; i++) {
+    const token = rawArgs[i]
+    if (!token?.startsWith('-')) continue
+    const flag = token.split('=')[0]!
+    if (!chatGlobalFlags.has(flag)) return flag
+    if (valueFlags.has(flag) && !token.includes('=')) i++
+  }
+  return undefined
 }

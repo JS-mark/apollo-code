@@ -142,11 +142,54 @@ describe('runCli', () => {
         health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
       },
     })
-    const version = await runCli(['version'], testPorts)
-    const unknown = await runCli(['unknown'], testPorts)
-    expect(version).toEqual({ exitCode: 0, stdout: '0.0.0-test\n', stderr: '' })
+    const commands = [
+      ['doctor', '--json'],
+      ['telemetry', 'show', '--json'],
+      ['plugin', 'list', '--json'],
+      ['hook', 'list'],
+      ['mcp', 'list', '--json'],
+      ['context', 'show', '--json'],
+      ['evolution', 'show', '--json'],
+      ['resume'],
+      ['restore'],
+      ['login', 'openai'],
+      ['logout', 'anthropic'],
+      ['config'],
+      ['history'],
+      ['version'],
+      ['unknown'],
+    ]
+    const results = await Promise.all(commands.map((args) => runCli(args, testPorts)))
+    expect(results).toHaveLength(commands.length)
+    expect(results[commands.findIndex(([name]) => name === 'version')]).toEqual({
+      exitCode: 0,
+      stdout: '0.0.0-test\n',
+      stderr: '',
+    })
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-chat global flags without starting a session', async () => {
+    const testPorts = ports({
+      native: {
+        probe: vi.fn(async () => ({
+          tier: 'none' as const,
+          mechanism: 'unavailable',
+          features: { filesystem: false, network: false },
+          degradationReasons: ['probe failed'],
+        })),
+        health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
+      },
+    })
+    const unknown = await runCli(['--foo'], testPorts)
+    const doctorOnly = await runCli(['--strict'], testPorts)
+    const loginOnly = await runCli(['--api-key-stdin'], testPorts)
     expect(unknown).toMatchObject({ exitCode: 2 })
-    expect(unknown.stderr).toContain('unknown integration port is not connected')
+    expect(unknown.stderr).toContain('Unsupported global flag')
+    expect(doctorOnly.stderr).toContain('--strict')
+    expect(loginOnly.stderr).toContain('--api-key-stdin')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
     expect(testPorts.session.start).not.toHaveBeenCalled()
