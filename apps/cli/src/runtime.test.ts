@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { updateSession } from '@apollo-code/core'
+import { createSession, updateSession } from '@apollo-code/core'
 import type { EventBus, Runner, SessionState } from '@apollo-code/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { FileInputHistoryStore, RuntimeSessionPort } from './runtime'
+import { buildStatusViewModel, FileInputHistoryStore, RuntimeSessionPort } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>
@@ -78,6 +78,156 @@ describe('RuntimeSessionPort', () => {
     expect(restored?.activeTurn).toBeNull()
     expect(restored?.turns[0]?.status).toBe('aborted')
     expect(await readFile(join(root, `${id}.jsonl`), 'utf8')).toContain('session.resumed')
+  })
+})
+
+describe('buildStatusViewModel', () => {
+  it('aggregates complete confirmed session and runtime data', () => {
+    const state = updateSession(
+      createSession({
+        id: 'session-1',
+        cwd: '/repo',
+        maxTokens: 200_000,
+        toolRegistrySnapshot: 'x',
+      }),
+      (draft) => {
+        draft.createdAt = Date.parse('2026-08-09T00:00:00.000Z')
+        draft.cumulativeUsage = { input: 12, output: 8, cacheRead: 2, costUSD: 0.25 }
+        draft.contextBudget = { currentTokens: 20, maxTokens: 200_000 }
+      },
+    )
+
+    const view = buildStatusViewModel({
+      state,
+      version: '1.2.3',
+      workspace: '/workspace',
+      project: 'apollo-code',
+      model: {
+        provider: 'anthropic',
+        model: 'claude',
+        liteModel: 'haiku',
+        reasoningModel: null,
+        source: 'router',
+      },
+      sandbox: {
+        tier: 'full',
+        mechanism: 'sandbox-exec',
+        features: { filesystem: true, network: false },
+        degradationReasons: [],
+      },
+      dangerousPermissions: false,
+      authConfigured: true,
+      authMethod: 'keychain',
+      memoryMode: 'auto',
+      settings: [
+        {
+          key: 'language',
+          effectiveValue: 'zh-CN',
+          source: 'user',
+          readonly: false,
+          locked: false,
+        },
+      ],
+      configSources: ['default', 'user'],
+      mcpServers: ['local'],
+      skills: ['review'],
+      plugins: ['git'],
+    })
+
+    expect(view.identity).toMatchObject({
+      version: '1.2.3',
+      sessionId: 'session-1',
+      cwd: '/repo',
+      createdAt: '2026-08-09T00:00:00.000Z',
+    })
+    expect(view.model).toEqual({
+      status: 'available',
+      provider: 'anthropic',
+      model: 'claude',
+      liteModel: { status: 'available', value: 'haiku' },
+      reasoningModel: { status: 'disabled' },
+      source: 'router',
+    })
+    expect(view.runtime).toMatchObject({
+      filesystem: { status: 'available', value: 'isolated' },
+      network: { status: 'blocked', reason: { code: 'sandbox_network_blocked' } },
+      permission: { status: 'available', value: { mode: 'ask', source: 'default' } },
+    })
+    expect(view.auth).toEqual({
+      configured: true,
+      method: { status: 'available', value: 'keychain' },
+    })
+    expect(view.capabilities.mcpServers).toEqual({
+      status: 'available',
+      value: { count: 1, names: ['local'] },
+    })
+    expect(view.capabilities.skills).toEqual({
+      status: 'available',
+      value: { count: 1, names: ['review'] },
+    })
+    expect(view.capabilities.plugins).toEqual({
+      status: 'available',
+      value: { count: 1, names: ['git'] },
+    })
+    expect(view.usage).toMatchObject({
+      tokens: { input: 12, output: 8, cacheRead: 2 },
+      context: { currentTokens: 20, maxTokens: 200_000 },
+      costUSD: 0.25,
+    })
+  })
+
+  it('never promotes a welcome default into a confirmed current model', () => {
+    const state = createSession({
+      id: 'session-model',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'x',
+    })
+    expect(buildStatusViewModel({ state, version: '0.0.0' }).model).toEqual({
+      status: 'not_available',
+      source: 'derived_unreliable',
+      reason: { code: 'current_model_source_unavailable' },
+    })
+  })
+
+  it('uses explicit missing states and removes secret-like settings and values', () => {
+    const state = createSession({
+      id: 'session-secret',
+      cwd: '/repo?token=top-secret',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'x',
+    })
+    const view = buildStatusViewModel({
+      state,
+      version: '0.0.0',
+      settings: [
+        {
+          key: 'authorization_header',
+          effectiveValue: 'Bearer top-secret',
+          source: 'env',
+          readonly: true,
+          locked: true,
+        },
+        {
+          key: 'endpoint',
+          effectiveValue: 'https://user:password@example.test?token=top-secret',
+          source: 'user',
+          readonly: true,
+          locked: false,
+        },
+      ],
+    })
+
+    const serialized = JSON.stringify(view)
+    expect(view.auth.configured).toBeNull()
+    expect(view.config.sources).toMatchObject({ status: 'not_available' })
+    expect(view.runtime.memory).toMatchObject({ status: 'not_available' })
+    expect(view.capabilities.skills).toMatchObject({ status: 'not_available' })
+    expect(view.capabilities.plugins).toMatchObject({ status: 'not_available' })
+    expect(view.settings.map((setting) => setting.key)).toEqual(['endpoint'])
+    expect(serialized).not.toContain('top-secret')
+    expect(serialized).not.toContain('password')
+    expect(serialized).not.toContain('authorization_header')
   })
 })
 
