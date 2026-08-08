@@ -363,6 +363,19 @@ describe('runCli', () => {
       expect.objectContaining({
         cwd: process.cwd(),
         events: interactive.events,
+        modelPicker: expect.objectContaining({
+          currentModelId: 'anthropic/claude-sonnet-4-20250514',
+          models: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'anthropic/claude-sonnet-4-20250514',
+              label: 'Claude Sonnet 4',
+            }),
+            expect.objectContaining({
+              id: 'anthropic/claude-opus-4-20250514',
+              disabled: true,
+            }),
+          ]),
+        }),
         permissions: expect.any(Object),
         sessionId: 'session-1',
         status: 'sandbox full',

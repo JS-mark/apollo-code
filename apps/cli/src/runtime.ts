@@ -58,7 +58,11 @@ import {
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
 import { renderInteractiveApp } from '@apollo-code/ui'
-import type { InteractivePermissionDecision, InteractivePermissionRequest } from '@apollo-code/ui'
+import type {
+  InteractivePermissionDecision,
+  InteractivePermissionRequest,
+  SubmitOptions,
+} from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
 import type { ApolloPorts, SessionPort } from './ports'
@@ -133,8 +137,11 @@ export class RuntimeSessionPort implements SessionPort {
       ) => {
         this.onPermissionPromptHandler?.(handler)
       },
-      submit: async (prompt: string) => {
-        await this.#runner!.run(prompt)
+      submit: async (prompt: string, submitOptions?: SubmitOptions) => {
+        await this.#runner!.run(
+          prompt,
+          submitOptions?.model ? { explicitModel: submitOptions.model } : undefined,
+        )
         await this.snapshot()
       },
       end: async () => {

@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
+import { ModelPicker } from './components/ModelPicker'
 import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
@@ -11,6 +12,7 @@ import { TopBar } from './components/TopBar'
 import { WelcomePanel } from './components/WelcomePanel'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
+import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
 import type { WelcomePanelData } from './welcome'
 
@@ -44,8 +46,10 @@ export interface InteractiveAppOptions {
   events?: EventBus
   history?: InputHistoryStore
   initialInput?: string
+  modelPicker?: ModelPickerState
   onExit?: () => Promise<void> | void
-  onSubmit?: (input: string) => Promise<void> | void
+  onModelSelect?: (model: string) => Promise<void> | void
+  onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
@@ -72,6 +76,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
   const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
+  const [activeModelId, setActiveModelId] = useState(options.modelPicker?.currentModelId ?? '')
   const [permissionRequests, setPermissionRequests] = useState(
     () => options.permissions?.requests() ?? [],
   )
@@ -175,6 +182,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
 
   const slashCommands = useMemo(() => {
     if (options.slashCommands) return options.slashCommands
+    const hasModelPicker = Boolean(options.modelPicker?.models.length)
     const commands: SlashCommand[] = [
       {
         name: 'help',
@@ -202,10 +210,25 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       },
       unavailableSlashCommand('context', 'Show context status'),
       unavailableSlashCommand('compact', 'Compact conversation context'),
-      unavailableSlashCommand('model', 'Switch model'),
+      hasModelPicker
+        ? {
+            name: 'model',
+            description: 'Switch model',
+            run: () => {
+              setShowWelcome(false)
+              setModelPickerOpen(true)
+              setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
+              setState((current) => ({
+                ...current,
+                status: 'select model',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('model', 'Switch model'),
     ]
     return commands
-  }, [exit, options.onExit, options.slashCommands])
+  }, [currentModelId, exit, options.modelPicker, options.onExit, options.slashCommands])
 
   const transcript = useMemo(() => {
     if (!state.pendingAssistantText) return state.transcript
@@ -219,6 +242,28 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     <Box flexDirection="column">
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
       {showWelcome && options.welcome ? <WelcomePanel data={options.welcome} /> : null}
+      {modelPickerOpen && options.modelPicker ? (
+        <ModelPicker
+          activeId={activeModelId}
+          currentModelId={currentModelId}
+          models={options.modelPicker.models}
+          onActiveChange={setActiveModelId}
+          onCancel={() => {
+            setModelPickerOpen(false)
+            setState((current) => ({ ...current, status: 'model selection cancelled' }))
+          }}
+          onSubmit={async (id) => {
+            const model = options.modelPicker?.models.find((item) => item.id === id)
+            if (!model || model.disabled) return
+            setCurrentModelId(model.id)
+            setActiveModelId(model.id)
+            setModelPickerOpen(false)
+            await options.onModelSelect?.(`${model.provider}/${model.model}`)
+            appendSystemMessage(setState, `Model set to ${model.label}`)
+            setState((current) => ({ ...current, status: `model ${model.label}` }))
+          }}
+        />
+      ) : null}
       <ScrollableTranscript entries={transcript} />
       {options.permissions ? (
         <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
@@ -227,7 +272,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         {permissionRequests.length > 0 ? 'permission required' : state.status}
       </StatusLine>
       <InputBox
-        disabled={state.statusLevel === 'active' || permissionRequests.length > 0}
+        disabled={
+          modelPickerOpen || state.statusLevel === 'active' || permissionRequests.length > 0
+        }
         history={historyEntries}
         initialValue={options.initialInput ?? ''}
         slashCommands={slashCommands}
@@ -259,11 +306,20 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               statusLevel: 'warning',
             }))
           }
-          await options.onSubmit?.(input)
+          await options.onSubmit?.(input, submitOptions(currentModelId))
         }}
       />
     </Box>
   )
+}
+
+function firstAvailableModelId(models: readonly ModelPickerState['models'][number][]) {
+  return models.find((model) => !model.disabled)?.id ?? models[0]?.id ?? ''
+}
+
+function submitOptions(currentModelId: string): SubmitOptions | undefined {
+  if (!currentModelId) return undefined
+  return { model: currentModelId }
 }
 
 function appendSystemMessage(

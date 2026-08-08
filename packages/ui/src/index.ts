@@ -386,10 +386,12 @@ export function resumeSessionView(view: SessionView, transcript: readonly string
 }
 
 export * from './app'
+export * from './model-picker'
 export * from './permission'
 export * from './tui'
 export * from './components/InputBox'
 export * from './components/MessageBlock'
+export * from './components/ModelPicker'
 export * from './components/PanelFrame'
 export * from './components/PermissionPromptStack'
 export * from './components/ScrollableTranscript'

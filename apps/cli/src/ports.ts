@@ -6,6 +6,7 @@ import type {
   InteractiveAppHandle,
   InteractiveAppOptions,
   SandboxDisclosure,
+  SubmitOptions,
 } from '@apollo-code/ui'
 
 export interface DoctorHealth {
@@ -36,7 +37,7 @@ export interface InteractiveSession {
       | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
       | undefined,
   ): void
-  submit(input: string): Promise<void>
+  submit(input: string, options?: SubmitOptions): Promise<void>
   end(): Promise<void>
   exitCode(): number
 }

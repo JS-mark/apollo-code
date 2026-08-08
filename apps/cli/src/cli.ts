@@ -13,6 +13,8 @@ import { command } from './command'
 import { runDoctor } from './doctor'
 import type { ApolloPorts } from './ports'
 
+const defaultInteractiveModel = 'anthropic/claude-sonnet-4-20250514'
+
 export interface CliResult {
   exitCode: number
   stderr: string
@@ -433,6 +435,7 @@ export async function runCli(
         events: interactive.events,
         onExit: interactive.end,
         onSubmit: interactive.submit,
+        modelPicker: buildModelPicker(defaultInteractiveModel),
         permissions,
         sessionId: interactive.id,
         status:
@@ -469,8 +472,10 @@ async function buildWelcomePanelData(input: {
     sessionId: input.sessionId,
     cwd: input.cwd,
     model: {
-      status: 'unknown',
-      reason: { code: 'runtime_resolved', message: 'model is resolved by runtime router' },
+      status: 'available',
+      provider: 'anthropic',
+      model: defaultInteractiveModel.split('/').slice(1).join('/'),
+      source: 'default',
     },
     sandbox: {
       status: 'available',
@@ -492,6 +497,29 @@ async function buildWelcomePanelData(input: {
       entries: 0,
       maxEntries: 1000,
     },
+  }
+}
+
+function buildModelPicker(currentModelId: string) {
+  return {
+    currentModelId,
+    models: [
+      {
+        id: 'anthropic/claude-sonnet-4-20250514',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        label: 'Claude Sonnet 4',
+        description: 'Current default coding model',
+      },
+      {
+        id: 'anthropic/claude-opus-4-20250514',
+        provider: 'anthropic',
+        model: 'claude-opus-4-20250514',
+        label: 'Claude Opus 4',
+        description: 'Unavailable until enabled in router config',
+        disabled: true,
+      },
+    ],
   }
 }
 

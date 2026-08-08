@@ -6,6 +6,7 @@ import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { runSlashCommand, type SlashCommand } from './app'
+import { ModelPicker } from './components/ModelPicker'
 import { SelectList } from './components/SelectList'
 import { TabBar } from './components/TabBar'
 import { PermissionPromptController } from './permission'
@@ -147,6 +148,32 @@ describe('renderInteractiveApp', () => {
 
     expect(stdout.output).toContain('/help Show slash commands')
     expect(stdout.output).toContain('/context Show context status (not available)')
+  })
+
+  it('advertises /model as available when model picker data exists', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/',
+        modelPicker: modelPickerFixture(),
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('/model Switch model')
+    expect(stdout.output).not.toContain('/model Switch model (not available)')
   })
 
   it('reports unavailable and unknown slash commands without throwing', async () => {
@@ -312,7 +339,121 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('> * gpt-5  Current session')
     expect(tabStdout.output).toContain('[Status]')
   })
+
+  it('renders model current and unavailable states', async () => {
+    const stdout = new MemoryWriteStream()
+    const picker = render(
+      createElement(ModelPicker, {
+        activeId: 'anthropic/sonnet',
+        currentModelId: 'anthropic/sonnet',
+        models: modelPickerFixture().models,
+      }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await picker.waitUntilRenderFlush()
+    picker.unmount()
+    await picker.waitUntilExit()
+
+    expect(stdout.output).toContain('> * Sonnet')
+    expect(stdout.output).toContain('Opus  Unavailable')
+    expect(stdout.output).toContain('Unavailable models are muted')
+  })
+
+  it('supports model picker down and enter interactions', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const picker = render(
+      createElement(ModelPicker, {
+        activeId: 'anthropic/sonnet',
+        currentModelId: 'anthropic/sonnet',
+        models: modelPickerFixture().models,
+        onSubmit: (id) => submitted.push(id),
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('\u001B[B')
+    await picker.waitUntilRenderFlush()
+    stdin.write('\r')
+    await picker.waitUntilRenderFlush()
+    expect(submitted).toEqual(['openai/gpt-5'])
+
+    picker.unmount()
+    await picker.waitUntilExit()
+  })
+
+  it('supports model picker escape cancellation', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const cancelled = vi.fn()
+    const picker = render(
+      createElement(ModelPicker, {
+        activeId: 'anthropic/sonnet',
+        currentModelId: 'anthropic/sonnet',
+        models: modelPickerFixture().models,
+        onCancel: cancelled,
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('\u001B')
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await picker.waitUntilRenderFlush()
+    picker.unmount()
+    await picker.waitUntilExit()
+
+    expect(cancelled).toHaveBeenCalledOnce()
+  })
 })
+
+function modelPickerFixture() {
+  return {
+    currentModelId: 'anthropic/sonnet',
+    models: [
+      {
+        id: 'anthropic/sonnet',
+        provider: 'anthropic',
+        model: 'sonnet',
+        label: 'Sonnet',
+        description: 'Current',
+      },
+      {
+        id: 'anthropic/opus',
+        provider: 'anthropic',
+        model: 'opus',
+        label: 'Opus',
+        description: 'Unavailable',
+        disabled: true,
+      },
+      {
+        id: 'openai/gpt-5',
+        provider: 'openai',
+        model: 'gpt-5',
+        label: 'GPT-5',
+        description: 'Available fallback',
+      },
+    ],
+  }
+}
 
 function welcomeFixture(): WelcomePanelData {
   return {
