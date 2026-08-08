@@ -1,5 +1,10 @@
+import type { EventBus } from '@apollo-code/core'
 import type { TelemetryHealth, TelemetrySummary } from '@apollo-code/telemetry'
-import type { SandboxDisclosure } from '@apollo-code/ui'
+import type {
+  InteractiveAppHandle,
+  InteractiveAppOptions,
+  SandboxDisclosure,
+} from '@apollo-code/ui'
 
 export interface DoctorHealth {
   detail: string
@@ -13,11 +18,23 @@ export interface NativeHealth {
 }
 export interface SessionPort {
   start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
+  startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
   resume(id: string): Promise<{ id: string }>
   interrupt(): Promise<void>
   end(): Promise<void>
   configureSecurity?(input: { skipPermissions: boolean }): void
   configureOutput?(input: { json: boolean; write: (value: string) => void }): void
+  configureTerminalOutput?(input: { streamToStdout: boolean }): void
+}
+export interface InteractiveSession {
+  id: string
+  events: EventBus
+  submit(input: string): Promise<void>
+  end(): Promise<void>
+  exitCode(): number
+}
+export interface UiPort {
+  renderInteractiveApp(options: InteractiveAppOptions): InteractiveAppHandle
 }
 export interface ContextStatus {
   policy: string
@@ -90,6 +107,7 @@ export interface ApolloPorts {
   evolution?: EvolutionPort
   mcp?: McpPort
   plugin?: PluginPort
+  ui?: UiPort
 }
 export function unavailablePorts(): ApolloPorts {
   return {

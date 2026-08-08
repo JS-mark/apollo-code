@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { EventBus } from '@apollo-code/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -318,6 +319,100 @@ describe('runCli', () => {
     )
   })
 
+  it('routes promptless TTY chat to the Ink UI port', async () => {
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const waitUntilExit = vi.fn(async () => {})
+    const testPorts = ports({
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: {
+        renderInteractiveApp: vi.fn(() => ({
+          clear: vi.fn(),
+          unmount: vi.fn(),
+          waitUntilExit,
+          waitUntilRenderFlush: vi.fn(async () => {}),
+        })),
+      },
+    })
+
+    const result = await runCli(['chat'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+
+    expect(result).toEqual({ exitCode: 0, stderr: '', stdout: '' })
+    expect(testPorts.session.startInteractive).toHaveBeenCalledWith({ cwd: process.cwd() })
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.configureTerminalOutput).toHaveBeenCalledWith({
+      streamToStdout: false,
+    })
+    expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: process.cwd(),
+        events: interactive.events,
+        sessionId: 'session-1',
+        status: 'sandbox full',
+      }),
+    )
+    expect(waitUntilExit).toHaveBeenCalledOnce()
+  })
+
+  it('keeps --no-tui promptless chat on the line fallback even when TTY is available', async () => {
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const testPorts = ports({
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: {
+        renderInteractiveApp: vi.fn(() => ({
+          clear: vi.fn(),
+          unmount: vi.fn(),
+          waitUntilExit: vi.fn(async () => {}),
+          waitUntilRenderFlush: vi.fn(async () => {}),
+        })),
+      },
+    })
+
+    const result = await runCli(['chat', '--no-tui'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('Before we start:')
+    expect(testPorts.session.start).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: process.cwd() }),
+    )
+    expect(testPorts.session.startInteractive).not.toHaveBeenCalled()
+    expect(testPorts.ui?.renderInteractiveApp).not.toHaveBeenCalled()
+    expect(testPorts.session.configureTerminalOutput).toHaveBeenCalledWith({
+      streamToStdout: true,
+    })
+  })
+
   it('uses NDJSON only for a JSON chat and disables human/TUI output', async () => {
     const testPorts = ports()
     testPorts.session.configureOutput = vi.fn(({ write }) => {
@@ -329,6 +424,7 @@ describe('runCli', () => {
       json: true,
       write: expect.any(Function),
     })
+    expect(testPorts.ui?.renderInteractiveApp).toBeUndefined()
   })
 
   it('keeps management --json output as one JSON document', async () => {

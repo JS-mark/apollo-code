@@ -18,8 +18,16 @@ class MemoryWriteStream extends Writable {
 }
 
 class MemoryReadStream extends PassThrough {
-  isTTY = false
+  isRaw = false
+  isTTY = true
+  ref() {
+    return this
+  }
   setRawMode(_enabled: boolean) {
+    this.isRaw = _enabled
+    return this
+  }
+  unref() {
     return this
   }
 }

@@ -1,5 +1,5 @@
 import type { CoreEvent, EventBus } from '@apollo-code/core'
-import { Box } from 'ink'
+import { Box, useApp } from 'ink'
 import { useEffect, useMemo, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
@@ -37,6 +37,8 @@ export interface InteractiveAppOptions {
   events?: EventBus
   history?: InputHistoryStore
   initialInput?: string
+  onExit?: () => Promise<void> | void
+  onSubmit?: (input: string) => Promise<void> | void
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   status?: string
@@ -51,6 +53,7 @@ interface InteractiveAppState {
 }
 
 export function InteractiveApp(options: InteractiveAppOptions) {
+  const { exit } = useApp()
   const [state, setState] = useState<InteractiveAppState>(() => ({
     pendingAssistantText: '',
     sessionId: options.sessionId ?? 'new',
@@ -79,7 +82,21 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
       <ScrollableTranscript entries={transcript} />
       <StatusLine level={state.statusLevel}>{state.status}</StatusLine>
-      <InputBox value={options.initialInput ?? ''} />
+      <InputBox
+        disabled={state.statusLevel === 'active'}
+        initialValue={options.initialInput ?? ''}
+        onSubmit={async (input) => {
+          const trimmed = input.trim()
+          if (!trimmed) return
+          if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit') {
+            await options.onExit?.()
+            exit()
+            return
+          }
+          await options.history?.append(input)
+          await options.onSubmit?.(input)
+        }}
+      />
     </Box>
   )
 }

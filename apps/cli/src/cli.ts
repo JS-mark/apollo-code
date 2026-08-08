@@ -36,9 +36,13 @@ const argsDefinition = {
   to: { type: 'string' as const },
 }
 export interface CliIo {
+  isInteractiveTerminal?(): boolean
   readStdin(): Promise<string>
 }
 const defaultIo: CliIo = {
+  isInteractiveTerminal() {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY)
+  },
   async readStdin() {
     const chunks: Buffer[] = []
     for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
@@ -59,6 +63,8 @@ export async function runCli(
   let stdout = ''
   let stderr = ''
   const jsonMode = Boolean(args.json)
+  const noColor = Boolean(args.noColor) || (args as { color?: boolean }).color === false
+  const noTui = Boolean(args.noTui) || (args as { tui?: boolean }).tui === false
   const unsupportedGlobalFlag =
     subcommand === undefined ? firstUnsupportedGlobalFlag(rawArgs) : undefined
   if (unsupportedGlobalFlag) {
@@ -373,7 +379,14 @@ export async function runCli(
       }
   }
   const probe = await ports.native.probe()
-  if (!jsonMode) {
+  const shouldUseTui =
+    prompt === undefined &&
+    !jsonMode &&
+    !noTui &&
+    Boolean(io.isInteractiveTerminal?.()) &&
+    Boolean(ports.ui?.renderInteractiveApp) &&
+    Boolean(ports.session.startInteractive)
+  if (!jsonMode && !shouldUseTui) {
     stdout += `${renderPrivacyDisclosure()}\n`
     stdout += `${renderSandboxDisclosure(probe)}\n`
   }
@@ -394,13 +407,27 @@ export async function runCli(
     dangerousModes.push('no-sandbox')
     await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
   }
-  const banner = renderSecurityBanner(dangerousModes, !args.noColor)
-  if (banner) stdout += `${banner}\n`
+  const banner = renderSecurityBanner(dangerousModes, !noColor)
+  if (banner && !shouldUseTui) stdout += `${banner}\n`
   ports.session.configureSecurity?.({
     skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
   })
   ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })
+  ports.session.configureTerminalOutput?.({ streamToStdout: !jsonMode && !shouldUseTui })
   try {
+    if (shouldUseTui) {
+      const interactive = await ports.session.startInteractive!({ cwd })
+      const app = ports.ui!.renderInteractiveApp({
+        cwd,
+        events: interactive.events,
+        onExit: interactive.end,
+        onSubmit: interactive.submit,
+        sessionId: interactive.id,
+        status: `sandbox ${probe.tier}`,
+      })
+      await app.waitUntilExit()
+      return { exitCode: interactive.exitCode(), stdout, stderr }
+    }
     const session = await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })
     return { exitCode: session.exitCode ?? 0, stdout, stderr }
   } catch (error) {

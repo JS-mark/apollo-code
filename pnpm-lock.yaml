@@ -36,6 +36,9 @@ catalogs:
     react:
       specifier: ^19.2.8
       version: 19.2.8
+    react-devtools-core:
+      specifier: ^7.0.1
+      version: 7.0.1
     rolldown:
       specifier: ^1.2.1
       version: 1.2.1
@@ -155,6 +158,9 @@ importers:
       citty:
         specifier: 'catalog:'
         version: 0.2.2
+      react-devtools-core:
+        specifier: 'catalog:'
+        version: 7.0.1
       uuid:
         specifier: 'catalog:'
         version: 14.0.1
@@ -679,7 +685,7 @@ importers:
         version: 19.2.18
       ink:
         specifier: 'catalog:'
-        version: 7.1.1(@types/react@19.2.18)(react@19.2.8)
+        version: 7.1.1(@types/react@19.2.18)(react-devtools-core@7.0.1)(react@19.2.8)
       react:
         specifier: 'catalog:'
         version: 19.2.8
@@ -2571,6 +2577,9 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
+  react-devtools-core@7.0.1:
+    resolution: {integrity: sha512-C3yNvRHaizlpiASzy7b9vbnBGLrhvdhl1CbdU6EnZgxPNbai60szdLtl+VL76UNOt5bOoVTOz5rNWZxgGt+Gsw==}
+
   react-reconciler@0.33.0:
     resolution: {integrity: sha512-KetWRytFv1epdpJc3J4G75I4WrplZE5jOL7Yq0p34+OVOKF4Se7WrdIdVC45XsSSmUTlht2FM/fM1FZb1mfQeA==}
     engines: {node: '>=0.10.0'}
@@ -2643,6 +2652,10 @@ packages:
   shebang-regex@3.0.0:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
+
+  shell-quote@1.10.0:
+    resolution: {integrity: sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA==}
+    engines: {node: '>= 0.4'}
 
   shiki@2.5.0:
     resolution: {integrity: sha512-mI//trrsaiCIPsja5CNfsyNOqgAZUb6VpJA+340toL42UpzQlXpwRV9nch69X6gaUxrr9kaOOa6e3y3uAkGFxQ==}
@@ -2977,6 +2990,18 @@ packages:
   wrap-ansi@10.0.0:
     resolution: {integrity: sha512-SGcvg80f0wUy2/fXES19feHMz8E0JoXv2uNgHOu4Dgi2OrCy1lqwFYEJz1BLbDI0exjPMe/ZdzZ/YpGECBG/aQ==}
     engines: {node: '>=20'}
+
+  ws@7.5.13:
+    resolution: {integrity: sha512-rsKI6xDBFVf4r/x8XyChGK04QR/XHroxs/jUcoWvtEZM8TPU/X/uIY9B1CsSzYws9ZJb/6bbBu7dPhFW00CAoA==}
+    engines: {node: '>=8.3.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: ^5.0.2
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
 
   ws@8.21.2:
     resolution: {integrity: sha512-54dMVAo4WIe6SKy3vBgN+9bJZqqQ8IMRevAkOLQALhi49qkkQDQfWdAZ8KQlXiEabw88ARXXdUrlvtbKQX+aKw==}
@@ -4319,7 +4344,7 @@ snapshots:
 
   indent-string@5.0.0: {}
 
-  ink@7.1.1(@types/react@19.2.18)(react@19.2.8):
+  ink@7.1.1(@types/react@19.2.18)(react-devtools-core@7.0.1)(react@19.2.8):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.3.0
       ansi-escapes: 7.3.0
@@ -4349,6 +4374,7 @@ snapshots:
       yoga-layout: 3.2.1
     optionalDependencies:
       '@types/react': 19.2.18
+      react-devtools-core: 7.0.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -4646,6 +4672,14 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
+  react-devtools-core@7.0.1:
+    dependencies:
+      shell-quote: 1.10.0
+      ws: 7.5.13
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   react-reconciler@0.33.0(react@19.2.8):
     dependencies:
       react: 19.2.8
@@ -4750,6 +4784,8 @@ snapshots:
       shebang-regex: 3.0.0
 
   shebang-regex@3.0.0: {}
+
+  shell-quote@1.10.0: {}
 
   shiki@2.5.0:
     dependencies:
@@ -5069,6 +5105,8 @@ snapshots:
       ansi-styles: 6.2.3
       string-width: 8.2.2
       strip-ansi: 7.2.0
+
+  ws@7.5.13: {}
 
   ws@8.21.2: {}
 

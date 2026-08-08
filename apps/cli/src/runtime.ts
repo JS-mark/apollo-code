@@ -48,6 +48,7 @@ import {
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
+import { renderInteractiveApp } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
 import type { ApolloPorts, SessionPort } from './ports'
@@ -67,6 +68,7 @@ export class RuntimeSessionPort implements SessionPort {
     readonly createRunner: RunnerFactory,
     readonly onSecurity?: (input: { skipPermissions: boolean }) => void,
     readonly onEnd?: (sessionId: string) => void | Promise<void>,
+    readonly onTerminalOutput?: (input: { streamToStdout: boolean }) => void,
   ) {}
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
@@ -74,12 +76,11 @@ export class RuntimeSessionPort implements SessionPort {
   configureOutput(input: { json: boolean; write: (value: string) => void }): void {
     this.#output = input
   }
+  configureTerminalOutput(input: { streamToStdout: boolean }): void {
+    this.onTerminalOutput?.(input)
+  }
   async start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }> {
-    const id = uuidv7()
-    await this.activate(
-      createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
-      false,
-    )
+    const session = await this.startInteractive({ cwd: input.cwd })
     if (input.prompt !== undefined) {
       await this.#runner!.run(input.prompt)
       await this.snapshot()
@@ -95,9 +96,32 @@ export class RuntimeSessionPort implements SessionPort {
         await this.snapshot()
       }
       await this.snapshot()
+      await session.end()
     }
-    const last = this.#runner!.state.turns.at(-1)
-    return { id, exitCode: last?.status === 'aborted' ? this.#lastExitCode : 0 }
+    return { id: session.id, exitCode: session.exitCode() }
+  }
+  async startInteractive(input: { cwd: string }) {
+    const id = uuidv7()
+    await this.activate(
+      createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
+      false,
+    )
+    return {
+      id,
+      events: this.#events!,
+      submit: async (prompt: string) => {
+        await this.#runner!.run(prompt)
+        await this.snapshot()
+      },
+      end: async () => {
+        await this.end()
+      },
+      exitCode: () => {
+        const last = this.#runner?.state.turns.at(-1)
+        if (!this.#runner) return this.#lastExitCode
+        return last?.status === 'aborted' ? this.#lastExitCode : 0
+      },
+    }
   }
   async resume(id: string): Promise<{ id: string }> {
     if (!sessionIdPattern.test(id)) throw new Error('Invalid session id')
@@ -302,6 +326,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     dangerouslySkip: false,
     logger,
   }
+  let streamToStdout = true
   let dispatcher: SubagentDispatcher
   const createRunner: RunnerFactory = async (state, events) => {
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
@@ -366,10 +391,10 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       dispose: () => anthropic.dispose(),
       async *stream(request: Parameters<AnthropicClient['stream']>[0], signal: AbortSignal) {
         for await (const chunk of anthropic.stream(request, signal)) {
-          if (chunk.kind === 'text.delta') stdout.write(chunk.text)
+          if (streamToStdout && chunk.kind === 'text.delta') stdout.write(chunk.text)
           yield chunk
         }
-        stdout.write('\n')
+        if (streamToStdout) stdout.write('\n')
       },
     }
     const providers = new InMemoryProviderRegistry()
@@ -620,10 +645,14 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       await Promise.all([...pluginRuntimes].map((runtime) => runtime.dispose()))
       pluginRuntimes.clear()
     },
+    (input) => {
+      streamToStdout = input.streamToStdout
+    },
   )
   return {
     version: options.version ?? '0.0.0',
     session,
+    ui: { renderInteractiveApp },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),

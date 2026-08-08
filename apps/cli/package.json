@@ -35,6 +35,7 @@
     "@apollo-code/tools": "workspace:*",
     "@apollo-code/ui": "workspace:*",
     "citty": "catalog:",
+    "react-devtools-core": "catalog:",
     "uuid": "catalog:"
   },
   "devDependencies": {
