@@ -178,9 +178,10 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 ### 7.6 无颜色 / 结构化输出模式
 
 - 检测：`NO_COLOR=1` env / `--no-color` flag → 关掉所有 ANSI
-- `--json` 模式：所有输出转成 NDJSON（每行一个事件），便于脚本消费
-  - 用于 CI / MCP-style 集成
-  - 关闭 Ink，走 stdout 直写
+- `--json` 模式关闭 Ink，走 stdout 直写；但输出形态按命令类型区分：
+  - **chat/session 流式路径**：NDJSON（每行一个事件），用于 CI / MCP-style 集成
+  - **普通查询类子命令**（如 `doctor --json` / `plugin list --json` / `mcp list --json`）：单个 JSON payload
+  - 两类输出都禁止 ANSI / Ink 控制序列
 
 ### 7.7 边界与安全清单
 
@@ -196,6 +197,8 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 | `@` 触发**必须**走统一 picker（alias 置顶 + 文件候选跟后），**禁止**基于路径存在性启发；alias 与文件同名时 alias 优先 + Tab 切 file | InputBox 单元测试                                |
 | `#sess_<id>` 引用**必须**过 `SessionContextReader` 端口 + 权限校验            | core code review + 集成测试                     |
 | `SessionContextReader` **禁止**返回其它用户 home 下的 session（跨用户拒绝）   | storage 层 stat uid 校验                        |
+| `--json` **必须**按命令形态区分：chat/session = NDJSON；查询类子命令 = 单个 JSON payload；两者均禁止 Ink/ANSI | CLI 分流测试 |
+| Ink 退出路径**必须**恢复 terminal 状态并释放 provider/plugin/native 资源      | SIGINT/exit 集成测试                             |
 
 ### 7.8 里程碑
 
@@ -204,3 +207,144 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 - **L3**：`#sess_<id>` 跨会话引用 + `SessionContextReader` + `--json` 结构化输出模式
 - **L4**：主题定制 + 插件 UI 扩展点（状态栏 item） + `@skill` / `@memory` 等额外前缀能力
 
+### 7.9 readline → Ink TUI 迁移契约（L1 补充）
+
+当前实现中的裸 `readline` 提示符（`> `）只能作为 `--no-tui` / 非 TTY fallback，不能作为默认交互体验。默认 TTY 交互必须走 Ink，以恢复 claude-code 风格的连续会话、流式输出、权限弹窗、输入历史和 slash 命令体验。
+
+本节是对 `readline` 迁移的补充契约，不降低 §7.8 的 L1 范围；`@` 统一 picker 仍是 L1 必交付项，可作为同一迁移计划中的独立任务验收。
+
+#### 7.9.1 启动分流
+
+| 场景 | 行为 | 强制点 |
+|---|---|---|
+| `apollo` 无参数，stdin/stdout 是 TTY | 进入 Ink REPL | apps/cli TTY 检测 |
+| `apollo chat` 无 prompt，stdin/stdout 是 TTY | 进入同一个 Ink REPL | 与 `apollo` 无参数一致 |
+| `apollo <prompt...>` / `apollo chat <prompt...>` | 单轮执行，不进入持续 REPL | 保持脚本友好 |
+| chat/session 流式路径 + `--json` | NDJSON machine output，禁止 Ink/ANSI TUI | CI/MCP 集成 |
+| 查询类子命令 + `--json` | 单个 JSON payload，禁止 Ink/ANSI TUI | 脚本集成 |
+| `--no-tui` | 行输出 fallback，可使用 readline；无 prompt 时只允许 TTY fallback | 调试/低能力终端 |
+| 非 TTY 且无 prompt | 报错 `Interactive chat requires a TTY or a prompt` | 禁止挂起等待输入 |
+
+分流优先级固定为：
+
+1. `--json` 永不启动 Ink；chat/session 输出 NDJSON，查询类子命令输出单个 JSON payload。
+2. `--no-tui` 永不启动 Ink；有 prompt 走单轮行输出，无 prompt 且 TTY 时可使用 readline fallback。
+3. 无 prompt + TTY + 未禁用 TUI 时进入 Ink REPL。
+4. 无 prompt + 非 TTY 必须报错，不读取无限 stdin。
+
+#### 7.9.2 包边界
+
+- `apps/cli` 负责命令解析、TTY/flag 分流、session 生命周期、auth/permission/native/plugin/context 端口装配。
+- `packages/ui` 负责 Ink 组件、事件订阅、输入框、历史、slash popup、permission prompt queue、stream throttle。
+- `packages/core` 只负责 Runner 状态和事件；不得引入 Ink/React，也不得做 UI throttle。
+- `packages/ui` 不直接调 ProviderClient、ToolRegistry 或 native bridge；需要能力时通过 `apps/cli` 注入回调。
+
+建议导出接口：
+
+```ts
+export interface InteractiveAppOptions {
+  sessionId: string
+  cwd: string
+  events: EventBus
+  noColor?: boolean
+  sendMessage(text: string): Promise<void>
+  interrupt(): void
+  exit(): Promise<void>
+  slashCommands: SlashCommand[]
+  permission?: PermissionPromptController
+  history?: InputHistoryStore
+}
+
+export interface SlashCommand {
+  name: string
+  description: string
+  run(input: SlashCommandInput): Promise<void>
+}
+
+export interface SlashCommandInput {
+  sessionId: string
+  cwd: string
+  args: string[]
+  clearTranscript(): void
+  writeStatus(message: string, level?: 'info' | 'warning' | 'error'): void
+  requestExit(): Promise<void>
+}
+
+export interface InputHistoryStore {
+  load(): Promise<string[]>
+  append(value: string): Promise<void>
+}
+```
+
+#### 7.9.3 InputBox L1 范围
+
+- Enter 提交；空行不提交。
+- Shift+Enter 插入换行，多行内容按原样作为一个 user message 提交；终端无法可靠区分 Shift+Enter 时，必须提供 `Esc Enter` 或 `Alt+Enter` fallback。
+- Ctrl+C 在 turn 进行中调用 `runner.interrupt()`；session 保持存活。
+- `exit` / `quit` / `/exit` 结束 Ink REPL；退出路径必须 emit `session.ended`、flush session snapshot、dispose provider/plugin/native runtime、恢复 stdin raw mode / cursor / alternate screen，并以当前 session exitCode 退出进程。
+- ↑ / ↓ 浏览 `~/.apollo/history` 输入行历史；提交成功后写入历史。
+- 历史写入前必须脱敏；禁止保存 API key/token；附件只保存 chip 文本，不保存二进制。
+- 历史安全边界：
+  - 单条输入最大 8 KiB；超过时不写入 history，但仍可提交给 Runner。
+  - history 文件最大 1 MiB 或最多 1000 条，超限时保留最近记录。
+  - 写入前必须走 `shared.sanitize()` 或等价规则；命中 `api_key` / `token` / `password` / `secret` / provider key 模式时整条拒写。
+  - history append 失败不得阻塞 `sendMessage`，只在 StatusLine 显示非致命 warning。
+  - 写入必须使用 append 或原子 rewrite，避免并发会话截断文件。
+
+#### 7.9.4 Slash 命令 L1 范围
+
+L1 必须内置以下 slash command：
+
+| 命令 | 行为 |
+|---|---|
+| `/help` | 展示内置命令和快捷键 |
+| `/exit` | 结束当前 REPL |
+| `/clear` | 清空当前 UI transcript 显示，不删除 session JSONL |
+| `/context` | 显示当前 context policy/token 摘要 |
+| `/compact` | 触发 context compact（若端口可用） |
+| `/model` | 显示当前 provider/model；后续扩展为 picker |
+
+输入 `/` 立即弹 popup；支持前缀过滤、↑/↓ 选择、Enter 确认、Esc 关闭。插件贡献 slash command 走同一 registry，但不阻塞 L1 内置命令落地。
+
+端口不可用行为：
+
+- slash popup 仍显示内置命令，避免用户误以为命令不存在。
+- `/context`、`/compact`、`/model` 所需端口不可用时，命令必须在 StatusLine 或 transcript 中显示 `not available in this build/session`，不能 throw 到 Ink 根组件导致 TUI 崩溃。
+- 插件贡献命令执行失败时按普通 command error 展示，并回到 InputBox。
+
+#### 7.9.5 流式输出
+
+- UI 订阅 `stream.delta`，将 chunk 写入 ref buffer。
+- UI 每 33ms flush 一次到 React state，目标约 30fps。
+- `stream.completed`、`turn.aborted`、`error.raised` 必须强制 flush 剩余 buffer。
+- Runner/provider 不因 UI 渲染节奏被背压；core 只 emit 事件。
+- provider 失败、router 失败、tool 失败都必须回到 InputBox，并在 StatusLine 显示错误摘要。
+- stream buffer 必须有内存上限；UI render 被阻塞时超过上限需强制 flush 或截断为错误摘要，禁止无限累积。
+- `Runner.run()` 必须在 provider/router/tool 异常后 settle 当前 turn（`activeTurn = null`，turn terminal），否则 TUI 无法恢复输入。
+
+#### 7.9.6 L1 验收
+
+自动化：
+
+```bash
+pnpm --filter @apollo-code/core test
+pnpm --filter @apollo-code/ui test
+pnpm --filter apollo-code test
+pnpm --filter apollo-code typecheck
+pnpm --filter apollo-code build
+```
+
+手工：
+
+```bash
+node apps/cli/dist/apollo.js chat
+```
+
+必须满足：
+
+- TTY 下进入 Ink TUI，而不是裸 `> `。
+- 空行不提交；普通消息进入 transcript；provider 失败后回到输入框。
+- assistant 输出随 `stream.delta` 增量刷新。
+- `/help` 有候选/展示；`/exit` 干净退出。
+- ↑/↓ 可浏览历史。
+- `--json` 无 Ink/ANSI；`--no-tui` 不启动 Ink。

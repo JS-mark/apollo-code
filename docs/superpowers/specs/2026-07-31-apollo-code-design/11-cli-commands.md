@@ -11,13 +11,13 @@
 - **Parser**：**citty**（unjs 出品，TypeScript-first，嵌套子命令 + 自动 help + 声明式定义）
 - **交互**：TTY 检测 → 决定进 Ink（交互）还是走 flag/pipe 模式
 - **补全**：citty 内置 shell completion 生成（bash/zsh/fish）
-- **输出**：默认人类可读；`--json` 走 NDJSON
+- **输出**：默认人类可读；chat/session 流式路径的 `--json` 走 NDJSON；普通查询类子命令的 `--json` 输出单个 JSON payload
 
 ### 11.2 顶层命令
 
 ```
 apollo                       # 默认：进交互 REPL（无子命令时）
-apollo chat [prompt]          # 一次性对话（--no-tui）
+apollo chat [prompt]          # 无 prompt 进交互 REPL；有 prompt 走一次性对话
 apollo login [provider]       # 认证
 apollo logout [provider]
 apollo config <get|set|list|edit>
@@ -52,6 +52,9 @@ apollo help [command]
 apollo [prompt...]
   # 无参数进交互 REPL
   # 有 prompt 参数 → 走 chat 单轮：apollo "帮我改这个 bug"
+apollo chat [prompt...]
+  # 无 prompt 且 stdin/stdout 是 TTY → 进同一个 Ink 交互 REPL
+  # 有 prompt 参数 → 走 chat 单轮：apollo chat "帮我改这个 bug"
   Flags (global):
     --cwd <path>                 # 覆盖 cwd
     --model <name|alias>          # 单次指定
@@ -68,6 +71,29 @@ apollo [prompt...]
     -h / --help
     --version
 ```
+
+**TTY / TUI 分流（强制）**：
+
+| 输入形态 | TTY | 行为 |
+|---|---:|---|
+| `apollo` | 是 | 进入 Ink REPL |
+| `apollo chat` | 是 | 进入 Ink REPL |
+| `apollo <prompt...>` | 任意 | 单轮执行 |
+| `apollo chat <prompt...>` | 任意 | 单轮执行 |
+| chat/session 流式路径 + `--json` | 任意 | NDJSON，禁止 Ink/ANSI |
+| 查询类子命令 + `--json` | 任意 | 单个 JSON payload，禁止 Ink/ANSI |
+| 有 prompt + `--no-tui` | 任意 | 单轮行输出，禁止 Ink |
+| 无 prompt + `--no-tui` | 是 | readline fallback，禁止 Ink |
+| `apollo` / `apollo chat` 无 prompt | 否 | 报错，不等待 stdin |
+
+分流优先级固定为：
+
+1. `--json` 永不启动 Ink；chat/session 输出 NDJSON，查询类子命令输出单个 JSON payload。
+2. `--no-tui` 永不启动 Ink；有 prompt 走单轮行输出，无 prompt 且 TTY 时可使用 readline fallback。
+3. 无 prompt + TTY + 未禁用 TUI 时进入 Ink REPL。
+4. 无 prompt + 非 TTY 必须报错，不读取无限 stdin。
+
+`readline` 只允许用于 `--no-tui` fallback、认证输入、危险确认和权限 fallback；默认交互 REPL 必须由 §7 定义的 Ink TUI 承载。退出 REPL 时必须 emit `session.ended`、flush snapshot、释放 provider/plugin/native runtime，并恢复 terminal raw mode / cursor / alternate screen。
 
 #### 11.3.2 login / logout
 
@@ -344,4 +370,3 @@ apollo evolution dashboard                # L4: 参数随时间变化曲线
 - **L3**：`plugin *` / `skill *` / `mcp *` / `hook test` / `telemetry *` / doctor 加 plugin/mcp 段 / **`evolution enable/disable`（r10）**
 - **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康
 - **v2（不进 L1-L4）**：`apollo update`（自升级 + 签名校验，需要发布渠道成熟）
-
