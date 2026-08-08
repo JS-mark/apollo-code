@@ -26,6 +26,102 @@ export interface StatusPanelController {
   update(id: string, value: StatusValue): Promise<StatusPanelData>
 }
 
+export interface StatusReason {
+  code: string
+}
+
+export type StatusAvailability<T> =
+  | { status: 'available'; value: T }
+  | { status: 'disabled'; reason?: StatusReason }
+  | { status: 'blocked'; reason: StatusReason }
+  | { status: 'not_available'; reason: StatusReason }
+
+export type StatusSource = 'default' | 'user' | 'project' | 'env' | 'flag' | 'session'
+export type StatusModelSource = StatusSource | 'router' | 'derived_unreliable'
+
+export interface StatusViewModel {
+  identity: {
+    version: string
+    sessionId: string
+    createdAt: string
+    cwd: string
+    workspace: StatusAvailability<string>
+    project: StatusAvailability<string>
+  }
+  model:
+    | {
+        status: 'available'
+        provider: string
+        model: string
+        liteModel: StatusAvailability<string>
+        reasoningModel: StatusAvailability<string>
+        source: Exclude<StatusModelSource, 'derived_unreliable'>
+      }
+    | {
+        status: 'not_available'
+        reason: StatusReason
+        source: StatusModelSource
+      }
+  runtime: {
+    sandbox: StatusAvailability<{ tier: 'full' | 'none' | 'partial' | 'weak'; mechanism: string }>
+    filesystem: StatusAvailability<'isolated' | 'unrestricted' | 'workspace'>
+    network: StatusAvailability<'available' | 'restricted' | 'unavailable'>
+    permission: StatusAvailability<{
+      mode: 'allow-session' | 'ask' | 'bypassed' | 'read-only' | 'yolo'
+      source: StatusSource
+    }>
+    memory: StatusAvailability<{ mode: string }>
+  }
+  auth: {
+    configured: boolean | null
+    method: StatusAvailability<'keychain' | 'encrypted_file' | 'env'>
+  }
+  settings: readonly StatusSetting[]
+  config: {
+    sources: StatusAvailability<readonly StatusSource[]>
+  }
+  capabilities: {
+    mcpServers: StatusAvailability<StatusCapabilitySummary>
+    skills: StatusAvailability<StatusCapabilitySummary>
+    plugins: StatusAvailability<StatusCapabilitySummary>
+  }
+  usage: {
+    tokens: { input: number; output: number; cacheRead?: number; cacheWrite?: number }
+    context: { currentTokens: number; maxTokens: number; lastCompactedAt?: string }
+    costUSD: number
+  }
+}
+
+export interface StatusSetting {
+  key: string
+  effectiveValue: boolean | number | string
+  source: StatusSource | 'not_available'
+  readonly: boolean
+  locked: boolean
+  reason?: StatusReason
+}
+
+export interface StatusCapabilitySummary {
+  count: number
+  names?: readonly string[]
+}
+
+export interface StatusSection {
+  id: 'config' | 'settings' | 'status'
+  title: string
+  items: readonly StatusSectionItem[]
+}
+
+export interface StatusSectionItem {
+  key: string
+  label: string
+  value: boolean | number | string
+  source?: string
+  readonly?: boolean
+  locked?: boolean
+  reasonCode?: string
+}
+
 export function statusPanelFromWelcome(data: WelcomePanelData): StatusPanelData {
   const unavailable = 'not available'
   const model =
@@ -106,6 +202,76 @@ export function validateStatusConfigValue(item: StatusConfigItem, value: StatusV
   }
 }
 
+export function buildStatusSections(view: StatusViewModel): StatusSection[] {
+  const model =
+    view.model.status === 'available'
+      ? `${view.model.provider}/${view.model.model}`
+      : formatStatusAvailability(view.model)
+  const statusItems: StatusSectionItem[] = [
+    item('identity.version', 'Version', view.identity.version),
+    item('identity.sessionId', 'Session ID', view.identity.sessionId),
+    item('identity.createdAt', 'Created', view.identity.createdAt),
+    item('identity.cwd', 'CWD', view.identity.cwd),
+    item('identity.workspace', 'Workspace', formatStatusAvailability(view.identity.workspace)),
+    item('identity.project', 'Project', formatStatusAvailability(view.identity.project)),
+    item('model.current', 'Model', model),
+    item('auth.configured', 'Auth configured', view.auth.configured ?? 'not available'),
+    item('auth.method', 'Auth method', formatStatusAvailability(view.auth.method)),
+    item('runtime.sandbox', 'Sandbox', formatStatusAvailability(view.runtime.sandbox)),
+    item('runtime.filesystem', 'Filesystem', formatStatusAvailability(view.runtime.filesystem)),
+    item('runtime.network', 'Network', formatStatusAvailability(view.runtime.network)),
+    item('runtime.permission', 'Permission', formatStatusAvailability(view.runtime.permission)),
+    item('runtime.memory', 'Memory', formatStatusAvailability(view.runtime.memory)),
+    item('capabilities.mcp', 'MCP servers', formatStatusAvailability(view.capabilities.mcpServers)),
+    item('capabilities.skills', 'Skills', formatStatusAvailability(view.capabilities.skills)),
+    item('capabilities.plugins', 'Plugins', formatStatusAvailability(view.capabilities.plugins)),
+    item(
+      'usage.tokens',
+      'Tokens',
+      `${view.usage.tokens.input} input / ${view.usage.tokens.output} output`,
+    ),
+    item(
+      'usage.context',
+      'Context',
+      `${view.usage.context.currentTokens} / ${view.usage.context.maxTokens}`,
+    ),
+    item('usage.costUSD', 'Cost USD', view.usage.costUSD),
+  ]
+  if (view.model.status === 'not_available') {
+    const index = statusItems.findIndex((entry) => entry.key === 'model.current')
+    statusItems[index] = { ...statusItems[index]!, reasonCode: view.model.reason.code }
+  }
+  const status: StatusSection = {
+    id: 'status',
+    title: 'Status',
+    items: statusItems,
+  }
+  const settings: StatusSection = {
+    id: 'settings',
+    title: 'Settings',
+    items: view.settings
+      .filter((setting) => !secretKey.test(setting.key))
+      .map((setting) => settingItem(setting)),
+  }
+  const config: StatusSection = {
+    id: 'config',
+    title: 'Config',
+    items: [
+      {
+        key: 'config.sources',
+        label: 'Effective sources',
+        value: formatStatusAvailability(view.config.sources),
+        ...(view.config.sources.status !== 'available' && view.config.sources.reason
+          ? { reasonCode: view.config.sources.reason.code }
+          : {}),
+      },
+    ],
+  }
+  return [status, settings, config]
+}
+
+const secretKey = /(authorization|api[_-]?key|token|secret|credential|passphrase|password|oauth)/i
+
 function defaultStatusConfig(model: string): StatusConfigItem[] {
   return [
     { id: 'language', label: 'Language', value: 'system', editable: true, kind: 'string' },
@@ -176,4 +342,41 @@ function summarizeMcp(data: WelcomePanelData) {
   return data.mcp.status === 'available'
     ? `${data.mcp.connected} connected / ${data.mcp.total} configured`
     : 'not available'
+}
+
+function item(key: string, label: string, value: boolean | number | string): StatusSectionItem {
+  return { key, label, value }
+}
+
+function settingItem(setting: StatusSetting): StatusSectionItem {
+  return {
+    key: setting.key,
+    label: setting.key,
+    value: setting.effectiveValue,
+    source: setting.source,
+    readonly: setting.readonly,
+    locked: setting.locked,
+    ...(setting.reason ? { reasonCode: setting.reason.code } : {}),
+  }
+}
+
+function formatStatusAvailability(
+  value: StatusAvailability<unknown> | StatusViewModel['model'],
+): string {
+  if (value.status !== 'available') return `${value.status}:${value.reason?.code ?? 'disabled'}`
+  if (!('value' in value)) return 'available'
+  if (Array.isArray(value.value)) return value.value.join(', ')
+  if (value.value && typeof value.value === 'object') {
+    if ('count' in value.value && typeof value.value.count === 'number') {
+      const names =
+        'names' in value.value && Array.isArray(value.value.names) ? value.value.names : []
+      return names.length
+        ? `${value.value.count}: ${names.map(String).join(', ')}`
+        : String(value.value.count)
+    }
+    return Object.entries(value.value)
+      .map(([key, entry]) => `${key}=${String(entry)}`)
+      .join(', ')
+  }
+  return String(value.value)
 }
