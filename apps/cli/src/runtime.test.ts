@@ -99,7 +99,9 @@ describe('FileInputHistoryStore', () => {
     expect(await history.list()).toEqual(['one', 'two', 'three'])
     const text = await readFile(path, 'utf8')
     expect(text).not.toContain('secret-value')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') {
+      expect((await stat(path)).mode & 0o777).toBe(0o600)
+    }
   })
 })
 
