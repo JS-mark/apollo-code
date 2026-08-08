@@ -13,6 +13,7 @@ export interface WelcomePanelData {
   permission: WelcomePermissionStatus
   sandbox: WelcomeSandboxStatus
   sessionId: string
+  trustLabel?: string
   version: string
   liteModel?: string
   reasoningModel?: string
