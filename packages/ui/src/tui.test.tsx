@@ -6,6 +6,7 @@ import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { runSlashCommand, type SlashCommand } from './app'
+import { InputBox } from './components/InputBox'
 import { ModelPicker } from './components/ModelPicker'
 import { SelectList } from './components/SelectList'
 import { TabBar } from './components/TabBar'
@@ -146,8 +147,48 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('/help Show slash commands')
+    expect(stdout.output).toContain('> /help Show slash commands')
     expect(stdout.output).toContain('/context Show context status (not available)')
+  })
+
+  it('switches slash command suggestions with arrow keys', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        initialValue: '/',
+        onSubmit: (value) => {
+          submitted.push(value)
+        },
+        slashCommands: [
+          { name: 'help', description: 'Show slash commands', run: () => {} },
+          { name: 'model', description: 'Switch model', run: () => {} },
+          { available: false, name: 'context', description: 'Show context status', run: () => {} },
+        ],
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('> /help Show slash commands')
+
+    stdin.write('\u001B[B')
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('> /model Switch model')
+
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    input.unmount()
+    await input.waitUntilExit()
+
+    expect(submitted).toEqual(['/model'])
   })
 
   it('advertises /model as available when model picker data exists', async () => {

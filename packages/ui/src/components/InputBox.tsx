@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from 'ink'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { SlashCommand } from '../app'
 
@@ -22,11 +22,28 @@ export function InputBox({
 }: InputBoxProps) {
   const [draftBeforeHistory, setDraftBeforeHistory] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
+  const [slashSuggestionIndex, setSlashSuggestionIndex] = useState(0)
   const [value, setValue] = useState(initialValue)
+  const suggestions = slashSuggestions(value, slashCommands)
+
+  useEffect(() => {
+    if (suggestions.length === 0) {
+      if (slashSuggestionIndex !== 0) setSlashSuggestionIndex(0)
+      return
+    }
+    if (slashSuggestionIndex >= suggestions.length) setSlashSuggestionIndex(suggestions.length - 1)
+  }, [slashSuggestionIndex, suggestions.length])
+
   useInput(
     (input, key) => {
       if (disabled) return
       if (key.upArrow) {
+        if (suggestions.length > 0) {
+          setSlashSuggestionIndex((current) =>
+            current <= 0 ? suggestions.length - 1 : current - 1,
+          )
+          return
+        }
         if (history.length === 0) return
         const nextIndex = historyIndex === null ? history.length - 1 : Math.max(0, historyIndex - 1)
         if (historyIndex === null) setDraftBeforeHistory(value)
@@ -35,6 +52,10 @@ export function InputBox({
         return
       }
       if (key.downArrow) {
+        if (suggestions.length > 0) {
+          setSlashSuggestionIndex((current) => (current + 1) % suggestions.length)
+          return
+        }
         if (historyIndex === null) return
         const nextIndex = historyIndex + 1
         if (nextIndex >= history.length) {
@@ -51,33 +72,35 @@ export function InputBox({
         return
       }
       if (key.return || input === '\r' || input === '\n') {
-        const submitted = value
+        const selectedSuggestion = suggestions[slashSuggestionIndex]
+        const submitted = selectedSuggestion ? `/${selectedSuggestion.name}` : value
         setHistoryIndex(null)
         setDraftBeforeHistory('')
+        setSlashSuggestionIndex(0)
         setValue('')
         void onSubmit?.(submitted)
         return
       }
       if (key.backspace || key.delete) {
         setHistoryIndex(null)
+        setSlashSuggestionIndex(0)
         setValue((current) => current.slice(0, -1))
         return
       }
       if (key.tab) {
-        const [first] = slashSuggestions(value, slashCommands)
-        if (first) setValue(`/${first.name} `)
+        const selectedSuggestion = suggestions[slashSuggestionIndex]
+        if (selectedSuggestion) setValue(`/${selectedSuggestion.name} `)
         return
       }
       if (key.ctrl || key.meta || key.escape) return
       if (input) {
         setHistoryIndex(null)
+        setSlashSuggestionIndex(0)
         setValue((current) => current + input)
       }
     },
     { isActive: !disabled },
   )
-
-  const suggestions = slashSuggestions(value, slashCommands)
 
   return (
     <Box borderColor={disabled ? 'gray' : 'cyan'} borderStyle="single" paddingX={1}>
@@ -91,12 +114,15 @@ export function InputBox({
         </Box>
         {suggestions.length > 0 ? (
           <Box flexDirection="column" marginLeft={2} marginTop={1}>
-            {suggestions.map((command) => (
-              <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
-                /{command.name} {command.description}
-                {command.available === false ? ' (not available)' : ''}
-              </Text>
-            ))}
+            {suggestions.map((command, index) => {
+              const active = index === slashSuggestionIndex
+              return (
+                <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
+                  {active ? '> ' : '  '}/{command.name} {command.description}
+                  {command.available === false ? ' (not available)' : ''}
+                </Text>
+              )
+            })}
           </Box>
         ) : null}
       </Box>
