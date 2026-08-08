@@ -57,11 +57,14 @@ import {
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
-import { renderInteractiveApp } from '@apollo-code/ui'
+import { renderInteractiveApp, validateStatusConfigValue } from '@apollo-code/ui'
 import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
   SubmitOptions,
+  StatusConfigItem,
+  StatusPanelData,
+  StatusValue,
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -889,6 +892,33 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
           return { valid: false, detail: error instanceof Error ? error.message : String(error) }
         }
       },
+      async status(input) {
+        return runtimeStatusData(home, options, input)
+      },
+      async updatePreference(id, value, input) {
+        const data = await runtimeStatusData(home, options, input)
+        const item = data.config.find((candidate) => candidate.id === id)
+        if (!item) throw new Error(`Unknown configuration item: ${id}`)
+        validateStatusConfigValue(item, value)
+        const path = join(home, 'config.toml')
+        let config: Record<string, JsonValue> = {}
+        try {
+          config = await parseTomlFile(path)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+        const preferences = config.preferences
+        const target =
+          preferences && typeof preferences === 'object' && !Array.isArray(preferences)
+            ? (preferences as Record<string, JsonValue>)
+            : ((config.preferences = {}) as Record<string, JsonValue>)
+        target[id] = value
+        await mkdir(home, { recursive: true })
+        const temporary = `${path}.${process.pid}.tmp`
+        await writeFile(temporary, serializeConfig(config), { encoding: 'utf8', mode: 0o600 })
+        await rename(temporary, path)
+        return runtimeStatusData(home, options, input)
+      },
     },
     native: {
       async probe() {
@@ -925,4 +955,124 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       },
     },
   }
+}
+
+async function runtimeStatusData(
+  home: string,
+  options: ProductionOptions,
+  input: { cwd: string; sessionId?: string },
+): Promise<StatusPanelData> {
+  let config: Record<string, JsonValue> = {}
+  try {
+    config = await parseTomlFile(join(home, 'config.toml'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const preferences =
+    config.preferences &&
+    typeof config.preferences === 'object' &&
+    !Array.isArray(config.preferences)
+      ? (config.preferences as Record<string, JsonValue>)
+      : {}
+  const model =
+    typeof preferences.model === 'string'
+      ? preferences.model
+      : (options.model ?? 'claude-sonnet-4-20250514')
+  const editable: StatusConfigItem[] = [
+    preference('language', 'Language', preferences.language ?? 'system', 'string'),
+    preference('model', 'Model', model, 'string'),
+    {
+      ...preference(
+        'reasoningEffort',
+        'Reasoning Effort',
+        preferences.reasoningEffort ?? 'medium',
+        'enum',
+      ),
+      choices: ['low', 'medium', 'high'],
+    },
+    ...[
+      ['autoCompact', 'Auto-compact'],
+      ['notifications', 'Notifications'],
+      ['promptSuggestions', 'Prompt suggestions'],
+      ['showTokensCounter', 'Show tokens counter'],
+      ['terminalProgressBar', 'Terminal progress bar'],
+      ['autoMemory', 'Auto Memory'],
+      ['typedMemory', 'Typed Memory'],
+    ].map(([id, label]) => preference(id!, label!, preferences[id!] ?? false, 'boolean')),
+    {
+      ...preference('outputStyle', 'Output Style', preferences.outputStyle ?? 'default', 'enum'),
+      choices: ['default', 'concise', 'explanatory'],
+    },
+    {
+      ...preference('cleanupPeriod', 'Cleanup Period', preferences.cleanupPeriod ?? 30, 'number'),
+      min: 1,
+      max: 365,
+    },
+  ]
+  const readonly = (id: string, label: string, value: string): StatusConfigItem => ({
+    id,
+    label,
+    value,
+    editable: false,
+    readonlyReason: 'Security state cannot be changed here',
+  })
+  return {
+    settings: [
+      { label: 'Language', value: String(preferences.language ?? 'system') },
+      { label: 'Model', value: model },
+      { label: 'Output Style', value: String(preferences.outputStyle ?? 'default') },
+      { label: 'Settings sources', value: 'defaults, user' },
+    ],
+    status: [
+      { label: 'Version', value: options.version ?? '0.0.0' },
+      { label: 'Session ID', value: input.sessionId ?? 'not available' },
+      { label: 'cwd', value: input.cwd },
+      { label: 'Auth method', value: 'credential store (value hidden)' },
+      { label: 'Model', value: model },
+      { label: 'Lite model', value: 'not available' },
+      { label: 'Reasoning model', value: 'not available' },
+      { label: 'Memory', value: preferences.autoMemory === true ? 'auto' : 'off' },
+      { label: 'Settings sources', value: 'defaults, user' },
+      { label: 'Workspace', value: input.cwd },
+      { label: 'MCP servers', value: 'not available' },
+      { label: 'Skills', value: 'not available' },
+      { label: 'Plugins', value: 'not available' },
+      { label: 'Permissions', value: 'ask' },
+      { label: 'Sandbox', value: 'resolved at session startup' },
+      { label: 'Network', value: 'resolved at session startup' },
+      { label: 'Filesystem', value: 'resolved at session startup' },
+    ],
+    config: [
+      ...editable,
+      readonly('authMethod', 'Auth method', 'credential store (value hidden)'),
+      readonly('sessionId', 'Session ID', input.sessionId ?? 'not available'),
+      readonly('enterprisePolicies', 'Enterprise managed policies', 'not available'),
+      readonly('trustAllDirectory', 'Trust all Directory', 'read-only'),
+      readonly('mcpPermissions', 'MCP Server permissions', 'read-only'),
+      readonly('filesystemPermissions', 'Filesystem permissions', 'read-only'),
+      readonly('externalAccounts', 'External account connections', 'not available'),
+    ],
+  }
+}
+
+function preference(
+  id: string,
+  label: string,
+  value: JsonValue,
+  kind: Exclude<StatusConfigItem['kind'], undefined>,
+): StatusConfigItem {
+  return { id, label, value: value as StatusValue, editable: true, kind }
+}
+
+function serializeConfig(config: Record<string, JsonValue>) {
+  const lines: string[] = []
+  for (const [section, raw] of Object.entries(config)) {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      lines.push(`[${section}]`)
+      for (const [key, value] of Object.entries(raw))
+        lines.push(`${key} = ${JSON.stringify(value)}`)
+      lines.push('')
+    } else lines.push(`${section} = ${JSON.stringify(raw)}`)
+  }
+  return `${lines.join('\n').trim()}\n`
 }

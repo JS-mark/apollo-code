@@ -6,7 +6,13 @@ import {
   renderSecurityBanner,
   renderTelemetryPanel,
 } from '@apollo-code/ui'
-import type { DangerousMode, SandboxDisclosure, WelcomePanelData } from '@apollo-code/ui'
+import { statusPanelFromWelcome } from '@apollo-code/ui'
+import type {
+  DangerousMode,
+  SandboxDisclosure,
+  StatusPanelData,
+  WelcomePanelData,
+} from '@apollo-code/ui'
 import { parseArgs, renderUsage } from 'citty'
 
 import { command } from './command'
@@ -117,6 +123,24 @@ export async function runCli(
     return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
+  if (subcommand === 'status') {
+    const data = ports.config.status
+      ? await ports.config.status({ cwd })
+      : statusPanelFromWelcome(
+          await buildWelcomePanelData({
+            cwd,
+            dangerousPermissions: false,
+            ports,
+            probe: await ports.native.probe(),
+            sessionId: 'not available',
+          }),
+        )
+    return {
+      exitCode: 0,
+      stdout: args.json ? `${JSON.stringify(data)}\n` : renderTextStatus(data),
+      stderr,
+    }
+  }
   if (subcommand === 'plugin') {
     if (!ports.plugin)
       return { exitCode: 2, stdout, stderr: 'plugin integration port is not connected' }
@@ -443,6 +467,17 @@ export async function runCli(
             ? `sandbox ${probe.tier}; permissions bypassed`
             : `sandbox ${probe.tier}`,
         welcome,
+        statusPanel: ports.config.status
+          ? await ports.config.status({ cwd, sessionId: interactive.id })
+          : statusPanelFromWelcome(welcome),
+        ...(ports.config.updatePreference
+          ? {
+              statusPanelController: {
+                update: (id: string, value: import('@apollo-code/ui').StatusValue) =>
+                  ports.config.updatePreference!(id, value, { cwd, sessionId: interactive.id }),
+              },
+            }
+          : {}),
       })
       await app.waitUntilExit()
       return { exitCode: interactive.exitCode(), stdout, stderr }
@@ -456,6 +491,10 @@ export async function runCli(
     }
     return { exitCode: 1, stdout, stderr: message }
   }
+}
+
+function renderTextStatus(data: StatusPanelData) {
+  return `${data.status.map((row) => `${row.label}: ${row.value}`).join('\n')}\n`
 }
 
 async function buildWelcomePanelData(input: {
