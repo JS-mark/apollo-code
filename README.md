@@ -91,4 +91,36 @@ export ANTHROPIC_API_KEY="..."
 node apps/cli/dist/apollo.js login anthropic
 ```
 
+### Local CLI chat testing
+
+Build the CLI first:
+
+```bash
+pnpm --filter apollo-code build
+```
+
+Interactive chat is the default when stdin/stdout are TTYs and no prompt is
+passed:
+
+```bash
+node apps/cli/dist/apollo.js chat
+```
+
+The command enters the Ink TUI, shows a `> ` input line, ignores empty submits,
+supports slash command suggestions after `/`, and exits cleanly with `exit`,
+`quit`, or `/exit`.
+
+Use `--no-tui` to force the line-mode fallback:
+
+```bash
+node apps/cli/dist/apollo.js chat --no-tui
+```
+
+Use `--json` only with a prompt. It writes NDJSON machine output and never starts
+Ink or emits ANSI TUI frames:
+
+```bash
+node apps/cli/dist/apollo.js chat "summarize this repo" --json
+```
+
 The implementation contract lives in [`docs/superpowers/specs/2026-07-31-apollo-code-design/README.md`](./docs/superpowers/specs/2026-07-31-apollo-code-design/README.md).

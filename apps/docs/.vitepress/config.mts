@@ -29,6 +29,7 @@ export default defineConfig({
   description: 'The open, model-agnostic AI coding CLI',
   appearance: true,
   cleanUrls: true,
+  ignoreDeadLinks: [/^\.\/(?:\.\.\/)+(?:README|[^/]+\/src\/)/],
   lastUpdated: true,
   sitemap: {
     hostname: 'https://js-mark.com',

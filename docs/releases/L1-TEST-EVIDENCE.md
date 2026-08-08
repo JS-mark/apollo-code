@@ -111,6 +111,8 @@ CI evidence owned by APO-12; it is not inferred from TypeScript unit tests.
 | --- | --- | --- |
 | alias/file picker semantics | `@apollo-code/ui` | `src/integration.test.ts` — `puts an alias before a same-named file and supports explicit file mode` |
 | serialized prompt handler | `@apollo-code/ui` | `src/integration.test.ts` — `serializes permission prompts` |
+| Ink chat shell, stream buffering, slash suggestions, permission queue | `@apollo-code/ui` | `src/tui.test.tsx` — `renders the static Ink shell and stream updates`; `renders slash command suggestions`; `reports unavailable and unknown slash commands without throwing`; `buffers stream deltas before rendering`; `renders queued permission prompts` |
+| promptless TTY routing and yolo TUI status | `apollo-code` | `src/cli.test.ts` — `routes promptless TTY chat to the Ink UI port`; `does not register permission prompts in yolo TUI mode`; `keeps --no-tui promptless chat on the line fallback even when TTY is available`; `uses NDJSON only for a JSON chat and disables human/TUI output` |
 | interrupted output withdrawn on restore | `@apollo-code/ui` | `src/integration.test.ts` — `restores a transcript without reviving withdrawn output`; `src/security.test.ts` — `marks interrupted output as withdrawn and records exit` |
 | SIGINT keeps session alive | `apollo-code` | `src/signals.test.ts` — `interrupts the current turn on SIGINT without ending the session` |
 | SIGTERM/SIGHUP flush and end | `apollo-code` | `src/signals.test.ts` — the SIGTERM and SIGHUP named tests |
@@ -133,3 +135,19 @@ they are not represented as runtime assertions in this table.
 Manual onboarding gates remain manual and are tracked by APO-13. This document
 does not convert a manual observation or an unavailable integration into a unit
 test pass.
+
+## Manual smoke evidence
+
+2026-08-08, local macOS development checkout, command:
+`node apps/cli/dist/apollo.js chat`.
+
+Observed:
+
+- none-tier sandbox confirmation was required before session start;
+- after confirmation, Ink rendered the session header, sandbox status, empty
+  transcript, and `> ` input line;
+- `exit` followed by newline ended the session and restored the cursor;
+- no credential, provider prompt, or sensitive task content was recorded.
+
+This smoke verifies local TUI startup and exit cleanup only. It is not Anthropic
+dog-food evidence and does not change `L1-DOGFOOD.md` from blocked.

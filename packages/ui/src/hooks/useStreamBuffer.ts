@@ -6,7 +6,11 @@ export interface StreamBuffer {
   reset(): void
 }
 
-export function useStreamBuffer(onFlush: (text: string) => void, intervalMs = 33): StreamBuffer {
+export function useStreamBuffer(
+  onFlush: (text: string) => void,
+  intervalMs = 33,
+  maxBytes = 256 * 1024,
+): StreamBuffer {
   const buffer = useRef('')
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -24,6 +28,11 @@ export function useStreamBuffer(onFlush: (text: string) => void, intervalMs = 33
     (text: string) => {
       if (!text) return
       buffer.current += text
+      if (Buffer.byteLength(buffer.current, 'utf8') >= maxBytes) {
+        const flushed = flushNow()
+        if (flushed) onFlush(flushed)
+        return
+      }
       if (timer.current) return
       timer.current = setTimeout(() => {
         timer.current = undefined
@@ -31,7 +40,7 @@ export function useStreamBuffer(onFlush: (text: string) => void, intervalMs = 33
         if (flushed) onFlush(flushed)
       }, intervalMs)
     },
-    [flushNow, intervalMs, onFlush],
+    [flushNow, intervalMs, maxBytes, onFlush],
   )
 
   const reset = useCallback(() => {
