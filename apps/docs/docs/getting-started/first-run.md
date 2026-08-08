@@ -30,3 +30,13 @@ Use `apollo doctor --strict` before a real task. A degraded sandbox exits with c
 For local checks, `apollo chat --no-tui` forces the line-mode fallback, while
 `apollo chat "prompt" --json` emits NDJSON for automation and does not start the
 TUI.
+
+# First interactive screen
+
+After directory trust is resolved, interactive `apollo chat` opens a terminal status screen before
+the first prompt. It reports the effective model, authentication availability, canonical workspace,
+trust scope, sandbox tier, permission mode, session, and context budget. Unknown runtime values are
+shown as `unknown` or `not configured`; Apollo never infers a successful security or auth state.
+
+The command band accepts Enter to send and Shift+Enter for a newline. Empty input is ignored.
+`--json` and `--no-tui` remain machine/line-output modes and never render the welcome screen.

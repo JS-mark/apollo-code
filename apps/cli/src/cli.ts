@@ -166,6 +166,7 @@ export async function runCli(
             ports,
             probe: await ports.native.probe(),
             sessionId: 'not available',
+            trustLabel: 'not available',
           }),
         )
     return {
@@ -439,10 +440,18 @@ export async function runCli(
       : { exitCode: 2, stdout, stderr: message }
   }
   cwd = trustCheck.canonicalPath
+  let trustLabel = trustCheck.trusted
+    ? trustCheck.scope === 'tree'
+      ? trustCheck.matchedPath === cwd
+        ? 'Trusted: folder/**'
+        : 'Trusted: parent/**'
+      : 'Trusted: folder'
+    : 'Untrusted'
   if (!trustCheck.trusted) {
     try {
       if (args.trustWorkspace) {
         await ports.trust.grant(cwd, 'exact')
+        trustLabel = 'Trusted: folder'
         await ports.telemetry.securityEvent('directory.trusted', { cwd, scope: 'exact' })
       } else if (interactiveTrustPrompt) {
         const decision = await ports.ui!.renderDirectoryTrustPrompt!({
@@ -460,6 +469,12 @@ export async function runCli(
         const target = decision === 'parent' ? dirname(cwd) : cwd
         const scope = decision === 'current' ? 'exact' : 'tree'
         await ports.trust.grant(target, scope)
+        trustLabel =
+          decision === 'parent'
+            ? 'Trusted: parent/**'
+            : decision === 'current'
+              ? 'Trusted: folder'
+              : 'Trusted: folder/**'
         await ports.telemetry.securityEvent('directory.trusted', { cwd: target, scope })
       } else {
         const message = `Directory is not trusted: ${cwd}. Re-run with --trust-workspace to trust this exact folder, or use an interactive terminal.`
@@ -537,6 +552,7 @@ export async function runCli(
         ports,
         probe,
         sessionId: interactive.id,
+        trustLabel,
       })
       const app = ports.ui!.renderInteractiveApp({
         cwd,
@@ -587,12 +603,14 @@ async function buildWelcomePanelData(input: {
   ports: ApolloPorts
   probe: SandboxDisclosure
   sessionId: string
+  trustLabel: string
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
   const mcp = await welcomeMcp(input.ports)
   return {
     version: input.ports.version,
     sessionId: input.sessionId,
+    trustLabel: input.trustLabel,
     cwd: input.cwd,
     model: {
       status: 'available',

@@ -282,9 +282,9 @@ describe('renderInteractiveApp', () => {
     stdin.write('\r')
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('Status')
-    expect(stdout.output).toContain('Runtime')
-    expect(stdout.output).toContain('MCP')
-    expect(stdout.output).toContain('History')
+    expect(stdout.output).toContain('Workspace')
+    expect(stdout.output).toContain('MCP servers')
+    expect(stdout.output).toContain('Settings sources')
 
     stdin.write('\u001B')
     await new Promise((resolve) => setTimeout(resolve, 40))
