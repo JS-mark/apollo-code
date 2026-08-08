@@ -107,204 +107,218 @@ export class Runner {
         ? agentType
         : undefined
     const routerHint = lineageRole ? { role: lineageRole, ...hint } : hint
-    outer: while (!signal.aborted) {
-      const exhausted = this.exhaustedBudget(turnStartedAt, toolCalls)
-      if (exhausted) {
-        await this.emit('error.raised', turnId, {
-          code: 'subagent_budget_exhausted',
-          dimension: exhausted,
-          consumed: {
-            input: this.#state.cumulativeUsage.input,
-            output: this.#state.cumulativeUsage.output,
-            costUSD: this.#state.cumulativeUsage.costUSD,
-            timeMs: Date.now() - turnStartedAt,
-            toolCalls,
-          },
-          budget: this.options.budget ?? this.#state.resourceBudget ?? {},
-        })
-        this.#turnAbort.abort('budget')
-        break
-      }
-      if (loops >= (this.options.maxToolLoopsPerTurn ?? 25)) {
-        await this.emit('error.raised', turnId, { code: 'tool_loop_exhausted', loopCount: loops })
-        break
-      }
-      loops += 1
-      decision =
-        retryDecision ??
-        (sticky
-          ? { provider: sticky, model: decision?.model ?? '', reason: 'sticky-provider' }
-          : await this.router.pick(
-              this.routerContext(turnId, attempts, turnStartedAt, signal),
-              routerHint,
-            ))
-      retryDecision = undefined
-      const system = await this.promptComposer.compose({
-        cwd: this.#state.cwd,
-        model: decision.model,
-        provider: decision.provider.name,
-      })
-      if (this.#state.systemPromptSnapshot !== system)
-        this.#state = updateSession(this.#state, (draft) => {
-          draft.systemPromptSnapshot = system
-        })
-      let requestMessages = this.#state.messages
-      if (this.contextPolicy) {
-        const context = {
-          session: this.#state,
-          capabilities: decision.provider.capabilities,
-          turnId,
-          model: decision.model,
-          systemTokens: this.contextPolicy.estimateTokens(system, decision.model),
-          toolSchemaTokens: Math.ceil(
-            JSON.stringify(this.tools.schemas(decision.provider)).length / 3.5,
-          ),
-        }
-        if (this.contextPolicy.shouldCompact(context)) {
-          this.#state = updateSession(this.#state, (draft) => {
-            const turn = draft.turns.find((item) => item.id === turnId)
-            if (turn) turn.status = 'compacting'
-          })
-          const snapshot = await this.contextPolicy.compact(context)
-          this.#state = updateSession(this.#state, (draft) => {
-            draft.messages = [...snapshot.messages]
-            const turn = draft.turns.find((item) => item.id === turnId)
-            if (turn) turn.status = 'streaming'
-          })
-          await this.emit('context.compacted', turnId, {
-            strategy: snapshot.strategy,
-            beforeTokens: snapshot.beforeTokens,
-            afterTokens: snapshot.afterTokens,
-            compactedCount: snapshot.compactedMessageIds.length,
-            hookIntercepted: snapshot.hookIntercepted,
-          })
-        }
-        requestMessages = this.contextPolicy.buildPrompt({
-          ...context,
-          session: this.#state,
-        }).messages
-      }
-      requestMessages = messagesForCapabilities(
-        requestMessages,
-        decision.provider.name,
-        decision.provider.capabilities,
-      )
-      await this.emit('stream.started', turnId, {
-        provider: decision.provider.name,
-        model: decision.model,
-      })
-      const current: InProgress = { text: '', thinking: '', tools: new Map() }
-      let interrupted = false
-      for await (const chunk of decision.provider.stream(
-        {
-          model: decision.model,
-          messages: requestMessages,
-          system,
-          tools: this.tools.schemas(decision.provider),
-        },
-        signal,
-      )) {
-        if (signal.aborted) break outer
-        if (chunk.kind === 'tool_use.start') sticky ??= decision.provider
-        if (chunk.kind === 'message.interrupted') {
-          interrupted = true
-          const hadPartialToolUse = current.tools.size > 0
+    try {
+      outer: while (!signal.aborted) {
+        const exhausted = this.exhaustedBudget(turnStartedAt, toolCalls)
+        if (exhausted) {
           await this.emit('error.raised', turnId, {
-            code: 'stream_interrupted',
-            reason: chunk.reason,
-            hadPartialToolUse,
+            code: 'subagent_budget_exhausted',
+            dimension: exhausted,
+            consumed: {
+              input: this.#state.cumulativeUsage.input,
+              output: this.#state.cumulativeUsage.output,
+              costUSD: this.#state.cumulativeUsage.costUSD,
+              timeMs: Date.now() - turnStartedAt,
+              toolCalls,
+            },
+            budget: this.options.budget ?? this.#state.resourceBudget ?? {},
           })
-          if (hadPartialToolUse) {
-            failed = true
-            await this.emit('error.raised', turnId, {
-              code: 'stream_resume_unsafe_partial_tool_use',
-              reason: 'partial tool_use cannot be resumed or replayed safely',
-            })
-            break outer
-          }
-          const error = Object.assign(new Error(chunk.reason), {
-            provider: decision.provider.name,
-            model: decision.model,
-            category: 'stream_truncated',
-            retryable: true,
-          }) as ProviderError
-          const next = await this.router.onError(
-            error,
-            this.routerContext(turnId, attempts++, turnStartedAt, signal, sticky?.name),
-          )
-          if (next === 'give-up') {
-            failed = true
-            break outer
-          }
-          if (sticky && next.provider !== sticky) {
-            failed = true
-            await this.emit('error.raised', turnId, {
-              code: 'provider_sticky_violation',
-              reason: 'tool_use already in flight, cannot switch provider',
-            })
-            break outer
-          }
-          if (next.provider !== decision.provider)
-            await this.emit('router.switched', turnId, {
-              from: decision.provider.name,
-              to: next.provider.name,
-              reason: next.reason,
-              category: error.category,
-            })
-          retryDecision = next
-          continue outer
+          this.#turnAbort.abort('budget')
+          break
         }
-        this.merge(current, chunk)
-        await this.emit('stream.delta', turnId, { chunk: chunk as unknown as JsonValue })
-      }
-      if (interrupted) continue
-      if (signal.aborted) break
-      await this.router.onSuccess?.(
-        decision,
-        this.routerContext(turnId, attempts, turnStartedAt, signal, sticky?.name),
-      )
-      const assistant = this.finish(current, decision)
-      this.append(assistant)
-      if (current.usage)
-        this.#state = updateSession(this.#state, (draft) => {
-          draft.cumulativeUsage.input += current.usage!.input
-          draft.cumulativeUsage.output += current.usage!.output
-          draft.cumulativeUsage.cacheRead =
-            (draft.cumulativeUsage.cacheRead ?? 0) + (current.usage!.cacheRead ?? 0)
-          draft.cumulativeUsage.cacheWrite =
-            (draft.cumulativeUsage.cacheWrite ?? 0) + (current.usage!.cacheWrite ?? 0)
-          draft.cumulativeUsage.costUSD += current.usage!.costUSD ?? 0
+        if (loops >= (this.options.maxToolLoopsPerTurn ?? 25)) {
+          await this.emit('error.raised', turnId, { code: 'tool_loop_exhausted', loopCount: loops })
+          break
+        }
+        loops += 1
+        decision =
+          retryDecision ??
+          (sticky
+            ? { provider: sticky, model: decision?.model ?? '', reason: 'sticky-provider' }
+            : await this.router.pick(
+                this.routerContext(turnId, attempts, turnStartedAt, signal),
+                routerHint,
+              ))
+        retryDecision = undefined
+        const system = await this.promptComposer.compose({
+          cwd: this.#state.cwd,
+          model: decision.model,
+          provider: decision.provider.name,
         })
-      await this.emit('stream.completed', turnId, { messageId: assistant.id })
-      await this.emit('message.appended', turnId, { messageId: assistant.id })
-      const toolUses = assistant.content.filter(
-        (part): part is Extract<ContentPart, { type: 'tool_use' }> => part.type === 'tool_use',
-      )
-      if (toolUses.length === 0) break
-      toolCalls += toolUses.length
-      const results = await Promise.all(toolUses.map((tool) => this.tools.execute(tool, signal)))
-      for (const result of results) {
-        const message = this.message('user', [
-          {
-            type: 'tool_result',
-            toolUseId: result.toolUseId,
-            content: wrapUntrusted(
-              result.content,
-              `tool:${result.toolName ?? 'unknown'}`,
-              result.toolUseId,
+        if (this.#state.systemPromptSnapshot !== system)
+          this.#state = updateSession(this.#state, (draft) => {
+            draft.systemPromptSnapshot = system
+          })
+        let requestMessages = this.#state.messages
+        if (this.contextPolicy) {
+          const context = {
+            session: this.#state,
+            capabilities: decision.provider.capabilities,
+            turnId,
+            model: decision.model,
+            systemTokens: this.contextPolicy.estimateTokens(system, decision.model),
+            toolSchemaTokens: Math.ceil(
+              JSON.stringify(this.tools.schemas(decision.provider)).length / 3.5,
             ),
-            ...(result.isError === undefined ? {} : { isError: result.isError }),
-          },
-        ])
-        this.append(message)
-        await this.emit('tool.completed', turnId, {
-          toolUseId: result.toolUseId,
-          toolName: result.toolName ?? 'unknown',
-          content: result.content as unknown as JsonValue,
-          isError: result.isError ?? false,
+          }
+          if (this.contextPolicy.shouldCompact(context)) {
+            this.#state = updateSession(this.#state, (draft) => {
+              const turn = draft.turns.find((item) => item.id === turnId)
+              if (turn) turn.status = 'compacting'
+            })
+            const snapshot = await this.contextPolicy.compact(context)
+            this.#state = updateSession(this.#state, (draft) => {
+              draft.messages = [...snapshot.messages]
+              const turn = draft.turns.find((item) => item.id === turnId)
+              if (turn) turn.status = 'streaming'
+            })
+            await this.emit('context.compacted', turnId, {
+              strategy: snapshot.strategy,
+              beforeTokens: snapshot.beforeTokens,
+              afterTokens: snapshot.afterTokens,
+              compactedCount: snapshot.compactedMessageIds.length,
+              hookIntercepted: snapshot.hookIntercepted,
+            })
+          }
+          requestMessages = this.contextPolicy.buildPrompt({
+            ...context,
+            session: this.#state,
+          }).messages
+        }
+        requestMessages = messagesForCapabilities(
+          requestMessages,
+          decision.provider.name,
+          decision.provider.capabilities,
+        )
+        await this.emit('stream.started', turnId, {
+          provider: decision.provider.name,
+          model: decision.model,
         })
-        await this.emit('message.appended', turnId, { messageId: message.id })
+        const current: InProgress = { text: '', thinking: '', tools: new Map() }
+        let interrupted = false
+        for await (const chunk of decision.provider.stream(
+          {
+            model: decision.model,
+            messages: requestMessages,
+            system,
+            tools: this.tools.schemas(decision.provider),
+          },
+          signal,
+        )) {
+          if (signal.aborted) break outer
+          if (chunk.kind === 'tool_use.start') sticky ??= decision.provider
+          if (chunk.kind === 'message.interrupted') {
+            interrupted = true
+            const hadPartialToolUse = current.tools.size > 0
+            await this.emit('error.raised', turnId, {
+              code: 'stream_interrupted',
+              reason: chunk.reason,
+              hadPartialToolUse,
+            })
+            if (hadPartialToolUse) {
+              failed = true
+              await this.emit('error.raised', turnId, {
+                code: 'stream_resume_unsafe_partial_tool_use',
+                reason: 'partial tool_use cannot be resumed or replayed safely',
+              })
+              break outer
+            }
+            const error = Object.assign(new Error(chunk.reason), {
+              provider: decision.provider.name,
+              model: decision.model,
+              category: 'stream_truncated',
+              retryable: true,
+            }) as ProviderError
+            const next = await this.router.onError(
+              error,
+              this.routerContext(turnId, attempts++, turnStartedAt, signal, sticky?.name),
+            )
+            if (next === 'give-up') {
+              failed = true
+              break outer
+            }
+            if (sticky && next.provider !== sticky) {
+              failed = true
+              await this.emit('error.raised', turnId, {
+                code: 'provider_sticky_violation',
+                reason: 'tool_use already in flight, cannot switch provider',
+              })
+              break outer
+            }
+            if (next.provider !== decision.provider)
+              await this.emit('router.switched', turnId, {
+                from: decision.provider.name,
+                to: next.provider.name,
+                reason: next.reason,
+                category: error.category,
+              })
+            retryDecision = next
+            continue outer
+          }
+          this.merge(current, chunk)
+          await this.emit('stream.delta', turnId, { chunk: chunk as unknown as JsonValue })
+        }
+        if (interrupted) continue
+        if (signal.aborted) break
+        await this.router.onSuccess?.(
+          decision,
+          this.routerContext(turnId, attempts, turnStartedAt, signal, sticky?.name),
+        )
+        const assistant = this.finish(current, decision)
+        this.append(assistant)
+        if (current.usage)
+          this.#state = updateSession(this.#state, (draft) => {
+            draft.cumulativeUsage.input += current.usage!.input
+            draft.cumulativeUsage.output += current.usage!.output
+            draft.cumulativeUsage.cacheRead =
+              (draft.cumulativeUsage.cacheRead ?? 0) + (current.usage!.cacheRead ?? 0)
+            draft.cumulativeUsage.cacheWrite =
+              (draft.cumulativeUsage.cacheWrite ?? 0) + (current.usage!.cacheWrite ?? 0)
+            draft.cumulativeUsage.costUSD += current.usage!.costUSD ?? 0
+          })
+        await this.emit('stream.completed', turnId, { messageId: assistant.id })
+        await this.emit('message.appended', turnId, { messageId: assistant.id })
+        const toolUses = assistant.content.filter(
+          (part): part is Extract<ContentPart, { type: 'tool_use' }> => part.type === 'tool_use',
+        )
+        if (toolUses.length === 0) break
+        toolCalls += toolUses.length
+        const results = await Promise.all(toolUses.map((tool) => this.tools.execute(tool, signal)))
+        for (const result of results) {
+          const message = this.message('user', [
+            {
+              type: 'tool_result',
+              toolUseId: result.toolUseId,
+              content: wrapUntrusted(
+                result.content,
+                `tool:${result.toolName ?? 'unknown'}`,
+                result.toolUseId,
+              ),
+              ...(result.isError === undefined ? {} : { isError: result.isError }),
+            },
+          ])
+          this.append(message)
+          await this.emit('tool.completed', turnId, {
+            toolUseId: result.toolUseId,
+            toolName: result.toolName ?? 'unknown',
+            content: result.content as unknown as JsonValue,
+            isError: result.isError ?? false,
+          })
+          await this.emit('message.appended', turnId, { messageId: message.id })
+        }
       }
+    } catch (error) {
+      failed = true
+      await this.emit('error.raised', turnId, {
+        code: 'runner_error',
+        message: error instanceof Error ? error.message : String(error),
+        ...(decision
+          ? {
+              provider: decision.provider.name,
+              model: decision.model,
+            }
+          : {}),
+      })
     }
     const aborted = failed || signal.aborted || this.#state.pendingInterrupt
     this.#state = updateSession(this.#state, (draft) => {

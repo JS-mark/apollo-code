@@ -158,6 +158,23 @@ describe('Runner', () => {
     await running
     expect(seen?.aborted).toBe(true)
   })
+  it('settles the turn when a provider stream throws', async () => {
+    const client = provider([])
+    client.stream = async function* () {
+      throw new Error('provider failed')
+    }
+    const raised: unknown[] = []
+    const bus = new EventBus()
+    bus.subscribe((event) => {
+      if (event.type === 'error.raised') raised.push(event.payload)
+    })
+    const state = await new Runner(context(), router(client), composer, tools, bus).run('hi')
+    expect(state.activeTurn).toBeNull()
+    expect(state.turns.at(-1)?.status).toBe('aborted')
+    expect(raised).toContainEqual(
+      expect.objectContaining({ code: 'runner_error', message: 'provider failed' }),
+    )
+  })
   it('fails closed on partial tool_use without consulting retry routing or executing it', async () => {
     const first = provider(
       [
