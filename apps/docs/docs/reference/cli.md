@@ -1,5 +1,16 @@
 # CLI reference
 
+## Directory trust
+
+```sh
+apollo trust list [--json]
+apollo trust revoke <path>
+apollo trust revoke --all
+apollo chat --cwd <path> --trust-workspace "prompt"
+```
+
+`--trust-workspace` is the scriptable opt-in for non-interactive runs. It persists an exact canonical-path rule; it never grants a parent or subtree scope.
+
 ## Context evolution (L2)
 
 `apollo evolution show [--namespace context] [--since <date>]` displays the sanitized, append-only local tuning audit. `apollo evolution rollback [--namespace context] [--to <timestamp>]` restores context parameters to the preceding or selected point. Setting `[evolution] enabled = false` in `~/.apollo/config.toml` makes new sessions use built-in context defaults.

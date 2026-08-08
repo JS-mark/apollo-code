@@ -14,6 +14,7 @@ export const command = defineCommand({
     evolution: leaf('evolution', 'Inspect and rollback local tuning'),
     plugin: leaf('plugin', 'Install and manage sandboxed plugins'),
     telemetry: leaf('telemetry', 'Inspect, export, or clear local telemetry'),
+    trust: leaf('trust', 'List or revoke trusted directories'),
     doctor: leaf('doctor', 'Diagnose L1 dependencies'),
     hook: leaf('hook', 'List builtin hooks'),
     mcp: leaf('mcp', 'List, test, and inspect MCP servers'),
