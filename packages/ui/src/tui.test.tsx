@@ -365,15 +365,17 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('Unavailable models are muted')
   })
 
-  it('supports model picker down and enter interactions', async () => {
+  it('supports model picker down, unavailable focus, and enter interactions', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
+    const activeIds: string[] = []
     const submitted: string[] = []
     const picker = render(
       createElement(ModelPicker, {
         activeId: 'anthropic/sonnet',
         currentModelId: 'anthropic/sonnet',
         models: modelPickerFixture().models,
+        onActiveChange: (id) => activeIds.push(id),
         onSubmit: (id) => submitted.push(id),
       }),
       {
@@ -384,6 +386,13 @@ describe('renderInteractiveApp', () => {
         stdout: stdout as unknown as NodeJS.WriteStream,
       },
     )
+
+    stdin.write('\u001B[B')
+    await picker.waitUntilRenderFlush()
+    stdin.write('\r')
+    await picker.waitUntilRenderFlush()
+    expect(activeIds).toEqual(['anthropic/opus'])
+    expect(submitted).toEqual([])
 
     stdin.write('\u001B[B')
     await picker.waitUntilRenderFlush()

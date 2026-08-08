@@ -25,6 +25,7 @@ export function ModelPicker({
     <PanelFrame footer="Enter select | Esc cancel" title="Select model">
       <SelectList
         activeId={activeId}
+        disabledBehavior="focusable"
         items={models.map((model) => ({
           id: model.id,
           label: model.label,

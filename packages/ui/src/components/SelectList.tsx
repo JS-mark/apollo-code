@@ -11,6 +11,7 @@ export interface SelectListItem {
 
 export interface SelectListProps {
   activeId?: string
+  disabledBehavior?: 'focusable' | 'skip'
   items: readonly SelectListItem[]
   onActiveChange?: (id: string) => void
   onCancel?: () => void
@@ -21,6 +22,7 @@ export interface SelectListProps {
 
 export function SelectList({
   activeId,
+  disabledBehavior = 'skip',
   items,
   onActiveChange,
   onCancel,
@@ -55,7 +57,7 @@ export function SelectList({
       return
     }
     if (!key.upArrow && !key.downArrow) return
-    const nextId = nextEnabledId(items, currentId, key.downArrow ? 1 : -1)
+    const nextId = nextSelectableId(items, currentId, key.downArrow ? 1 : -1, disabledBehavior)
     if (!nextId) return
     setCurrentId(nextId)
     onActiveChange?.(nextId)
@@ -73,6 +75,12 @@ export function SelectList({
         const content = `${active ? '> ' : '  '}${item.selected ? '* ' : '  '}${item.label}${
           item.description ? `  ${item.description}` : ''
         }`
+        if (item.disabled && active)
+          return (
+            <Text color="yellow" key={item.id}>
+              {content}
+            </Text>
+          )
         if (item.disabled)
           return (
             <Text color="gray" key={item.id}>
@@ -96,10 +104,11 @@ export function SelectList({
   )
 }
 
-function nextEnabledId(
+function nextSelectableId(
   items: readonly SelectListItem[],
   currentId: string | undefined,
   step: 1 | -1,
+  disabledBehavior: 'focusable' | 'skip',
 ) {
   if (items.length === 0) return undefined
   const currentIndex = Math.max(
@@ -109,7 +118,7 @@ function nextEnabledId(
   for (let offset = 1; offset <= items.length; offset += 1) {
     const index = (currentIndex + offset * step + items.length) % items.length
     const item = items[index]
-    if (item && !item.disabled) return item.id
+    if (item && (disabledBehavior === 'focusable' || !item.disabled)) return item.id
   }
   return undefined
 }
