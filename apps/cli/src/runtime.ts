@@ -61,6 +61,10 @@ import { renderInteractiveApp } from '@apollo-code/ui'
 import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
+  SandboxDisclosure,
+  StatusSetting,
+  StatusSource,
+  StatusViewModel,
   SubmitOptions,
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
@@ -72,6 +76,157 @@ const terminalStatuses = new Set(['done', 'aborted', 'error'])
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const historySecretPattern =
   /\b(?:authorization|api[_-]?key|token|secret|passphrase|password|oauth[_-]?code|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key)\b/i
+const statusSecretKeyPattern =
+  /(?:authorization|api[_-]?key|token|secret|credential|passphrase|password|oauth)/i
+const statusUnavailable = (code: string) => ({
+  status: 'not_available' as const,
+  reason: { code },
+})
+
+export interface StatusViewModelInput {
+  state: SessionState
+  version: string
+  workspace?: string
+  project?: string
+  model?: {
+    provider: string
+    model: string
+    liteModel?: string | null
+    reasoningModel?: string | null
+    source: Exclude<StatusViewModel['model']['source'], 'derived_unreliable'>
+  }
+  sandbox?: SandboxDisclosure
+  dangerousPermissions?: boolean
+  authConfigured?: boolean
+  authMethod?: 'keychain' | 'encrypted_file' | 'env'
+  memoryMode?: string
+  settings?: readonly StatusSetting[]
+  configSources?: readonly StatusSource[]
+  mcpServers?: readonly string[]
+  skills?: readonly string[]
+  plugins?: readonly string[]
+}
+
+export function buildStatusViewModel(input: StatusViewModelInput): StatusViewModel {
+  const settings = (input.settings ?? [])
+    .filter((setting) => !statusSecretKeyPattern.test(setting.key))
+    .map((setting) => sanitize(setting))
+  const sandbox = input.sandbox
+  return {
+    identity: {
+      version: sanitize(input.version),
+      sessionId: sanitize(input.state.id),
+      createdAt: new Date(input.state.createdAt).toISOString(),
+      cwd: sanitize(input.state.cwd),
+      workspace: input.workspace
+        ? { status: 'available', value: sanitize(input.workspace) }
+        : { status: 'available', value: sanitize(input.state.cwd) },
+      project: input.project
+        ? { status: 'available', value: sanitize(input.project) }
+        : statusUnavailable('project_adapter_unavailable'),
+    },
+    model: input.model
+      ? {
+          status: 'available',
+          provider: sanitize(input.model.provider),
+          model: sanitize(input.model.model),
+          liteModel:
+            input.model.liteModel === null
+              ? { status: 'disabled' }
+              : input.model.liteModel === undefined
+                ? statusUnavailable('lite_model_unavailable')
+                : { status: 'available', value: sanitize(input.model.liteModel) },
+          reasoningModel:
+            input.model.reasoningModel === null
+              ? { status: 'disabled' }
+              : input.model.reasoningModel === undefined
+                ? statusUnavailable('reasoning_model_unavailable')
+                : { status: 'available', value: sanitize(input.model.reasoningModel) },
+          source: input.model.source,
+        }
+      : {
+          status: 'not_available',
+          source: 'derived_unreliable',
+          reason: { code: 'current_model_source_unavailable' },
+        },
+    runtime: {
+      sandbox: sandbox
+        ? {
+            status: 'available',
+            value: { tier: sandbox.tier, mechanism: sanitize(sandbox.mechanism) },
+          }
+        : statusUnavailable('sandbox_probe_unavailable'),
+      filesystem: sandbox
+        ? sandbox.features.filesystem
+          ? { status: 'available', value: 'isolated' }
+          : { status: 'not_available', reason: { code: 'filesystem_isolation_unavailable' } }
+        : statusUnavailable('filesystem_probe_unavailable'),
+      network: sandbox
+        ? sandbox.features.network
+          ? { status: 'available', value: 'restricted' }
+          : { status: 'blocked', reason: { code: 'sandbox_network_blocked' } }
+        : statusUnavailable('network_probe_unavailable'),
+      permission:
+        input.dangerousPermissions === undefined
+          ? statusUnavailable('permission_mode_unavailable')
+          : {
+              status: 'available',
+              value: input.dangerousPermissions
+                ? { mode: 'bypassed', source: 'flag' }
+                : { mode: 'ask', source: 'default' },
+            },
+      memory: input.memoryMode
+        ? { status: 'available', value: { mode: sanitize(input.memoryMode) } }
+        : statusUnavailable('memory_adapter_unavailable'),
+    },
+    auth: {
+      configured: input.authConfigured ?? null,
+      method: input.authMethod
+        ? { status: 'available', value: input.authMethod }
+        : statusUnavailable('auth_method_adapter_unavailable'),
+    },
+    settings,
+    config: {
+      sources: input.configSources
+        ? { status: 'available', value: [...input.configSources] }
+        : statusUnavailable('config_sources_adapter_unavailable'),
+    },
+    capabilities: {
+      mcpServers: input.mcpServers
+        ? {
+            status: 'available',
+            value: { count: input.mcpServers.length, names: sanitize([...input.mcpServers]) },
+          }
+        : statusUnavailable('mcp_discovery_adapter_unavailable'),
+      skills: input.skills
+        ? {
+            status: 'available',
+            value: { count: input.skills.length, names: sanitize([...input.skills]) },
+          }
+        : statusUnavailable('skills_discovery_adapter_unavailable'),
+      plugins: input.plugins
+        ? {
+            status: 'available',
+            value: { count: input.plugins.length, names: sanitize([...input.plugins]) },
+          }
+        : statusUnavailable('plugins_discovery_adapter_unavailable'),
+    },
+    usage: {
+      tokens: {
+        input: input.state.cumulativeUsage.input,
+        output: input.state.cumulativeUsage.output,
+        ...(input.state.cumulativeUsage.cacheRead === undefined
+          ? {}
+          : { cacheRead: input.state.cumulativeUsage.cacheRead }),
+        ...(input.state.cumulativeUsage.cacheWrite === undefined
+          ? {}
+          : { cacheWrite: input.state.cumulativeUsage.cacheWrite }),
+      },
+      context: { ...input.state.contextBudget },
+      costUSD: input.state.cumulativeUsage.costUSD,
+    },
+  }
+}
 
 export class RuntimeSessionPort implements SessionPort {
   #runner: Runner | undefined
@@ -90,6 +245,7 @@ export class RuntimeSessionPort implements SessionPort {
         | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
         | undefined,
     ) => void,
+    readonly statusSnapshot?: (state: SessionState) => Promise<StatusViewModel>,
   ) {}
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
@@ -130,6 +286,9 @@ export class RuntimeSessionPort implements SessionPort {
     return {
       id,
       events: this.#events!,
+      ...(this.statusSnapshot
+        ? { getStatus: () => this.statusSnapshot!(this.#runner!.state) }
+        : {}),
       setPermissionPromptHandler: (
         handler:
           | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
@@ -788,6 +947,42 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     },
     (handler) => {
       interactivePermissionPrompt = handler
+    },
+    async (state) => {
+      const [sandbox, authConfigured, userConfigAvailable] = await Promise.all([
+        probeSandbox().catch(() => undefined),
+        auth
+          .getCredential('anthropic')
+          .then(Boolean)
+          .catch(() => undefined),
+        access(join(home, 'config.toml')).then(
+          () => true,
+          () => false,
+        ),
+      ])
+      const sandboxFeatures = sandbox?.features
+      const disclosure = sandbox
+        ? {
+            tier: sandbox.tier,
+            mechanism:
+              typeof sandboxFeatures?.mechanism === 'string'
+                ? sandboxFeatures.mechanism
+                : 'apollo-sandbox',
+            features: {
+              filesystem: Boolean(sandboxFeatures?.filesystem ?? sandbox.tier !== 'none'),
+              network: Boolean(sandboxFeatures?.network),
+            },
+            degradationReasons: sandbox.known_limitations,
+          }
+        : undefined
+      return buildStatusViewModel({
+        state,
+        version: options.version ?? '0.0.0',
+        ...(disclosure ? { sandbox: disclosure } : {}),
+        dangerousPermissions: permissionOptions.dangerouslySkip,
+        ...(authConfigured === undefined ? {} : { authConfigured }),
+        configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
+      })
     },
   )
   return {

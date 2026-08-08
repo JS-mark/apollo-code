@@ -6,6 +6,7 @@ import type {
   InteractiveAppHandle,
   InteractiveAppOptions,
   SandboxDisclosure,
+  StatusViewModel,
   SubmitOptions,
 } from '@apollo-code/ui'
 
@@ -32,6 +33,7 @@ export interface SessionPort {
 export interface InteractiveSession {
   id: string
   events: EventBus
+  getStatus?(): Promise<StatusViewModel>
   setPermissionPromptHandler?(
     handler:
       | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
