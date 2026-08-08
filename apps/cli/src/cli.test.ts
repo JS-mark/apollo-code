@@ -54,6 +54,13 @@ function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
       })),
     },
     confirmation: { confirmDangerousNoSandbox: vi.fn(async () => false) },
+    trust: {
+      check: vi.fn(async (path: string) => ({ canonicalPath: path, trusted: true })),
+      grant: vi.fn(async (path: string, scope: 'exact' | 'tree') => ({ path, scope })),
+      list: vi.fn(async () => []),
+      revoke: vi.fn(async () => 0),
+      revokeAll: vi.fn(async () => 0),
+    },
     session: {
       start: vi.fn(async () => ({ id: 'session-1' })),
       resume: vi.fn(async (id) => ({ id })),
@@ -78,6 +85,7 @@ describe('runCli', () => {
       'evolution',
       'plugin',
       'telemetry',
+      'trust',
       'doctor',
       'hook',
       'mcp',
@@ -621,5 +629,79 @@ describe('runCli', () => {
     const result = await runCli(['logout', 'anthropic'], testPorts)
     expect(result.exitCode).toBe(0)
     expect(testPorts.auth.logout).toHaveBeenCalledWith('anthropic')
+  })
+
+  it('denies an untrusted non-interactive workspace before probing or session startup', async () => {
+    const testPorts = ports({
+      trust: {
+        check: vi.fn(async (path) => ({ canonicalPath: path, trusted: false })),
+        grant: vi.fn(),
+        list: vi.fn(async () => []),
+        revoke: vi.fn(async () => 0),
+        revokeAll: vi.fn(async () => 0),
+      },
+    })
+    const result = await runCli(['chat', 'hello', '--json'], testPorts)
+    expect(result).toMatchObject({ exitCode: 1, stderr: '' })
+    expect(result.stdout).toContain('directory_untrusted')
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+  })
+
+  it('supports a scriptable exact-folder opt-in', async () => {
+    const trust = {
+      check: vi.fn(async (path: string) => ({ canonicalPath: path, trusted: false })),
+      grant: vi.fn(async (path: string, scope: 'exact' | 'tree') => ({ path, scope })),
+      list: vi.fn(async () => []),
+      revoke: vi.fn(async () => 0),
+      revokeAll: vi.fn(async () => 0),
+    }
+    const testPorts = ports({ trust })
+    const result = await runCli(['chat', 'hello', '--json', '--trust-workspace'], testPorts)
+    expect(result.exitCode).toBe(0)
+    expect(trust.grant).toHaveBeenCalledWith(expect.any(String), 'exact')
+    expect(testPorts.session.start).toHaveBeenCalledOnce()
+  })
+
+  it('exits an interactive trust prompt without starting any runtime', async () => {
+    const testPorts = ports({
+      trust: {
+        check: vi.fn(async (path) => ({ canonicalPath: path, trusted: false })),
+        grant: vi.fn(),
+        list: vi.fn(async () => []),
+        revoke: vi.fn(async () => 0),
+        revokeAll: vi.fn(async () => 0),
+      },
+      ui: {
+        renderDirectoryTrustPrompt: vi.fn(async () => 'exit' as const),
+        renderInteractiveApp: vi.fn(),
+      },
+    })
+    const result = await runCli([], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+    expect(result.exitCode).toBe(1)
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+  })
+
+  it('lists and revokes trust rules without gating the management command', async () => {
+    const trust = {
+      check: vi.fn(),
+      grant: vi.fn(),
+      list: vi.fn(async () => [
+        { path: '/work/project', scope: 'tree' as const, trustedAt: '2026-08-08T00:00:00Z' },
+      ]),
+      revoke: vi.fn(async () => 1),
+      revokeAll: vi.fn(async () => 1),
+    }
+    expect((await runCli(['trust', 'list', '--json'], ports({ trust }))).stdout).toContain(
+      '/work/project',
+    )
+    expect((await runCli(['trust', 'revoke', '--all'], ports({ trust }))).stdout).toContain(
+      'Revoked 1',
+    )
+    expect(trust.check).not.toHaveBeenCalled()
   })
 })

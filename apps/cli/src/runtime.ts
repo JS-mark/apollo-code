@@ -57,7 +57,7 @@ import {
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
-import { renderInteractiveApp } from '@apollo-code/ui'
+import { renderDirectoryTrustPrompt, renderInteractiveApp } from '@apollo-code/ui'
 import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
@@ -66,6 +66,7 @@ import type {
 import { v7 as uuidv7 } from 'uuid'
 
 import type { ApolloPorts, SessionPort } from './ports'
+import { DirectoryTrustStore } from './trust'
 
 export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
 const terminalStatuses = new Set(['done', 'aborted', 'error'])
@@ -419,6 +420,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
+  const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
   const telemetry = new Telemetry(new LocalTelemetrySink(telemetryPath))
   const telemetryStore = new TelemetryStore(telemetryPath)
@@ -795,7 +797,9 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     session,
     ui: {
       renderInteractiveApp: (input) => renderInteractiveApp({ history, ...input }),
+      renderDirectoryTrustPrompt,
     },
+    trust,
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
