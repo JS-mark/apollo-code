@@ -1,7 +1,16 @@
-import { access, glob, readFile, stat, writeFile } from 'node:fs/promises'
+import {
+  access,
+  appendFile,
+  glob,
+  mkdir,
+  readFile,
+  rename,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
@@ -30,7 +39,7 @@ import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
 import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
 import type { RouterPolicy } from '@apollo-code/router'
-import type { JsonValue } from '@apollo-code/shared'
+import { sanitize, type JsonValue } from '@apollo-code/shared'
 import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
@@ -56,6 +65,8 @@ import type { ApolloPorts, SessionPort } from './ports'
 export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
 const terminalStatuses = new Set(['done', 'aborted', 'error'])
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const historySecretPattern =
+  /\b(?:authorization|api[_-]?key|token|secret|passphrase|password|oauth[_-]?code|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key)\b/i
 
 export class RuntimeSessionPort implements SessionPort {
   #runner: Runner | undefined
@@ -204,6 +215,76 @@ export class RuntimeSessionPort implements SessionPort {
   }
 }
 
+export class FileInputHistoryStore {
+  constructor(
+    readonly path: string,
+    readonly maxBytes = 1024 * 1024,
+    readonly maxEntries = 1000,
+    readonly maxInputBytes = 8 * 1024,
+  ) {}
+
+  async append(input: string): Promise<void> {
+    const value = input.trim()
+    if (!this.storeable(value)) return
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
+    await appendFile(
+      this.path,
+      `${JSON.stringify({ at: new Date().toISOString(), input: value })}\n`,
+      { mode: 0o600 },
+    )
+    await this.compact()
+  }
+
+  async list(): Promise<readonly string[]> {
+    return (await this.records()).map((record) => record.input)
+  }
+
+  private storeable(input: string): boolean {
+    if (!input) return false
+    if (Buffer.byteLength(input, 'utf8') > this.maxInputBytes) return false
+    if (historySecretPattern.test(input)) return false
+    return sanitize(input) === input
+  }
+
+  private async compact(): Promise<void> {
+    let records = (await this.records()).slice(-this.maxEntries)
+    let serialized = serializeHistory(records)
+    while (records.length > 0 && Buffer.byteLength(serialized, 'utf8') > this.maxBytes) {
+      records = records.slice(1)
+      serialized = serializeHistory(records)
+    }
+    const temp = `${this.path}.${process.pid}.tmp`
+    await writeFile(temp, serialized, { mode: 0o600 })
+    await rename(temp, this.path)
+  }
+
+  private async records(): Promise<Array<{ at: string; input: string }>> {
+    try {
+      const text = await readFile(this.path, 'utf8')
+      return text
+        .split('\n')
+        .flatMap((line) => {
+          if (!line) return []
+          try {
+            const record = JSON.parse(line) as { at?: unknown; input?: unknown }
+            if (typeof record.input !== 'string') return []
+            return [{ at: typeof record.at === 'string' ? record.at : '', input: record.input }]
+          } catch {
+            return []
+          }
+        })
+        .filter((record) => this.storeable(record.input))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+}
+
+function serializeHistory(records: readonly { at: string; input: string }[]): string {
+  return records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : '')
+}
+
 export class NodeHttpPort implements HttpPort {
   async request(input: HttpRequest): Promise<HttpResponse> {
     const url = new URL(input.url)
@@ -289,6 +370,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
+  const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
   const telemetry = new Telemetry(new LocalTelemetrySink(telemetryPath))
   const telemetryStore = new TelemetryStore(telemetryPath)
@@ -652,7 +734,9 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   return {
     version: options.version ?? '0.0.0',
     session,
-    ui: { renderInteractiveApp },
+    ui: {
+      renderInteractiveApp: (input) => renderInteractiveApp({ history, ...input }),
+    },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),

@@ -61,6 +61,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     statusLevel: 'muted',
     transcript: [],
   }))
+  const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
 
   useEffect(() => {
     if (!options.events) return
@@ -68,6 +69,26 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       setState((current) => applyInteractiveEvent(current, event))
     })
   }, [options.events])
+
+  useEffect(() => {
+    let disposed = false
+    void Promise.resolve(options.history?.list() ?? []).then(
+      (items) => {
+        if (!disposed) setHistoryEntries(items)
+      },
+      () => {
+        if (!disposed)
+          setState((current) => ({
+            ...current,
+            status: 'history unavailable',
+            statusLevel: 'warning',
+          }))
+      },
+    )
+    return () => {
+      disposed = true
+    }
+  }, [options.history])
 
   const transcript = useMemo(() => {
     if (!state.pendingAssistantText) return state.transcript
@@ -84,6 +105,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       <StatusLine level={state.statusLevel}>{state.status}</StatusLine>
       <InputBox
         disabled={state.statusLevel === 'active'}
+        history={historyEntries}
         initialValue={options.initialInput ?? ''}
         onSubmit={async (input) => {
           const trimmed = input.trim()
@@ -93,7 +115,16 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             exit()
             return
           }
-          await options.history?.append(input)
+          try {
+            await options.history?.append(input)
+            setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
+          } catch {
+            setState((current) => ({
+              ...current,
+              status: 'history unavailable',
+              statusLevel: 'warning',
+            }))
+          }
           await options.onSubmit?.(input)
         }}
       />

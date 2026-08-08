@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { updateSession } from '@apollo-code/core'
 import type { EventBus, Runner, SessionState } from '@apollo-code/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { RuntimeSessionPort } from './runtime'
+import { FileInputHistoryStore, RuntimeSessionPort } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>
@@ -78,5 +78,27 @@ describe('RuntimeSessionPort', () => {
     expect(restored?.activeTurn).toBeNull()
     expect(restored?.turns[0]?.status).toBe('aborted')
     expect(await readFile(join(root, `${id}.jsonl`), 'utf8')).toContain('session.resumed')
+  })
+})
+
+describe('FileInputHistoryStore', () => {
+  it('persists only safe bounded inputs and trims old entries', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.history-'))
+    fixtures.push(root)
+    const path = join(root, 'history', 'input.jsonl')
+    const history = new FileInputHistoryStore(path, 1024, 3, 20)
+
+    await history.append('')
+    await history.append('hello')
+    await history.append('token=secret-value')
+    await history.append('x'.repeat(21))
+    await history.append('one')
+    await history.append('two')
+    await history.append('three')
+
+    expect(await history.list()).toEqual(['one', 'two', 'three'])
+    const text = await readFile(path, 'utf8')
+    expect(text).not.toContain('secret-value')
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
   })
 })
