@@ -85,7 +85,7 @@ describe('status view model formatter', () => {
         memory: { status: 'not_available', reason: { code: 'memory_adapter_unavailable' } },
       },
       auth: {
-        configured: true,
+        configured: { status: 'available', value: true },
         method: { status: 'not_available', reason: { code: 'auth_method_unavailable' } },
       },
       settings: [
@@ -192,7 +192,7 @@ function minimalView(overrides: Partial<StatusViewModel> = {}): StatusViewModel 
       memory: { status: 'not_available', reason: { code: 'memory_not_available' } },
     },
     auth: {
-      configured: false,
+      configured: { status: 'available', value: false },
       method: { status: 'not_available', reason: { code: 'auth_method_unavailable' } },
     },
     settings: [],

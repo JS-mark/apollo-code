@@ -160,7 +160,7 @@ describe('buildStatusViewModel', () => {
       permission: { status: 'available', value: { mode: 'ask', source: 'default' } },
     })
     expect(view.auth).toEqual({
-      configured: true,
+      configured: { status: 'available', value: true },
       method: { status: 'available', value: 'keychain' },
     })
     expect(view.capabilities.mcpServers).toEqual({
@@ -225,7 +225,10 @@ describe('buildStatusViewModel', () => {
     })
 
     const serialized = JSON.stringify(view)
-    expect(view.auth.configured).toBeNull()
+    expect(view.auth.configured).toEqual({
+      status: 'not_available',
+      reason: { code: 'auth_configured_adapter_unavailable' },
+    })
     expect(view.identity.workspace).toEqual({
       status: 'not_available',
       reason: { code: 'workspace_adapter_unavailable' },
@@ -263,7 +266,10 @@ describe('buildStatusViewModel', () => {
 
     expect(getCredential).not.toHaveBeenCalled()
     expect(view.auth).toEqual({
-      configured: null,
+      configured: {
+        status: 'not_available',
+        reason: { code: 'auth_configured_adapter_unavailable' },
+      },
       method: { status: 'not_available', reason: { code: 'auth_method_adapter_unavailable' } },
     })
   })
