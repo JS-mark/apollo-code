@@ -52,6 +52,8 @@ export async function runCli(
 ): Promise<CliResult> {
   if (rawArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
     return { exitCode: 0, stdout: await renderUsage(command), stderr: '' }
+  if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
+    return { exitCode: 0, stdout: `${ports.version}\n`, stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition)
   const subcommand = args._[0]
   let stdout = ''
@@ -66,50 +68,6 @@ export async function runCli(
       ? jsonFailure(message, 1, 'invalid_workspace')
       : { exitCode: 1, stdout, stderr: message }
   }
-  const dangerousModes: DangerousMode[] = []
-  if (args.yolo || args.dangerouslySkipPermissions) {
-    dangerousModes.push('skip-permissions')
-    await ports.telemetry.securityEvent('permissions.dangerously_skipped', { cwd })
-  }
-  if (args.dangerousNoSandbox) {
-    dangerousModes.push('no-sandbox')
-    await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
-    if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
-      return {
-        exitCode: 1,
-        stdout,
-        stderr: 'Dangerous no-sandbox mode requires typing: I understand the risk',
-      }
-  }
-  const probe = await ports.native.probe()
-  const startsSession = subcommand === undefined || subcommand === 'chat'
-  if (!jsonMode) {
-    if (startsSession) stdout += `${renderPrivacyDisclosure()}\n`
-    stdout += `${renderSandboxDisclosure(probe)}\n`
-  }
-  if (args.strictSandbox && probe.tier !== 'full') {
-    const message = `Full sandbox required; detected ${probe.tier}.`
-    return jsonMode
-      ? jsonFailure(message, 3, 'sandbox_unavailable')
-      : { exitCode: 3, stdout, stderr: message }
-  }
-  if (startsSession && probe.tier === 'none' && !args.dangerousNoSandbox) {
-    await ports.telemetry.securityEvent('sandbox.probe.failed', { cwd, mechanism: probe.mechanism })
-    if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
-      return {
-        exitCode: 1,
-        stdout,
-        stderr: 'None-tier sandbox requires typing: I understand the risk',
-      }
-    dangerousModes.push('no-sandbox')
-    await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
-  }
-  const banner = renderSecurityBanner(dangerousModes, !args.noColor)
-  if (banner) stdout += `${banner}\n`
-  ports.session.configureSecurity?.({
-    skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
-  })
-  ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })
   if (subcommand === 'doctor') {
     const checks = await runDoctor(cwd, ports)
     stdout += args.json
@@ -390,6 +348,49 @@ export async function runCli(
   const prompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ') || undefined
   if (jsonMode && !prompt)
     return jsonFailure('JSON chat requires a prompt.', 2, 'prompt_required', 'usage')
+  const dangerousModes: DangerousMode[] = []
+  if (args.yolo || args.dangerouslySkipPermissions) {
+    dangerousModes.push('skip-permissions')
+    await ports.telemetry.securityEvent('permissions.dangerously_skipped', { cwd })
+  }
+  if (args.dangerousNoSandbox) {
+    dangerousModes.push('no-sandbox')
+    await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
+    if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
+      return {
+        exitCode: 1,
+        stdout,
+        stderr: 'Dangerous no-sandbox mode requires typing: I understand the risk',
+      }
+  }
+  const probe = await ports.native.probe()
+  if (!jsonMode) {
+    stdout += `${renderPrivacyDisclosure()}\n`
+    stdout += `${renderSandboxDisclosure(probe)}\n`
+  }
+  if (args.strictSandbox && probe.tier !== 'full') {
+    const message = `Full sandbox required; detected ${probe.tier}.`
+    return jsonMode
+      ? jsonFailure(message, 3, 'sandbox_unavailable')
+      : { exitCode: 3, stdout, stderr: message }
+  }
+  if (probe.tier === 'none' && !args.dangerousNoSandbox) {
+    await ports.telemetry.securityEvent('sandbox.probe.failed', { cwd, mechanism: probe.mechanism })
+    if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
+      return {
+        exitCode: 1,
+        stdout,
+        stderr: 'None-tier sandbox requires typing: I understand the risk',
+      }
+    dangerousModes.push('no-sandbox')
+    await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
+  }
+  const banner = renderSecurityBanner(dangerousModes, !args.noColor)
+  if (banner) stdout += `${banner}\n`
+  ports.session.configureSecurity?.({
+    skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
+  })
+  ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })
   try {
     const session = await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })
     return { exitCode: session.exitCode ?? 0, stdout, stderr }

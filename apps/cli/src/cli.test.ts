@@ -106,6 +106,52 @@ describe('runCli', () => {
     await expect(runCli(['-h'], ports())).resolves.toMatchObject({ exitCode: 0, stderr: '' })
   })
 
+  it('renders version flags before sandbox probing or session startup', async () => {
+    const testPorts = ports({
+      native: {
+        probe: vi.fn(async () => ({
+          tier: 'none' as const,
+          mechanism: 'unavailable',
+          features: { filesystem: false, network: false },
+          degradationReasons: ['probe failed'],
+        })),
+        health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
+      },
+    })
+    const result = await runCli(['--version'], testPorts)
+    expect(result).toEqual({ exitCode: 0, stdout: '0.0.0-test\n', stderr: '' })
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+    await expect(runCli(['-v'], ports())).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: '0.0.0-test\n',
+      stderr: '',
+    })
+  })
+
+  it('does not sandbox-gate non-chat commands on none-tier hosts', async () => {
+    const testPorts = ports({
+      native: {
+        probe: vi.fn(async () => ({
+          tier: 'none' as const,
+          mechanism: 'unavailable',
+          features: { filesystem: false, network: false },
+          degradationReasons: ['probe failed'],
+        })),
+        health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
+      },
+    })
+    const version = await runCli(['version'], testPorts)
+    const unknown = await runCli(['unknown'], testPorts)
+    expect(version).toEqual({ exitCode: 0, stdout: '0.0.0-test\n', stderr: '' })
+    expect(unknown).toMatchObject({ exitCode: 2 })
+    expect(unknown.stderr).toContain('unknown integration port is not connected')
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+  })
+
   it('installs, lists, diagnoses, disables, and uninstalls plugins through one port', async () => {
     const plugin = {
       install: vi.fn(async () => ({ name: 'apollo-plugin-demo', version: '1.0.0' })),
