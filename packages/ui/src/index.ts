@@ -1,4 +1,5 @@
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
+export * from './components/welcome/index'
 export const THEME_SCHEMA_VERSION = 1 as const
 export const THEME_TOKEN_NAMES = [
   'background',
@@ -390,6 +391,7 @@ export * from './model-picker'
 export * from './permission'
 export * from './tui'
 export * from './components/InputBox'
+export * from './components/DirectoryTrustPrompt'
 export * from './components/MessageBlock'
 export * from './components/ModelPicker'
 export * from './components/PanelFrame'

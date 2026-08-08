@@ -5,6 +5,7 @@ import type {
   InteractivePermissionRequest,
   InteractiveAppHandle,
   InteractiveAppOptions,
+  DirectoryTrustDecision,
   SandboxDisclosure,
   SubmitOptions,
 } from '@apollo-code/ui'
@@ -43,6 +44,22 @@ export interface InteractiveSession {
 }
 export interface UiPort {
   renderInteractiveApp(options: InteractiveAppOptions): InteractiveAppHandle
+  renderDirectoryTrustPrompt?(input: {
+    canonicalPath: string
+    parentPath: string
+  }): Promise<DirectoryTrustDecision>
+}
+export interface TrustPort {
+  check(path: string): Promise<{
+    canonicalPath: string
+    trusted: boolean
+    matchedPath?: string
+    scope?: 'exact' | 'tree'
+  }>
+  grant(path: string, scope: 'exact' | 'tree'): Promise<{ path: string; scope: 'exact' | 'tree' }>
+  list(): Promise<Array<{ path: string; scope: 'exact' | 'tree'; trustedAt: string }>>
+  revoke(path: string): Promise<number>
+  revokeAll(): Promise<number>
 }
 export interface ContextStatus {
   policy: string
@@ -104,6 +121,7 @@ export interface ApolloPorts {
     health(): Promise<TelemetryHealth>
   }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
+  trust: TrustPort
   session: SessionPort
   restore?: {
     restore(
@@ -159,6 +177,13 @@ export function unavailablePorts(): ApolloPorts {
       }),
     },
     confirmation: { confirmDangerousNoSandbox: async () => false },
+    trust: {
+      check: async (path) => ({ canonicalPath: path, trusted: false }),
+      grant: async (path, scope) => ({ path, scope }),
+      list: async () => [],
+      revoke: async () => 0,
+      revokeAll: async () => 0,
+    },
     session: {
       start: async () => ({ id: 'unconnected-session' }),
       resume: async (id) => ({ id }),
