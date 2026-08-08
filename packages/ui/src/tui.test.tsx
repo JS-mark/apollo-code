@@ -176,6 +176,54 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).not.toContain('/model Switch model (not available)')
   })
 
+  it('opens /model and moves between available and unavailable models', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const selectedModels: string[] = []
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/model',
+        modelPicker: twoModelPickerFixture(),
+        onModelSelect: (model) => {
+          selectedModels.push(model)
+        },
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Select model')
+    expect(stdout.output).toContain('> * Sonnet')
+
+    stdin.write('\u001B[B')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('>   Opus  Unavailable')
+
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(selectedModels).toEqual([])
+    expect(stdout.output).not.toContain('Model set to Opus')
+
+    stdin.write('\u001B[A')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(selectedModels).toEqual(['anthropic/sonnet'])
+    expect(stdout.output).toContain('Model set to Sonnet')
+
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('reports unavailable and unknown slash commands without throwing', async () => {
     const commands: SlashCommand[] = [
       {
@@ -459,6 +507,29 @@ function modelPickerFixture() {
         model: 'gpt-5',
         label: 'GPT-5',
         description: 'Available fallback',
+      },
+    ],
+  }
+}
+
+function twoModelPickerFixture() {
+  return {
+    currentModelId: 'anthropic/sonnet',
+    models: [
+      {
+        id: 'anthropic/sonnet',
+        provider: 'anthropic',
+        model: 'sonnet',
+        label: 'Sonnet',
+        description: 'Current',
+      },
+      {
+        id: 'anthropic/opus',
+        provider: 'anthropic',
+        model: 'opus',
+        label: 'Opus',
+        description: 'Unavailable',
+        disabled: true,
       },
     ],
   }
