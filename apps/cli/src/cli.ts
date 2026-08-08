@@ -50,6 +50,8 @@ export async function runCli(
   ports: ApolloPorts,
   io: CliIo = defaultIo,
 ): Promise<CliResult> {
+  if (rawArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
+    return { exitCode: 0, stdout: await renderUsage(command), stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition)
   const subcommand = args._[0]
   let stdout = ''

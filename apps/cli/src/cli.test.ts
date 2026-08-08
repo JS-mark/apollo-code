@@ -85,6 +85,27 @@ describe('runCli', () => {
     ])
   })
 
+  it('renders help flags before sandbox probing or session startup', async () => {
+    const testPorts = ports({
+      native: {
+        probe: vi.fn(async () => ({
+          tier: 'none' as const,
+          mechanism: 'unavailable',
+          features: { filesystem: false, network: false },
+          degradationReasons: ['probe failed'],
+        })),
+        health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
+      },
+    })
+    const result = await runCli(['--help'], testPorts)
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(result.stdout).toContain('apollo')
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+    await expect(runCli(['-h'], ports())).resolves.toMatchObject({ exitCode: 0, stderr: '' })
+  })
+
   it('installs, lists, diagnoses, disables, and uninstalls plugins through one port', async () => {
     const plugin = {
       install: vi.fn(async () => ({ name: 'apollo-plugin-demo', version: '1.0.0' })),
