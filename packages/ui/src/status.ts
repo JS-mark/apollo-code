@@ -73,7 +73,7 @@ export interface StatusViewModel {
     memory: StatusAvailability<{ mode: string }>
   }
   auth: {
-    configured: boolean | null
+    configured: StatusAvailability<boolean>
     method: StatusAvailability<'keychain' | 'encrypted_file' | 'env'>
   }
   settings: readonly StatusSetting[]
@@ -186,19 +186,22 @@ export const EDITABLE_STATUS_CONFIG_IDS = new Set([
   'cleanupPeriod',
 ])
 
-export function validateStatusConfigValue(item: StatusConfigItem, value: StatusValue) {
-  if (!item.editable || !EDITABLE_STATUS_CONFIG_IDS.has(item.id))
-    throw new Error(`${item.label} is read-only`)
-  if (item.kind === 'boolean' && typeof value !== 'boolean') throw new Error('Expected a boolean')
-  if ((item.kind === 'enum' || item.kind === 'string') && typeof value !== 'string')
+export function validateStatusConfigValue(configItem: StatusConfigItem, value: StatusValue) {
+  if (!configItem.editable || !EDITABLE_STATUS_CONFIG_IDS.has(configItem.id))
+    throw new Error(`${configItem.label} is read-only`)
+  if (configItem.kind === 'boolean' && typeof value !== 'boolean')
+    throw new Error('Expected a boolean')
+  if ((configItem.kind === 'enum' || configItem.kind === 'string') && typeof value !== 'string')
     throw new Error('Expected text')
-  if (item.kind === 'enum' && !item.choices?.includes(String(value)))
-    throw new Error(`Allowed values: ${item.choices?.join(', ')}`)
-  if (item.kind === 'number') {
+  if (configItem.kind === 'enum' && !configItem.choices?.includes(String(value)))
+    throw new Error(`Allowed values: ${configItem.choices?.join(', ')}`)
+  if (configItem.kind === 'number') {
     if (typeof value !== 'number' || !Number.isInteger(value))
       throw new Error('Expected an integer')
-    if (item.min !== undefined && value < item.min) throw new Error(`Minimum is ${item.min}`)
-    if (item.max !== undefined && value > item.max) throw new Error(`Maximum is ${item.max}`)
+    if (configItem.min !== undefined && value < configItem.min)
+      throw new Error(`Minimum is ${configItem.min}`)
+    if (configItem.max !== undefined && value > configItem.max)
+      throw new Error(`Maximum is ${configItem.max}`)
   }
 }
 
@@ -215,7 +218,7 @@ export function buildStatusSections(view: StatusViewModel): StatusSection[] {
     item('identity.workspace', 'Workspace', formatStatusAvailability(view.identity.workspace)),
     item('identity.project', 'Project', formatStatusAvailability(view.identity.project)),
     item('model.current', 'Model', model),
-    item('auth.configured', 'Auth configured', view.auth.configured ?? 'not available'),
+    item('auth.configured', 'Auth configured', formatStatusAvailability(view.auth.configured)),
     item('auth.method', 'Auth method', formatStatusAvailability(view.auth.method)),
     item('runtime.sandbox', 'Sandbox', formatStatusAvailability(view.runtime.sandbox)),
     item('runtime.filesystem', 'Filesystem', formatStatusAvailability(view.runtime.filesystem)),

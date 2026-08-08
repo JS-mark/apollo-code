@@ -188,7 +188,10 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
         : statusUnavailable('memory_adapter_unavailable'),
     },
     auth: {
-      configured: input.authConfigured ?? null,
+      configured:
+        input.authConfigured === undefined
+          ? statusUnavailable('auth_configured_adapter_unavailable')
+          : { status: 'available', value: input.authConfigured },
       method: input.authMethod
         ? { status: 'available', value: input.authMethod }
         : statusUnavailable('auth_method_adapter_unavailable'),
