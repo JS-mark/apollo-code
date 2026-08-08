@@ -386,9 +386,13 @@ export function resumeSessionView(view: SessionView, transcript: readonly string
 }
 
 export * from './app'
+export * from './permission'
 export * from './tui'
 export * from './components/InputBox'
 export * from './components/MessageBlock'
+export * from './components/PermissionPromptStack'
 export * from './components/ScrollableTranscript'
 export * from './components/StatusLine'
 export * from './components/TopBar'
+export * from './hooks/useSessionEvents'
+export * from './hooks/useStreamBuffer'

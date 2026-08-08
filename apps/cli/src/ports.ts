@@ -1,6 +1,8 @@
 import type { EventBus } from '@apollo-code/core'
 import type { TelemetryHealth, TelemetrySummary } from '@apollo-code/telemetry'
 import type {
+  InteractivePermissionDecision,
+  InteractivePermissionRequest,
   InteractiveAppHandle,
   InteractiveAppOptions,
   SandboxDisclosure,
@@ -29,6 +31,11 @@ export interface SessionPort {
 export interface InteractiveSession {
   id: string
   events: EventBus
+  setPermissionPromptHandler?(
+    handler:
+      | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+      | undefined,
+  ): void
   submit(input: string): Promise<void>
   end(): Promise<void>
   exitCode(): number

@@ -58,6 +58,7 @@ import {
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
 import { renderInteractiveApp } from '@apollo-code/ui'
+import type { InteractivePermissionDecision, InteractivePermissionRequest } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
 import type { ApolloPorts, SessionPort } from './ports'
@@ -80,6 +81,11 @@ export class RuntimeSessionPort implements SessionPort {
     readonly onSecurity?: (input: { skipPermissions: boolean }) => void,
     readonly onEnd?: (sessionId: string) => void | Promise<void>,
     readonly onTerminalOutput?: (input: { streamToStdout: boolean }) => void,
+    readonly onPermissionPromptHandler?: (
+      handler:
+        | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+        | undefined,
+    ) => void,
   ) {}
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
@@ -120,6 +126,13 @@ export class RuntimeSessionPort implements SessionPort {
     return {
       id,
       events: this.#events!,
+      setPermissionPromptHandler: (
+        handler:
+          | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+          | undefined,
+      ) => {
+        this.onPermissionPromptHandler?.(handler)
+      },
       submit: async (prompt: string) => {
         await this.#runner!.run(prompt)
         await this.snapshot()
@@ -167,6 +180,7 @@ export class RuntimeSessionPort implements SessionPort {
     })
     await this.snapshot()
     await this.onEnd?.(sessionId)
+    this.onPermissionPromptHandler?.(undefined)
     this.#runner = undefined
     this.#events = undefined
     this.#store = undefined
@@ -361,6 +375,33 @@ async function permissionPrompt(request: PermissionRequest): Promise<PermissionD
   return { kind: answer === 's' ? 'allow-session' : answer === 'a' ? 'allow-once' : 'deny' }
 }
 
+async function requestPermission(input: {
+  events: EventBus
+  interactivePermissionPrompt:
+    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | undefined
+  request: PermissionRequest
+  version: number
+}): Promise<PermissionDecision> {
+  const id = uuidv7()
+  const uiRequest: InteractivePermissionRequest = {
+    id,
+    attempt: input.request.attempt,
+    input: sanitize(input.request.input as JsonValue),
+    spec: sanitize(input.request.spec as JsonValue),
+    toolName: input.request.toolName,
+  }
+  await input.events.emit({
+    type: 'tool.permission_asked',
+    version: input.version,
+    sessionId: input.request.session.id,
+    payload: uiRequest as unknown as JsonValue,
+  })
+  if (!input.interactivePermissionPrompt) return permissionPrompt(input.request)
+  const decision = await input.interactivePermissionPrompt(uiRequest)
+  return { kind: decision.kind }
+}
+
 export interface ProductionOptions {
   apolloHome?: string
   model?: string
@@ -408,13 +449,21 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     dangerouslySkip: false,
     logger,
   }
+  let interactivePermissionPrompt:
+    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
   const createRunner: RunnerFactory = async (state, events) => {
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
     const permissions = new PermissionManager({}, permissionOptions)
     permissions.setPromptHandler(async (request) => {
-      const decision = await permissionPrompt(request)
+      const decision = await requestPermission({
+        events,
+        interactivePermissionPrompt,
+        request,
+        version: state.version,
+      })
       if (state.lineage.depth === 0) return decision
       return ['allow-once', 'allow-session', 'deny'].includes(decision.kind)
         ? decision
@@ -729,6 +778,9 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     },
     (input) => {
       streamToStdout = input.streamToStdout
+    },
+    (handler) => {
+      interactivePermissionPrompt = handler
     },
   )
   return {

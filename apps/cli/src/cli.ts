@@ -1,5 +1,6 @@
 import { sanitize, validateWorkspacePath } from '@apollo-code/shared'
 import {
+  PermissionPromptController,
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
   renderSecurityBanner,
@@ -417,13 +418,20 @@ export async function runCli(
   try {
     if (shouldUseTui) {
       const interactive = await ports.session.startInteractive!({ cwd })
+      const permissions = new PermissionPromptController()
+      if (!(args.yolo || args.dangerouslySkipPermissions))
+        interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
       const app = ports.ui!.renderInteractiveApp({
         cwd,
         events: interactive.events,
         onExit: interactive.end,
         onSubmit: interactive.submit,
+        permissions,
         sessionId: interactive.id,
-        status: `sandbox ${probe.tier}`,
+        status:
+          args.yolo || args.dangerouslySkipPermissions
+            ? `sandbox ${probe.tier}; permissions bypassed`
+            : `sandbox ${probe.tier}`,
       })
       await app.waitUntilExit()
       return { exitCode: interactive.exitCode(), stdout, stderr }

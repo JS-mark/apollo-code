@@ -1,12 +1,16 @@
 import type { CoreEvent, EventBus } from '@apollo-code/core'
 import { Box, useApp } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
+import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { TopBar } from './components/TopBar'
+import { useSessionEvents } from './hooks/useSessionEvents'
+import { useStreamBuffer } from './hooks/useStreamBuffer'
+import type { PermissionPromptController } from './permission'
 
 export interface TranscriptEntry {
   id: string
@@ -40,6 +44,7 @@ export interface InteractiveAppOptions {
   initialInput?: string
   onExit?: () => Promise<void> | void
   onSubmit?: (input: string) => Promise<void> | void
+  permissions?: PermissionPromptController
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   status?: string
@@ -63,13 +68,84 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     transcript: [],
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
+  const [permissionRequests, setPermissionRequests] = useState(
+    () => options.permissions?.requests() ?? [],
+  )
+
+  const flushPendingToTranscript = useCallback(
+    (state: InteractiveAppState, id: string): InteractiveAppState => {
+      if (!state.pendingAssistantText) return state
+      return {
+        ...state,
+        pendingAssistantText: '',
+        transcript: [
+          ...state.transcript,
+          { id, role: 'assistant', text: state.pendingAssistantText },
+        ],
+      }
+    },
+    [],
+  )
+
+  const streamBuffer = useStreamBuffer(
+    useCallback((text) => {
+      setState((current) => ({
+        ...current,
+        pendingAssistantText: current.pendingAssistantText + text,
+      }))
+    }, []),
+  )
 
   useEffect(() => {
-    if (!options.events) return
-    return options.events.subscribe((event) => {
-      setState((current) => applyInteractiveEvent(current, event))
-    })
-  }, [options.events])
+    if (!options.permissions) return
+    return options.permissions.subscribe(setPermissionRequests)
+  }, [options.permissions])
+
+  useSessionEvents(
+    options.events,
+    useCallback(
+      (event) => {
+        if (event.type === 'stream.started') {
+          streamBuffer.reset()
+          setState((current) => applyInteractiveEvent(current, event))
+          return
+        }
+        if (event.type === 'stream.delta') {
+          streamBuffer.append(payloadText(event.payload))
+          setState((current) => ({ ...current, status: 'streaming', statusLevel: 'active' }))
+          return
+        }
+        if (event.type === 'stream.completed') {
+          const flushed = streamBuffer.flushNow()
+          setState((current) => {
+            const withFlushed = flushed
+              ? {
+                  ...current,
+                  pendingAssistantText: current.pendingAssistantText + flushed,
+                }
+              : current
+            return applyInteractiveEvent(withFlushed, event)
+          })
+          return
+        }
+        if (event.type === 'turn.aborted' || event.type === 'error.raised') {
+          const flushed = streamBuffer.flushNow()
+          setState((current) => {
+            const withFlushed = flushed
+              ? {
+                  ...current,
+                  pendingAssistantText: current.pendingAssistantText + flushed,
+                }
+              : current
+            return applyInteractiveEvent(flushPendingToTranscript(withFlushed, event.id), event)
+          })
+          return
+        }
+        setState((current) => applyInteractiveEvent(current, event))
+      },
+      [flushPendingToTranscript, streamBuffer],
+    ),
+  )
 
   useEffect(() => {
     let disposed = false
@@ -135,9 +211,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     <Box flexDirection="column">
       <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
       <ScrollableTranscript entries={transcript} />
-      <StatusLine level={state.statusLevel}>{state.status}</StatusLine>
+      {options.permissions ? (
+        <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
+      ) : null}
+      <StatusLine level={permissionRequests.length > 0 ? 'warning' : state.statusLevel}>
+        {permissionRequests.length > 0 ? 'permission required' : state.status}
+      </StatusLine>
       <InputBox
-        disabled={state.statusLevel === 'active'}
+        disabled={state.statusLevel === 'active' || permissionRequests.length > 0}
         history={historyEntries}
         initialValue={options.initialInput ?? ''}
         slashCommands={slashCommands}
@@ -273,6 +354,28 @@ function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): In
     return { ...state, status: 'turn aborted', statusLevel: 'warning' }
   }
 
+  if (event.type === 'turn.completed') {
+    return { ...state, status: 'ready', statusLevel: 'muted' }
+  }
+
+  if (event.type === 'tool.permission_asked') {
+    return { ...state, status: 'permission required', statusLevel: 'warning' }
+  }
+
+  if (event.type === 'tool.started') {
+    const toolName = payloadField(event.payload, 'toolName') || 'tool'
+    return { ...state, status: `running ${toolName}`, statusLevel: 'active' }
+  }
+
+  if (event.type === 'tool.completed') {
+    const toolName = payloadField(event.payload, 'toolName') || 'tool'
+    return { ...state, status: `${toolName} completed`, statusLevel: 'muted' }
+  }
+
+  if (event.type === 'context.compacted') {
+    return { ...state, status: 'context compacted', statusLevel: 'muted' }
+  }
+
   if (event.type === 'error.raised') {
     return {
       ...state,
@@ -286,6 +389,12 @@ function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): In
   }
 
   return state
+}
+
+function payloadField(payload: CoreEvent['payload'], key: string): string | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  const value = (payload as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value : undefined
 }
 
 function payloadText(payload: CoreEvent['payload']): string {

@@ -323,6 +323,7 @@ describe('runCli', () => {
     const interactive = {
       id: 'session-1',
       events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
       submit: vi.fn(async () => {}),
       end: vi.fn(async () => {}),
       exitCode: vi.fn(() => 0),
@@ -362,11 +363,55 @@ describe('runCli', () => {
       expect.objectContaining({
         cwd: process.cwd(),
         events: interactive.events,
+        permissions: expect.any(Object),
         sessionId: 'session-1',
         status: 'sandbox full',
       }),
     )
+    expect(interactive.setPermissionPromptHandler).toHaveBeenCalledWith(expect.any(Function))
     expect(waitUntilExit).toHaveBeenCalledOnce()
+  })
+
+  it('does not register permission prompts in yolo TUI mode', async () => {
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const testPorts = ports({
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: {
+        renderInteractiveApp: vi.fn(() => ({
+          clear: vi.fn(),
+          unmount: vi.fn(),
+          waitUntilExit: vi.fn(async () => {}),
+          waitUntilRenderFlush: vi.fn(async () => {}),
+        })),
+      },
+    })
+
+    const result = await runCli(['chat', '--yolo'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(interactive.setPermissionPromptHandler).not.toHaveBeenCalled()
+    expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'sandbox full; permissions bypassed',
+      }),
+    )
   })
 
   it('keeps --no-tui promptless chat on the line fallback even when TTY is available', async () => {

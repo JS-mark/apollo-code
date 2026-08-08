@@ -1,9 +1,10 @@
 import { PassThrough, Writable } from 'node:stream'
 
 import { EventBus } from '@apollo-code/core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { runSlashCommand, type SlashCommand } from './app'
+import { PermissionPromptController } from './permission'
 import { renderInteractiveApp } from './tui'
 
 class MemoryWriteStream extends Writable {
@@ -127,5 +128,92 @@ describe('renderInteractiveApp', () => {
     await expect(runSlashCommand('/missing', commands)).resolves.toBe(
       'Unknown slash command: /missing',
     )
+  })
+
+  it('buffers stream deltas before rendering', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await events.emit({
+      payload: {},
+      sessionId: 'session-1',
+      type: 'stream.started',
+      version: 1,
+    })
+    await events.emit({
+      payload: { chunk: { kind: 'text.delta', text: 'a' } },
+      sessionId: 'session-1',
+      type: 'stream.delta',
+      version: 1,
+    })
+    await events.emit({
+      payload: { chunk: { kind: 'text.delta', text: 'b' } },
+      sessionId: 'session-1',
+      type: 'stream.delta',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).not.toContain('ab')
+
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('ab')
+  })
+
+  it('renders queued permission prompts', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        permissions,
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    void permissions.request({
+      attempt: 1,
+      id: 'permission-1',
+      input: { command: 'touch x' },
+      spec: { bash: { command: 'touch x' } },
+      toolName: 'Bash',
+    })
+    void permissions.request({
+      attempt: 1,
+      id: 'permission-2',
+      input: {},
+      spec: { fs: { write: ['x'] } },
+      toolName: 'Write',
+    })
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('Permission required: Bash')
+    expect(stdout.output).toContain('1 queued')
   })
 })

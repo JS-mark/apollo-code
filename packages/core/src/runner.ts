@@ -283,7 +283,16 @@ export class Runner {
         )
         if (toolUses.length === 0) break
         toolCalls += toolUses.length
-        const results = await Promise.all(toolUses.map((tool) => this.tools.execute(tool, signal)))
+        const results = await Promise.all(
+          toolUses.map(async (tool) => {
+            await this.emit('tool.started', turnId, {
+              toolUseId: tool.id,
+              toolName: tool.name,
+              input: tool.input as unknown as JsonValue,
+            })
+            return this.tools.execute(tool, signal)
+          }),
+        )
         for (const result of results) {
           const message = this.message('user', [
             {
