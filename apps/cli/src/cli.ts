@@ -353,7 +353,8 @@ export async function runCli(
       stdout,
       stderr: `${subcommand} integration port is not connected in the L1 shell.`,
     }
-  const prompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ') || undefined
+  const rawPrompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ')
+  const prompt = rawPrompt || undefined
   if (jsonMode && !prompt)
     return jsonFailure('JSON chat requires a prompt.', 2, 'prompt_required', 'usage')
   const dangerousModes: DangerousMode[] = []

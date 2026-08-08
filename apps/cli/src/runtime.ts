@@ -80,9 +80,22 @@ export class RuntimeSessionPort implements SessionPort {
       createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
       false,
     )
-    const prompt = input.prompt ?? (await promptLine('> '))
-    if (prompt) await this.#runner!.run(prompt)
-    await this.snapshot()
+    if (input.prompt !== undefined) {
+      await this.#runner!.run(input.prompt)
+      await this.snapshot()
+    } else {
+      if (!isInteractiveTerminal()) throw new Error('Interactive chat requires a TTY or a prompt')
+      for (;;) {
+        const prompt = await promptLineMaybe('> ')
+        if (prompt === undefined) break
+        const trimmed = prompt.trim()
+        if (!trimmed) continue
+        if (trimmed === 'exit' || trimmed === 'quit') break
+        await this.#runner!.run(prompt)
+        await this.snapshot()
+      }
+      await this.snapshot()
+    }
     const last = this.#runner!.state.turns.at(-1)
     return { id, exitCode: last?.status === 'aborted' ? this.#lastExitCode : 0 }
   }
@@ -190,10 +203,18 @@ export class NodeHttpPort implements HttpPort {
 }
 
 async function promptLine(question: string): Promise<string> {
-  if (!stdin.isTTY || !stdout.isTTY) return ''
+  return (await promptLineMaybe(question)) ?? ''
+}
+function isInteractiveTerminal(): boolean {
+  return Boolean(stdin.isTTY && stdout.isTTY)
+}
+async function promptLineMaybe(question: string): Promise<string | undefined> {
+  if (!isInteractiveTerminal()) return undefined
   const io = createInterface({ input: stdin, output: stdout })
   try {
     return await io.question(question)
+  } catch {
+    return undefined
   } finally {
     io.close()
   }

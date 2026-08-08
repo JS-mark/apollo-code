@@ -306,6 +306,16 @@ describe('runCli', () => {
     )
   })
 
+  it('starts interactive chat without passing an empty prompt', async () => {
+    const testPorts = ports()
+    const result = await runCli(['chat'], testPorts)
+    expect(result.exitCode).toBe(0)
+    expect(testPorts.session.start).toHaveBeenCalledWith(expect.objectContaining({ cwd: process.cwd() }))
+    expect(testPorts.session.start).not.toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: '' }),
+    )
+  })
+
   it('uses NDJSON only for a JSON chat and disables human/TUI output', async () => {
     const testPorts = ports()
     testPorts.session.configureOutput = vi.fn(({ write }) => {

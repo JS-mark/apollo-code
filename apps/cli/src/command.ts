@@ -3,7 +3,7 @@ const leaf = (name: string, description: string) => defineCommand({ meta: { name
 export const command = defineCommand({
   meta: { name: 'apollo', version: '0.0.0', description: 'Open, model-agnostic AI coding CLI' },
   subCommands: {
-    chat: leaf('chat', 'Start a one-shot chat'),
+    chat: leaf('chat', 'Start an interactive chat'),
     resume: leaf('resume', 'Resume a saved session'),
     restore: leaf('restore', 'Restore files changed by a saved session'),
     login: leaf('login', 'Configure provider credentials'),
