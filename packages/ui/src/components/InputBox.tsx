@@ -1,12 +1,15 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 
+import type { SlashCommand } from '../app'
+
 export interface InputBoxProps {
   disabled?: boolean
   history?: readonly string[]
   initialValue?: string
   onSubmit?: (input: string) => Promise<void> | void
   placeholder?: string
+  slashCommands?: readonly SlashCommand[]
 }
 
 export function InputBox({
@@ -15,6 +18,7 @@ export function InputBox({
   initialValue = '',
   onSubmit,
   placeholder = 'Type a message',
+  slashCommands = [],
 }: InputBoxProps) {
   const [draftBeforeHistory, setDraftBeforeHistory] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
@@ -59,7 +63,12 @@ export function InputBox({
         setValue((current) => current.slice(0, -1))
         return
       }
-      if (key.ctrl || key.meta || key.escape || key.tab) return
+      if (key.tab) {
+        const [first] = slashSuggestions(value, slashCommands)
+        if (first) setValue(`/${first.name} `)
+        return
+      }
+      if (key.ctrl || key.meta || key.escape) return
       if (input) {
         setHistoryIndex(null)
         setValue((current) => current + input)
@@ -68,10 +77,32 @@ export function InputBox({
     { isActive: !disabled },
   )
 
+  const suggestions = slashSuggestions(value, slashCommands)
+
   return (
     <Box>
-      <Text color="green">{'> '}</Text>
-      {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
+      <Box flexDirection="column">
+        <Box>
+          <Text color="green">{'> '}</Text>
+          {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
+        </Box>
+        {suggestions.length > 0 ? (
+          <Box flexDirection="column" marginLeft={2}>
+            {suggestions.map((command) => (
+              <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
+                /{command.name} {command.description}
+                {command.available === false ? ' (not available)' : ''}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
+      </Box>
     </Box>
   )
+}
+
+function slashSuggestions(value: string, commands: readonly SlashCommand[]) {
+  if (!value.startsWith('/') || value.includes(' ')) return []
+  const prefix = value.slice(1).toLowerCase()
+  return commands.filter((command) => command.name.toLowerCase().startsWith(prefix)).slice(0, 6)
 }

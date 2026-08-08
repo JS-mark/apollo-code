@@ -1,5 +1,6 @@
 import type { CoreEvent, EventBus } from '@apollo-code/core'
 import { Box, useApp } from 'ink'
+import type { Dispatch, SetStateAction } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
@@ -90,6 +91,38 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     }
   }, [options.history])
 
+  const slashCommands = useMemo(() => {
+    if (options.slashCommands) return options.slashCommands
+    const commands: SlashCommand[] = [
+      {
+        name: 'help',
+        description: 'Show slash commands',
+        run: () => {
+          appendSystemMessage(setState, slashHelpText(commands))
+        },
+      },
+      {
+        name: 'exit',
+        description: 'End the session',
+        run: async () => {
+          await options.onExit?.()
+          exit()
+        },
+      },
+      {
+        name: 'clear',
+        description: 'Clear the transcript',
+        run: () => {
+          setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
+        },
+      },
+      unavailableSlashCommand('context', 'Show context status'),
+      unavailableSlashCommand('compact', 'Compact conversation context'),
+      unavailableSlashCommand('model', 'Switch model'),
+    ]
+    return commands
+  }, [exit, options.onExit, options.slashCommands])
+
   const transcript = useMemo(() => {
     if (!state.pendingAssistantText) return state.transcript
     return [
@@ -107,12 +140,21 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         disabled={state.statusLevel === 'active'}
         history={historyEntries}
         initialValue={options.initialInput ?? ''}
+        slashCommands={slashCommands}
         onSubmit={async (input) => {
           const trimmed = input.trim()
           if (!trimmed) return
-          if (trimmed === 'exit' || trimmed === 'quit' || trimmed === '/exit') {
+          if (trimmed === 'exit' || trimmed === 'quit') {
             await options.onExit?.()
             exit()
+            return
+          }
+          if (trimmed.startsWith('/')) {
+            const message = await runSlashCommand(trimmed, slashCommands)
+            if (message) {
+              appendSystemMessage(setState, message)
+              setState((current) => ({ ...current, status: message, statusLevel: 'warning' }))
+            }
             return
           }
           try {
@@ -130,6 +172,55 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       />
     </Box>
   )
+}
+
+function appendSystemMessage(
+  setState: Dispatch<SetStateAction<InteractiveAppState>>,
+  text: string,
+) {
+  setState((current) => ({
+    ...current,
+    transcript: [
+      ...current.transcript,
+      {
+        id: `system-${Date.now()}`,
+        role: 'system',
+        text,
+      },
+    ],
+  }))
+}
+
+function unavailableSlashCommand(name: string, description: string): SlashCommand {
+  return {
+    name,
+    description,
+    available: false,
+    run: () => {},
+  }
+}
+
+export async function runSlashCommand(raw: string, commands: readonly SlashCommand[]) {
+  const [name = '', ...args] = raw.slice(1).trim().split(/\s+/).filter(Boolean)
+  if (!name) return undefined
+  const command = commands.find((item) => item.name === name || item.aliases?.includes(name))
+  if (!command) return `Unknown slash command: /${name}`
+  if (command.available === false) return `/${command.name} is not available in this build/session`
+  try {
+    await command.run({ args, name: command.name, raw })
+  } catch (error) {
+    return error instanceof Error ? error.message : `/${command.name} failed`
+  }
+  return undefined
+}
+
+function slashHelpText(commands: readonly SlashCommand[]) {
+  return commands
+    .map((command) => {
+      const suffix = command.available === false ? ' (not available in this build/session)' : ''
+      return `/${command.name} - ${command.description}${suffix}`
+    })
+    .join('\n')
 }
 
 function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): InteractiveAppState {

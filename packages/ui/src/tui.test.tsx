@@ -3,6 +3,7 @@ import { PassThrough, Writable } from 'node:stream'
 import { EventBus } from '@apollo-code/core'
 import { describe, expect, it } from 'vitest'
 
+import { runSlashCommand, type SlashCommand } from './app'
 import { renderInteractiveApp } from './tui'
 
 class MemoryWriteStream extends Writable {
@@ -83,5 +84,48 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('/repo')
     expect(stdout.output).toContain('> hello')
     expect(stdout.output).toContain('pong')
+  })
+
+  it('renders slash command suggestions', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('/help Show slash commands')
+    expect(stdout.output).toContain('/context Show context status (not available)')
+  })
+
+  it('reports unavailable and unknown slash commands without throwing', async () => {
+    const commands: SlashCommand[] = [
+      {
+        available: false,
+        description: 'Show context status',
+        name: 'context',
+        run: () => {},
+      },
+    ]
+
+    await expect(runSlashCommand('/context', commands)).resolves.toBe(
+      '/context is not available in this build/session',
+    )
+    await expect(runSlashCommand('/missing', commands)).resolves.toBe(
+      'Unknown slash command: /missing',
+    )
   })
 })
