@@ -20,7 +20,11 @@ export function WelcomeScreen({
         <Text color="cyan" bold>{`Apollo Code  v${state.app.version}`}</Text>
         <Text color="gray">WELCOME / {layout.toUpperCase()}</Text>
       </Box>
-      <Box flexDirection={layout === 'full' ? 'row' : 'column'} marginTop={1}>
+      <Box
+        alignItems={layout === 'full' ? 'flex-start' : undefined}
+        flexDirection={layout === 'full' ? 'row' : 'column'}
+        marginTop={1}
+      >
         <ApolloLogo layout={layout} />
         <WelcomeStatusGrid layout={layout} state={state} />
       </Box>
