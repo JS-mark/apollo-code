@@ -34,7 +34,7 @@ export function WelcomeScreen({
           alignItems={layout === 'full' ? 'center' : undefined}
           flexDirection={layout === 'full' ? 'row' : 'column'}
         >
-          <ApolloLogo layout={layout} />
+          <ApolloLogo />
           <Box flexDirection="column" flexGrow={1}>
             <Box>
               <Text bold>{state.app.name} </Text>

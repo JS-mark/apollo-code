@@ -88,17 +88,17 @@ describe('welcome screen', () => {
   })
 
   it.each([
-    [{ columns: 120, rows: 30 }, 'full', '.--------.', '/ ____ \\'],
-    [{ columns: 90, rows: 24 }, 'compact', '/\\  APOLLO', '/__\\ CODE'],
-    [{ columns: 70, rows: 18 }, 'minimal', 'APOLLO', 'Apollo Code  v0.0.0-test'],
+    [{ columns: 120, rows: 30 }, 'full'],
+    [{ columns: 90, rows: 24 }, 'compact'],
+    [{ columns: 70, rows: 18 }, 'minimal'],
   ] as const)(
-    'renders a visible %s brand variant without leaving the first viewport',
-    async (terminalSize, _layout, brandText, secondaryText) => {
+    'renders the full block logo in the %s brand variant',
+    async (terminalSize, _layout) => {
       const output = stripVTControlCharacters(
         await renderWelcome(terminalSize, fixture({ status: 'unknown' })),
       )
-      expect(output).toContain(brandText)
-      expect(output).toContain(secondaryText)
+      expect(output).toContain('██████████████████████')
+      expect(output).toContain('██    ██')
     },
   )
 
@@ -116,8 +116,8 @@ describe('welcome screen', () => {
       ),
     )
     const lines = output.split('\n').filter((line) => /^[╭│╰]/.test(line))
-    expect(output).toContain('.--------.')
-    expect(output).toContain('/ ____ \\')
+    expect(output).toContain('██████████████████████')
+    expect(output).toContain('██    ██')
     expect(output).toContain('Workspace')
     expect(output).toContain('anthropic-enterprise-production')
     expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)
