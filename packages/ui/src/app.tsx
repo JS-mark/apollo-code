@@ -283,6 +283,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       initialValue={options.initialInput ?? ''}
       placeholder="Ask Apollo to inspect, change, test, or explain this repo"
       slashCommands={slashCommands}
+      terminalColumns={terminalSize.columns}
       onSubmit={async (input) => {
         const trimmed = input.trim()
         if (!trimmed) return

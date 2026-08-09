@@ -114,7 +114,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('runtime resolved')
     expect(stdout.output).toContain('MCP')
     expect(stdout.output).toContain('1 connected / 2 configured')
-    expect(stdout.output).toContain('> Ask Apollo')
+    expect(stdout.output).toMatch(/>\s*▌Ask Apollo/)
     expect(stdout.output).not.toContain('apollo >')
     expect(stdout.output).toContain('agent ready')
     expect(stdout.output).toContain('mode auto')
@@ -182,7 +182,7 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
 
     expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout}`)
-    expect(stdout.output).toContain('> Ask Apollo')
+    expect(stdout.output).toMatch(/>\s*▌Ask Apollo/)
     expect(stdout.output).not.toContain('apollo >')
     expect(stdout.output).toContain('agent ready')
     expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
@@ -363,23 +363,83 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toEqual(['/model'])
   })
 
-  it('renders an open-sided input frame with only the prompt chevron', async () => {
+  it('renders a full-width command band with placeholder and a visible entry cursor', async () => {
     const stdout = new MemoryWriteStream()
-    const input = render(createElement(InputBox, { placeholder: 'Ask Apollo' }), {
-      debug: true,
-      interactive: false,
-      patchConsole: false,
-      stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
-      stdout: stdout as unknown as NodeJS.WriteStream,
-    })
+    stdout.columns = 100
+    const input = render(
+      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 100 }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
 
     await input.waitUntilRenderFlush()
     input.unmount()
     await input.waitUntilExit()
 
-    expect(stdout.output).toContain('> Ask Apollo')
+    expect(stdout.output).toContain('> ▌Ask Apollo')
     expect(stdout.output).not.toContain('apollo >')
-    expect(stdout.output).not.toMatch(/[┌┐└┘│]/)
+    expect(stdout.output).toMatch(/[┌┐└┘│]/)
+    expect(stdout.output).toContain('Enter send / Shift+Enter newline')
+  })
+
+  it('hides the shortcut hint at narrow widths', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 60
+    const input = render(
+      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 60 }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    input.unmount()
+    await input.waitUntilExit()
+
+    expect(stdout.output).toContain('Ask Apollo')
+    expect(stdout.output).not.toContain('Enter send / Shift+Enter newline')
+  })
+
+  it('does not submit empty input and preserves multiline input', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted = vi.fn()
+    const input = render(
+      createElement(InputBox, {
+        onSubmit: submitted,
+        terminalColumns: 100,
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    expect(submitted).not.toHaveBeenCalled()
+
+    stdin.write('first line')
+    stdin.write('\u001B\r')
+    stdin.write('second line')
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('first line')
+    expect(stdout.output).toContain('second line')
+
+    input.unmount()
+    await input.waitUntilExit()
   })
 
   it('advertises /model as available when model picker data exists', async () => {
