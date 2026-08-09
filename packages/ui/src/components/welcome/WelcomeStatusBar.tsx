@@ -9,23 +9,38 @@ export function WelcomeStatusBar({
   layout: WelcomeLayoutMode
   state: WelcomeScreenState
 }) {
-  const trailing =
-    layout === 'minimal'
-      ? ''
-      : `  cwd ${state.workspace.displayCwd}  tokens ${state.session.tokensRemainingLabel ?? 'unknown'}`
   return (
-    <Box>
+    <Box
+      borderBottom={false}
+      borderLeft={false}
+      borderRight={false}
+      borderStyle="single"
+      borderTop
+      flexGrow={1}
+      paddingX={1}
+    >
       <Text color="cyan" inverse>
         {' '}
-        {state.agent.mode}{' '}
+        mode {state.agent.mode}{' '}
       </Text>
       <Text color="gray"> agent </Text>
       <Text color="green">{state.agent.status}</Text>
-      <Text color="gray">
-        {' '}
-        thinking {state.agent.thinking}
-        {trailing}
-      </Text>
+      <Text color="gray"> thinking {state.agent.thinking}</Text>
+      {layout === 'full' ? (
+        <>
+          <Text color="gray"> cwd </Text>
+          <Text>{state.workspace.displayCwd}</Text>
+          <Text color="gray"> tokens </Text>
+          <Text>{state.session.tokensRemainingLabel ?? 'unknown'}</Text>
+          <Text color="gray"> esc </Text>
+          <Text>interrupt</Text>
+        </>
+      ) : layout === 'compact' ? (
+        <>
+          <Text color="gray"> esc </Text>
+          <Text>interrupt</Text>
+        </>
+      ) : null}
     </Box>
   )
 }

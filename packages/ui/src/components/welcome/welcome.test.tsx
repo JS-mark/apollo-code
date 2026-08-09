@@ -88,6 +88,33 @@ describe('welcome screen', () => {
   })
 
   it.each([
+    [{ columns: 120, rows: 30 }, ['cwd /repo', 'tokens 200k remaining', 'esc interrupt']],
+    [{ columns: 90, rows: 24 }, ['esc interrupt']],
+    [{ columns: 70, rows: 18 }, []],
+  ] as const)(
+    'folds bottom status fields for %o without dropping stable agent state',
+    async (terminalSize, optionalFields) => {
+      const output = stripVTControlCharacters(
+        await renderWelcome(terminalSize, fixture({ status: 'unknown' })),
+      )
+      expect(output).toContain('mode auto')
+      expect(output).toContain('agent ready')
+      expect(output).toContain('thinking off')
+      for (const field of ['cwd /repo', 'tokens 200k remaining', 'esc interrupt']) {
+        expect(output.includes(field)).toBe(optionalFields.some((item) => item === field))
+      }
+    },
+  )
+
+  it('keeps transient runtime status separate from the stable bottom bar', async () => {
+    const output = stripVTControlCharacters(
+      await renderWelcome({ columns: 120, rows: 30 }, fixture({ status: 'unknown' })),
+    )
+    expect(output.indexOf('BOTTOM STATUS')).toBeLessThan(output.indexOf('COMMAND INPUT'))
+    expect(output.indexOf('COMMAND INPUT')).toBeLessThan(output.indexOf('mode auto'))
+  })
+
+  it.each([
     [{ columns: 120, rows: 30 }, 'full'],
     [{ columns: 90, rows: 24 }, 'compact'],
     [{ columns: 70, rows: 18 }, 'minimal'],
