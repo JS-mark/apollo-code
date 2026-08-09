@@ -2,6 +2,7 @@ import type { StatusTone } from './types'
 
 export const welcomeTheme = {
   brand: 'cyan',
+  brandAccent: 'brightCyan',
   border: 'cyan',
   default: 'white',
   info: 'cyan',

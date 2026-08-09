@@ -1,4 +1,5 @@
 import { PassThrough, Writable } from 'node:stream'
+import { stripVTControlCharacters } from 'node:util'
 
 import { render, Text } from 'ink'
 import { createElement } from 'react'
@@ -10,6 +11,7 @@ import { WelcomeScreen } from './WelcomeScreen'
 import { buildWelcomeScreenState } from './welcomeStateAdapter'
 
 class Output extends Writable {
+  columns = 120
   output = ''
   _write(chunk: Buffer | string, _encoding: BufferEncoding, done: () => void) {
     this.output += chunk.toString()
@@ -77,7 +79,71 @@ describe('welcome screen', () => {
     expect(stdout.output).toContain('BOTTOM STATUS')
     expect(stdout.output).not.toContain('Auth OK')
   })
+
+  it.each([
+    [{ columns: 120, rows: 30 }, 'full', 'A P O L L O', '/ ____ \\'],
+    [{ columns: 90, rows: 24 }, 'compact', '[ A ] APOLLO', 'CODE'],
+    [{ columns: 70, rows: 18 }, 'minimal', 'APOLLO', 'Apollo Code  v0.0.0-test'],
+  ] as const)(
+    'renders a visible %s brand variant without leaving the first viewport',
+    async (terminalSize, _layout, brandText, secondaryText) => {
+      const output = stripVTControlCharacters(
+        await renderWelcome(terminalSize, fixture({ status: 'unknown' })),
+      )
+      expect(output).toContain(brandText)
+      expect(output).toContain(secondaryText)
+    },
+  )
+
+  it('keeps the full logo fixed beside long workspace and provider values', async () => {
+    const output = stripVTControlCharacters(
+      await renderWelcome(
+        { columns: 120, rows: 30 },
+        fixture({
+          status: 'available',
+          provider: 'anthropic-enterprise-production',
+          model: 'claude-an-extremely-long-model-name-for-layout-regression',
+          source: 'explicit',
+        }),
+        '/Users/apollo/workspaces/a-very-long-enterprise-project-name-that-must-not-crush-branding',
+      ),
+    )
+    const lines = output.replaceAll('┘┌', '┘\n┌').split('\n')
+    expect(output).toContain('A P O L L O')
+    expect(lines.some((line) => line.includes('.----------.') && line.includes('Workspace'))).toBe(
+      true,
+    )
+    expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)
+  })
 })
+
+async function renderWelcome(
+  terminalSize: { columns: number; rows: number },
+  data: WelcomePanelData,
+  cwd?: string,
+) {
+  const stdout = new Output()
+  stdout.columns = terminalSize.columns
+  const view = render(
+    createElement(WelcomeScreen, {
+      state: buildWelcomeScreenState({ data: { ...data, cwd: cwd ?? data.cwd } }),
+      terminalSize,
+      commandInput: createElement(Text, {}, 'COMMAND INPUT'),
+      bottomStatus: createElement(Text, {}, 'BOTTOM STATUS'),
+    }),
+    {
+      debug: true,
+      interactive: false,
+      patchConsole: false,
+      stdin: new Input() as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+    },
+  )
+  await view.waitUntilRenderFlush()
+  view.unmount()
+  await view.waitUntilExit()
+  return stdout.output
+}
 
 function fixture(model: WelcomePanelData['model']): WelcomePanelData {
   return {
