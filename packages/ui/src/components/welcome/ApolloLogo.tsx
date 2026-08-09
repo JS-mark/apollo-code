@@ -25,11 +25,13 @@ export function ApolloLogo({ layout }: { layout: WelcomeLayoutMode }) {
 
   if (layout === 'compact')
     return (
-      <Box>
+      <Box flexDirection="column">
         <Text color={welcomeTheme.brandAccent} bold>
-          [ A ] APOLLO
+          {' /\\  APOLLO'}
         </Text>
-        <Text color={welcomeTheme.muted}> CODE</Text>
+        <Text color={welcomeTheme.brandAccent} bold>
+          {'/__\\ CODE'}
+        </Text>
       </Box>
     )
 
