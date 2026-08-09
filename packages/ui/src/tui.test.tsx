@@ -114,6 +114,67 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('runtime resolved')
     expect(stdout.output).toContain('MCP')
     expect(stdout.output).toContain('1 connected / 2 configured')
+    expect(stdout.output).toContain('apollo > Ask Apollo')
+    expect(stdout.output).toContain('BOTTOM STATUS')
+    expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
+  })
+
+  it.each([
+    [120, 30, 'FULL'],
+    [90, 24, 'COMPACT'],
+    [70, 18, 'MINIMAL'],
+  ] as const)('renders a unified welcome shell at %sx%s', async (columns, rows, layout) => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = columns
+    stdout.rows = rows
+    const app = renderInteractiveApp(
+      { cwd: '/repo', welcome: welcomeFixture() },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain(`WELCOME / ${layout}`)
+    expect(stdout.output).toContain('COMMAND')
+    expect(stdout.output).toContain('BOTTOM STATUS')
+    expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
+  })
+
+  it('hides the welcome shell after the first prompt without changing submission', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted = vi.fn()
+    const app = renderInteractiveApp(
+      { cwd: '/repo', onSubmit: submitted, welcome: welcomeFixture() },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('hello')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    app.unmount()
+    await app.waitUntilExit()
+
+    expect(submitted).toHaveBeenCalledWith('hello', undefined)
+    expect(stdout.output).toContain('Ready. Start with a message or /help.')
+    expect(stdout.output.lastIndexOf('WELCOME /')).toBeLessThan(
+      stdout.output.lastIndexOf('Ready. Start with a message or /help.'),
+    )
   })
 
   it('renders the static Ink shell and stream updates', async () => {

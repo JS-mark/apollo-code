@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 export type WelcomeLayoutMode = 'full' | 'compact' | 'minimal'
 export type StatusTone = 'default' | 'info' | 'success' | 'warning' | 'danger' | 'muted'
 export type TerminalSize = { columns: number; rows: number }
@@ -11,4 +13,11 @@ export interface WelcomeScreenState {
   session: { label: string; contextLabel: string; tokensRemainingLabel: string | null }
   agent: { mode: string; status: string; thinking: 'on' | 'off' }
   firstRunChecks: ReadonlyArray<{ id: string; label: string; tone: StatusTone }>
+}
+
+export interface WelcomeScreenProps {
+  bottomStatus: ReactNode
+  commandInput: ReactNode
+  state: WelcomeScreenState
+  terminalSize: TerminalSize
 }
