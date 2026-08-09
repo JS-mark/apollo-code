@@ -179,7 +179,9 @@ export function renderTelemetryPanel(state: TelemetryPanelState, now = Date.now(
   ].join('\n')
 }
 export type DangerousMode = 'no-sandbox' | 'skip-permissions'
+export { statusPanelFromWelcome, validateStatusConfigValue } from './status'
 export * from './status'
+export { renderDirectoryTrustPrompt, renderInteractiveApp } from './tui'
 export * from './tui'
 
 export interface ContextPanelState {
