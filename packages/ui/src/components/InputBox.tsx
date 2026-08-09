@@ -111,16 +111,15 @@ export function InputBox({
     <Box
       borderBottom
       borderColor={disabled ? 'gray' : 'cyan'}
+      borderLeft={false}
+      borderRight={false}
       borderStyle="single"
       borderTop
       paddingX={1}
     >
       <Box flexDirection="column" width="100%">
         <Box>
-          <Text color={disabled ? 'gray' : 'cyan'} bold>
-            apollo
-          </Text>
-          <Text color={disabled ? 'gray' : 'green'}>{' > '}</Text>
+          <Text color={disabled ? 'gray' : 'green'}>{'> '}</Text>
           {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
         </Box>
         <Text color="gray">Enter send / Shift+Enter newline</Text>
