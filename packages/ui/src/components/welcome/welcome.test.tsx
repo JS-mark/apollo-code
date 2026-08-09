@@ -124,9 +124,9 @@ describe('welcome screen', () => {
       const output = stripVTControlCharacters(
         await renderWelcome(terminalSize, fixture({ status: 'unknown' })),
       )
-      expect(output).toContain('     ▄▄████▄')
-      expect(output).toContain('██   ▀█▄      ██▌')
-      expect(output).toContain('████▄▄████████▄')
+      expect(output).toContain('        ⢠⣴⣦⣄⣤⡀')
+      expect(output).toContain('      ⢀⡄⣠⣿⣿⣿⣿⣷⣿⣽⣛⡷⠖')
+      expect(output).toContain('    ⠠⣶⣛⣽⣿⣿⣿⣿⣿⣿⠿⢟⡫')
       expect(output).not.toContain('       ██████████')
     },
   )
@@ -145,8 +145,8 @@ describe('welcome screen', () => {
       ),
     )
     const lines = output.split('\n').filter((line) => /^[╭│╰]/.test(line))
-    expect(output).toContain('     ▄▄████▄')
-    expect(output).toContain('██   ▀█▄      ██▌')
+    expect(output).toContain('        ⢠⣴⣦⣄⣤⡀')
+    expect(output).toContain('      ⢀⡄⣠⣿⣿⣿⣿⣷⣿⣽⣛⡷⠖')
     expect(output).toContain('Workspace')
     expect(output).toContain('anthropic-enterprise-production')
     expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)

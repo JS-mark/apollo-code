@@ -5,15 +5,15 @@ import { welcomeTheme } from './welcomeTheme'
 export const APOLLO_LOGO_WIDTH = 24
 
 const mark = [
-  ['top-knot', '     ▄▄████▄'],
-  ['crown-curls', '   ▄██████████▄'],
-  ['hair-profile', ' ▄███▀▄▀▀▀██████'],
-  ['brow-profile', '██▀  ▄█    ▀████'],
-  ['nose-profile', '██   ▀█▄      ██▌'],
-  ['jaw-profile', '▀██▄     ▀▀▄███▀'],
-  ['neck-curls', ' ▀███▄▄▄████▀'],
-  ['neck', ' ▄▄▀██████▄'],
-  ['draped-shoulders', '████▄▄████████▄'],
+  ['portrait-1', '        ⢠⣴⣦⣄⣤⡀'],
+  ['portrait-2', '       ⢀⣵⣾⣶⡶⣿⣧⡀'],
+  ['portrait-3', '      ⢠⣿⡿⣛⣼⣿⠿⣿⠁'],
+  ['portrait-4', '      ⣘⠇⣈⢿⣿⣿⣿⡿'],
+  ['portrait-5', '      ⡽⣶⢩⣿⣿⣿⣿⡇'],
+  ['portrait-6', '      ⠐⣭⠸⣿⣿⣯⣉⠁ ⣀'],
+  ['portrait-7', '      ⢀⡄⣠⣿⣿⣿⣿⣷⣿⣽⣛⡷⠖'],
+  ['portrait-8', '    ⠠⣶⣛⣽⣿⣿⣿⣿⣿⣿⠿⢟⡫'],
+  ['portrait-9', '       ⠉⠛⠻⠟⠯⠝⠓⠊⠉'],
 ] as const
 
 export function ApolloLogo() {
