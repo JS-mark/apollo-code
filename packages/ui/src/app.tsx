@@ -270,15 +270,77 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     ]
   }, [state.pendingAssistantText, state.transcript])
 
+  const commandInput = (
+    <InputBox
+      disabled={
+        statusPanelOpen ||
+        modelPickerOpen ||
+        state.statusLevel === 'active' ||
+        permissionRequests.length > 0
+      }
+      history={historyEntries}
+      initialValue={options.initialInput ?? ''}
+      placeholder="Ask Apollo to inspect, change, test, or explain this repo"
+      slashCommands={slashCommands}
+      onSubmit={async (input) => {
+        const trimmed = input.trim()
+        if (!trimmed) return
+        if (trimmed === 'exit' || trimmed === 'quit') {
+          await options.onExit?.()
+          exit()
+          return
+        }
+        if (trimmed.startsWith('/')) {
+          setShowWelcome(false)
+          const message = await runSlashCommand(trimmed, slashCommands)
+          if (message) {
+            appendSystemMessage(setState, message)
+            setState((current) => ({ ...current, status: message, statusLevel: 'warning' }))
+          }
+          return
+        }
+        setShowWelcome(false)
+        try {
+          await options.history?.append(input)
+          setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
+        } catch {
+          setState((current) => ({
+            ...current,
+            status: 'history unavailable',
+            statusLevel: 'warning',
+          }))
+        }
+        await options.onSubmit?.(input, submitOptions(currentModelId))
+      }}
+    />
+  )
+
+  const bottomStatus = (
+    <StatusLine level={permissionRequests.length > 0 ? 'warning' : state.statusLevel}>
+      {permissionRequests.length > 0 ? 'permission required' : state.status}
+    </StatusLine>
+  )
+
   return (
     <Box flexDirection="column">
-      <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
       {showWelcome && options.welcome ? (
         <WelcomeScreen
+          bottomStatus={bottomStatus}
+          commandInput={commandInput}
           state={buildWelcomeScreenState({ data: options.welcome })}
           terminalSize={{ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 }}
         />
-      ) : null}
+      ) : (
+        <>
+          <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
+          <ScrollableTranscript entries={transcript} />
+          {options.permissions ? (
+            <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
+          ) : null}
+          {bottomStatus}
+          {commandInput}
+        </>
+      )}
       {statusPanelOpen && (options.statusPanel || options.welcome) ? (
         <StatusPanel
           data={options.statusPanel ?? statusPanelFromWelcome(options.welcome!)}
@@ -313,55 +375,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           }}
         />
       ) : null}
-      <ScrollableTranscript entries={transcript} />
-      {options.permissions ? (
-        <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
-      ) : null}
-      <StatusLine level={permissionRequests.length > 0 ? 'warning' : state.statusLevel}>
-        {permissionRequests.length > 0 ? 'permission required' : state.status}
-      </StatusLine>
-      <InputBox
-        disabled={
-          statusPanelOpen ||
-          modelPickerOpen ||
-          state.statusLevel === 'active' ||
-          permissionRequests.length > 0
-        }
-        history={historyEntries}
-        initialValue={options.initialInput ?? ''}
-        placeholder="Ask Apollo to inspect, change, test, or explain this repo"
-        slashCommands={slashCommands}
-        onSubmit={async (input) => {
-          const trimmed = input.trim()
-          if (!trimmed) return
-          if (trimmed === 'exit' || trimmed === 'quit') {
-            await options.onExit?.()
-            exit()
-            return
-          }
-          if (trimmed.startsWith('/')) {
-            setShowWelcome(false)
-            const message = await runSlashCommand(trimmed, slashCommands)
-            if (message) {
-              appendSystemMessage(setState, message)
-              setState((current) => ({ ...current, status: message, statusLevel: 'warning' }))
-            }
-            return
-          }
-          setShowWelcome(false)
-          try {
-            await options.history?.append(input)
-            setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
-          } catch {
-            setState((current) => ({
-              ...current,
-              status: 'history unavailable',
-              statusLevel: 'warning',
-            }))
-          }
-          await options.onSubmit?.(input, submitOptions(currentModelId))
-        }}
-      />
     </Box>
   )
 }
