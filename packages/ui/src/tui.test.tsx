@@ -117,7 +117,45 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('> Ask Apollo')
     expect(stdout.output).not.toContain('apollo >')
     expect(stdout.output).toContain('agent ready')
+    expect(stdout.output).toContain('mode auto')
+    expect(stdout.output).toContain('thinking off')
+    expect(stdout.output).toContain('esc interrupt')
     expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
+  })
+
+  it('shows permission status transiently without replacing stable welcome state', async () => {
+    const permissions = new PermissionPromptController()
+    const pending = permissions.request({
+      id: 'permission-1',
+      attempt: 1,
+      input: { path: '/repo/output.txt' },
+      spec: { fs: { write: ['/repo/output.txt'] } },
+      toolName: 'write',
+    })
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 120
+    stdout.rows = 30
+    const app = renderInteractiveApp(
+      { cwd: '/repo', permissions, welcome: welcomeFixture() },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    app.unmount()
+    await app.waitUntilExit()
+    permissions.decide(permissions.requests()[0]!.id, { kind: 'deny' })
+    await pending
+
+    expect(stdout.output).toContain('permission required')
+    expect(stdout.output).toContain('mode auto')
+    expect(stdout.output).toContain('agent ready')
+    expect(stdout.output).toContain('thinking off')
   })
 
   it.each([

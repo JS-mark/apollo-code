@@ -48,11 +48,11 @@ export function WelcomeScreen({
           </Box>
         </Box>
       </Box>
-      <Box marginTop={1}>{commandInput}</Box>
-      <Box justifyContent="space-between" paddingX={1}>
-        <WelcomeStatusBar layout={layout} state={state} />
-        <Box>{bottomStatus}</Box>
+      <Box marginTop={1} paddingX={1}>
+        {bottomStatus}
       </Box>
+      <Box>{commandInput}</Box>
+      <WelcomeStatusBar layout={layout} state={state} />
     </Box>
   )
 }
