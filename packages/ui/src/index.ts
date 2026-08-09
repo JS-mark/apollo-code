@@ -180,6 +180,7 @@ export function renderTelemetryPanel(state: TelemetryPanelState, now = Date.now(
 }
 export type DangerousMode = 'no-sandbox' | 'skip-permissions'
 export * from './status'
+export * from './tui'
 
 export interface ContextPanelState {
   strategy: string
