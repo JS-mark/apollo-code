@@ -115,7 +115,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('MCP')
     expect(stdout.output).toContain('1 connected / 2 configured')
     expect(stdout.output).toContain('apollo > Ask Apollo')
-    expect(stdout.output).toContain('BOTTOM STATUS')
+    expect(stdout.output).toContain('agent ready')
     expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
   })
 
@@ -142,9 +142,9 @@ describe('renderInteractiveApp', () => {
     app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain(`WELCOME / ${layout}`)
-    expect(stdout.output).toContain('COMMAND')
-    expect(stdout.output).toContain('BOTTOM STATUS')
+    expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout}`)
+    expect(stdout.output).toContain('apollo > Ask Apollo')
+    expect(stdout.output).toContain('agent ready')
     expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
   })
 

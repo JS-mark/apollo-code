@@ -15,30 +15,43 @@ export function WelcomeScreen({
 }: WelcomeScreenProps) {
   const layout = getWelcomeLayout(terminalSize)
   return (
-    <Box borderColor="cyan" borderStyle="single" flexDirection="column" paddingX={1}>
-      <Box justifyContent="space-between">
-        <Text color="cyan" bold>{`Apollo Code  v${state.app.version}`}</Text>
-        <Text color="gray">WELCOME / {layout.toUpperCase()}</Text>
+    <Box flexDirection="column">
+      <Box justifyContent="space-between" paddingX={1}>
+        <Text color="brightCyan" bold>
+          apollo
+        </Text>
+        <Text color="gray">TERMINAL WELCOME / {layout.toUpperCase()}</Text>
       </Box>
       <Box
-        alignItems={layout === 'full' ? 'flex-start' : undefined}
-        flexDirection={layout === 'full' ? 'row' : 'column'}
+        borderColor="cyan"
+        borderStyle="round"
+        flexDirection="column"
         marginTop={1}
+        paddingX={layout === 'full' ? 2 : 1}
+        paddingY={layout === 'minimal' ? 0 : 1}
       >
-        <ApolloLogo layout={layout} />
-        <WelcomeStatusGrid layout={layout} state={state} />
+        <Box
+          alignItems={layout === 'full' ? 'center' : undefined}
+          flexDirection={layout === 'full' ? 'row' : 'column'}
+        >
+          <ApolloLogo layout={layout} />
+          <Box flexDirection="column" flexGrow={1}>
+            <Box>
+              <Text bold>{state.app.name} </Text>
+              <Text color="gray"> v{state.app.version}</Text>
+            </Box>
+            {layout === 'minimal' ? null : <Text color="gray">Local TUI session ready</Text>}
+            <Box marginTop={layout === 'minimal' ? 0 : 1}>
+              <WelcomeStatusGrid layout={layout} state={state} />
+            </Box>
+            <FirstRunChecks layout={layout} state={state} />
+          </Box>
+        </Box>
       </Box>
-      <FirstRunChecks layout={layout} state={state} />
-      <Box marginTop={1}>
+      <Box marginTop={1}>{commandInput}</Box>
+      <Box justifyContent="space-between" paddingX={1}>
         <WelcomeStatusBar layout={layout} state={state} />
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="gray">COMMAND</Text>
-        {commandInput}
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="gray">BOTTOM STATUS</Text>
-        {bottomStatus}
+        <Box>{bottomStatus}</Box>
       </Box>
     </Box>
   )
