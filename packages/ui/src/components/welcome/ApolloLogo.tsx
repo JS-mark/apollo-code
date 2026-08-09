@@ -2,17 +2,18 @@ import { Box, Text } from 'ink'
 
 import { welcomeTheme } from './welcomeTheme'
 
-export const APOLLO_LOGO_WIDTH = 22
+export const APOLLO_LOGO_WIDTH = 24
 
 const mark = [
-  ['antenna-top', '    ████      ████    '],
-  ['antenna-base', '    ████      ████    '],
-  ['head', '██████████████████████'],
-  ['face-top', '████              ████'],
-  ['eyes', '████   ██    ██   ████'],
-  ['eyes-base', '████   ██    ██   ████'],
-  ['face-bottom', '████              ████'],
-  ['base', '    ██████████████    '],
+  ['orbit-top', '       ██████████       '],
+  ['apex', '    ███    ██    ███    '],
+  ['shoulders', '  ███     ████     ███  '],
+  ['upper-a', ' ██      ██  ██      ██ '],
+  ['mid-a', '██      ██    ██      ██'],
+  ['crossbar', '██     ██████████     ██'],
+  ['lower-a', ' ██   ██        ██   ██ '],
+  ['orbit-lower', '  ████          ████    '],
+  ['orbit-base', '     ██████████████     '],
 ] as const
 
 export function ApolloLogo() {
