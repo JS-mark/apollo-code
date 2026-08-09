@@ -1,9 +1,15 @@
 import type { TerminalSize, WelcomeLayoutMode } from './types'
 
 export function getWelcomeLayout(size: TerminalSize): WelcomeLayoutMode {
-  if (size.columns < 80 || size.rows < 20) return 'minimal'
-  if (size.columns < 110 || size.rows < 28) return 'compact'
+  const columns = validDimension(size.columns, 90)
+  const rows = validDimension(size.rows, 24)
+  if (columns < 80 || rows < 20) return 'minimal'
+  if (columns < 110 || rows < 28) return 'compact'
   return 'full'
+}
+
+function validDimension(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 export function truncateMiddle(value: string, maxLength: number): string {

@@ -36,6 +36,10 @@ describe('welcome screen', () => {
     expect(getWelcomeLayout(size)).toBe(layout)
   })
 
+  it('uses the compact logo when a PTY reports zero dimensions', () => {
+    expect(getWelcomeLayout({ columns: 0, rows: 0 })).toBe('compact')
+  })
+
   it('middle truncates long cwd while preserving the project name', () => {
     expect(
       formatDisplayCwd('/Users/apollo/work/very/long/project-name', '/Users/apollo', 24),
@@ -82,7 +86,7 @@ describe('welcome screen', () => {
 
   it.each([
     [{ columns: 120, rows: 30 }, 'full', 'A P O L L O', '/ ____ \\'],
-    [{ columns: 90, rows: 24 }, 'compact', '[ A ] APOLLO', 'CODE'],
+    [{ columns: 90, rows: 24 }, 'compact', '/\\  APOLLO', '/__\\ CODE'],
     [{ columns: 70, rows: 18 }, 'minimal', 'APOLLO', 'Apollo Code  v0.0.0-test'],
   ] as const)(
     'renders a visible %s brand variant without leaving the first viewport',
