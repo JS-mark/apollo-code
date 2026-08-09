@@ -73,6 +73,7 @@ interface InteractiveAppState {
 export function InteractiveApp(options: InteractiveAppOptions) {
   const { exit } = useApp()
   const { stdout } = useStdout()
+  const terminalSize = useTerminalSize(stdout)
   const [state, setState] = useState<InteractiveAppState>(() => ({
     pendingAssistantText: '',
     sessionId: options.sessionId ?? 'new',
@@ -328,7 +329,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           bottomStatus={bottomStatus}
           commandInput={commandInput}
           state={buildWelcomeScreenState({ data: options.welcome })}
-          terminalSize={{ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 }}
+          terminalSize={terminalSize}
         />
       ) : (
         <>
@@ -377,6 +378,29 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       ) : null}
     </Box>
   )
+}
+
+function useTerminalSize(stdout: NodeJS.WriteStream) {
+  const readSize = useCallback(
+    () => ({ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 }),
+    [stdout],
+  )
+  const [size, setSize] = useState(readSize)
+
+  useEffect(() => {
+    const handleResize = () => {
+      const next = readSize()
+      setSize((current) =>
+        current.columns === next.columns && current.rows === next.rows ? current : next,
+      )
+    }
+    stdout.on('resize', handleResize)
+    return () => {
+      stdout.off('resize', handleResize)
+    }
+  }, [readSize, stdout])
+
+  return size
 }
 
 function firstAvailableModelId(models: readonly ModelPickerState['models'][number][]) {

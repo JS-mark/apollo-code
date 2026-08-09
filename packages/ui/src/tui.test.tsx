@@ -148,6 +148,34 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
   })
 
+  it('rerenders the welcome layout when the terminal window is resized', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 120
+    stdout.rows = 30
+    const app = renderInteractiveApp(
+      { cwd: '/repo', welcome: welcomeFixture() },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('TERMINAL WELCOME / FULL')
+
+    stdout.columns = 70
+    stdout.rows = 18
+    stdout.emit('resize')
+    await app.waitUntilRenderFlush()
+
+    app.unmount()
+    await app.waitUntilExit()
+    expect(stdout.output).toContain('TERMINAL WELCOME / MINIMAL')
+  })
+
   it('hides the welcome shell after the first prompt without changing submission', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
