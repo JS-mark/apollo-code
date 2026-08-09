@@ -363,7 +363,7 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toEqual(['/model'])
   })
 
-  it('renders a full-width command band with placeholder and a visible entry cursor', async () => {
+  it('renders an open-ended command band with placeholder and a visible entry cursor', async () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 100
     const input = render(
@@ -383,7 +383,8 @@ describe('renderInteractiveApp', () => {
 
     expect(stdout.output).toContain('> ▌Ask Apollo')
     expect(stdout.output).not.toContain('apollo >')
-    expect(stdout.output).toMatch(/[┌┐└┘│]/)
+    expect(stdout.output).toContain('─')
+    expect(stdout.output).not.toMatch(/[┌┐└┘│]/)
     expect(stdout.output).toContain('Enter send / Shift+Enter newline')
   })
 

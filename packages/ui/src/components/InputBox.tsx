@@ -111,7 +111,16 @@ export function InputBox({
   )
 
   return (
-    <Box borderColor={disabled ? 'gray' : 'cyan'} borderStyle="single" paddingX={1} width="100%">
+    <Box
+      borderBottom
+      borderColor={disabled ? 'gray' : 'cyan'}
+      borderLeft={false}
+      borderRight={false}
+      borderStyle="single"
+      borderTop
+      paddingX={1}
+      width="100%"
+    >
       <Box flexDirection="column" width="100%">
         <Box justifyContent="space-between">
           <Box flexShrink={1}>
