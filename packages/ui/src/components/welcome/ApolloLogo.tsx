@@ -6,13 +6,15 @@ import { welcomeTheme } from './welcomeTheme'
 export const APOLLO_LOGO_WIDTH = 25
 
 const mark = [
-  '      .----------.       ',
-  "   .-'     /\\     '-.    ",
-  '  /       /  \\       \\   ',
-  ' |       / /\\ \\       |  ',
-  ' |      / ____ \\      |  ',
-  "  '.__ /_/    \\_\\ __.'   ",
-  '       A P O L L O       ',
+  '       .--------.        ',
+  "    .-'    /\\    '-.     ",
+  "  .'      /  \\      '.   ",
+  ' /       / /\\ \\       \\  ',
+  '|       / ____ \\       | ',
+  '|      /_/    \\_\\      | ',
+  ' \\                  /  ',
+  "  '._            _.'   ",
+  "     '----------'      ",
 ] as const
 
 export function ApolloLogo({ layout }: { layout: WelcomeLayoutMode }) {
@@ -38,7 +40,7 @@ export function ApolloLogo({ layout }: { layout: WelcomeLayoutMode }) {
   return (
     <Box flexDirection="column" flexShrink={0} marginRight={3} width={APOLLO_LOGO_WIDTH}>
       {mark.map((line) => (
-        <Text color={welcomeTheme.brandAccent} key={line}>
+        <Text bold color={welcomeTheme.brandAccent} key={line}>
           {line}
         </Text>
       ))}

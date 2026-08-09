@@ -75,17 +75,20 @@ describe('welcome screen', () => {
     await view.waitUntilRenderFlush()
     view.unmount()
     await view.waitUntilExit()
-    expect(stdout.output).toContain(`WELCOME / ${layout.toUpperCase()}`)
+    expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout.toUpperCase()}`)
     expect(stdout.output).toContain('Apollo Code  v0.0.0-test')
+    if (layout !== 'minimal') expect(stdout.output).toContain('Local TUI session ready')
     expect(stdout.output).toContain('Trusted: folder')
     expect(stdout.output).toContain('not configured')
     expect(stdout.output).toContain('COMMAND INPUT')
     expect(stdout.output).toContain('BOTTOM STATUS')
+    expect(stdout.output).not.toContain('COMMAND\n')
+    expect(stdout.output).not.toContain('BOTTOM STATUS\nBOTTOM STATUS')
     expect(stdout.output).not.toContain('Auth OK')
   })
 
   it.each([
-    [{ columns: 120, rows: 30 }, 'full', 'A P O L L O', '/ ____ \\'],
+    [{ columns: 120, rows: 30 }, 'full', '.--------.', '/ ____ \\'],
     [{ columns: 90, rows: 24 }, 'compact', '/\\  APOLLO', '/__\\ CODE'],
     [{ columns: 70, rows: 18 }, 'minimal', 'APOLLO', 'Apollo Code  v0.0.0-test'],
   ] as const)(
@@ -112,11 +115,11 @@ describe('welcome screen', () => {
         '/Users/apollo/workspaces/a-very-long-enterprise-project-name-that-must-not-crush-branding',
       ),
     )
-    const lines = output.replaceAll('┘┌', '┘\n┌').split('\n')
-    expect(output).toContain('A P O L L O')
-    expect(lines.some((line) => line.includes('.----------.') && line.includes('Workspace'))).toBe(
-      true,
-    )
+    const lines = output.split('\n').filter((line) => /^[╭│╰]/.test(line))
+    expect(output).toContain('.--------.')
+    expect(output).toContain('/ ____ \\')
+    expect(output).toContain('Workspace')
+    expect(output).toContain('anthropic-enterprise-production')
     expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)
   })
 })
