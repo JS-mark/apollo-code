@@ -10,6 +10,7 @@ export interface InputBoxProps {
   onSubmit?: (input: string) => Promise<void> | void
   placeholder?: string
   slashCommands?: readonly SlashCommand[]
+  terminalColumns?: number
 }
 
 export function InputBox({
@@ -19,12 +20,14 @@ export function InputBox({
   onSubmit,
   placeholder = 'Type a message',
   slashCommands = [],
+  terminalColumns = 80,
 }: InputBoxProps) {
   const [draftBeforeHistory, setDraftBeforeHistory] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [slashSuggestionIndex, setSlashSuggestionIndex] = useState(0)
   const [value, setValue] = useState(initialValue)
   const suggestions = slashSuggestions(value, slashCommands)
+  const showShortcutHint = terminalColumns >= 100
 
   useEffect(() => {
     if (suggestions.length === 0) {
@@ -108,21 +111,22 @@ export function InputBox({
   )
 
   return (
-    <Box
-      borderBottom
-      borderColor={disabled ? 'gray' : 'cyan'}
-      borderLeft={false}
-      borderRight={false}
-      borderStyle="single"
-      borderTop
-      paddingX={1}
-    >
+    <Box borderColor={disabled ? 'gray' : 'cyan'} borderStyle="single" paddingX={1} width="100%">
       <Box flexDirection="column" width="100%">
-        <Box>
-          <Text color={disabled ? 'gray' : 'green'}>{'> '}</Text>
-          {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
+        <Box justifyContent="space-between">
+          <Box flexShrink={1}>
+            <Text color={disabled ? 'gray' : 'green'}>{'> '}</Text>
+            {value ? (
+              <Text>{value}</Text>
+            ) : (
+              <>
+                <Text color={disabled ? 'gray' : 'cyan'}>▌</Text>
+                <Text color="gray">{placeholder}</Text>
+              </>
+            )}
+          </Box>
+          {showShortcutHint ? <Text color="gray">Enter send / Shift+Enter newline</Text> : null}
         </Box>
-        <Text color="gray">Enter send / Shift+Enter newline</Text>
         {suggestions.length > 0 ? (
           <Box flexDirection="column" marginLeft={2} marginTop={1}>
             {suggestions.map((command, index) => {
