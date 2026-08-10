@@ -16,6 +16,8 @@ Migration proceeds by behavior risk: metadata commands (`doctor`, `status`, `tru
 
 Existing names, flags, defaults, stdout/stderr, JSON schemas, exit codes, trust, permissions, signals, streaming, and redaction are compatibility constraints. Behavior changes require a separate RFC.
 
+The build injects one validated `AppIdentity` into the bundle. `bin.ts` passes that identity into runtime composition, and CLI meta, version output, welcome/status, doctor, plugin compatibility, telemetry, and native integrations consume it through the ports. Source package metadata is a build input only; production code does not search for `package.json` at runtime. A repository `0.0.0` becomes the explicit local snapshot `0.0.0-dev+local`; an explicit build override must be valid SemVer and may never be the placeholder `0.0.0`.
+
 ## New command template
 
 1. Add `commands/<domain>/index.ts` exporting a `CommandDefinition`.

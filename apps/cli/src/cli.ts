@@ -17,7 +17,7 @@ import type {
 import { parseArgs, renderUsage } from 'citty'
 
 import { CommandRegistry } from './app/command-registry'
-import { command } from './command'
+import { createCommand } from './command'
 import { doctorCommand } from './commands/doctor'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
@@ -63,10 +63,11 @@ export async function runCli(
   ports: ApolloPorts,
   io: CliIo = defaultIo,
 ): Promise<CliResult> {
+  const command = createCommand(ports.identity)
   if (rawArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
     return { exitCode: 0, stdout: await renderUsage(command), stderr: '' }
   if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
-    return { exitCode: 0, stdout: `${ports.version}\n`, stderr: '' }
+    return { exitCode: 0, stdout: `${ports.identity.version}\n`, stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition) as ParsedCliArgs
   const subcommand = args._[0]
   let stdout = ''
@@ -111,7 +112,7 @@ export async function runCli(
   if (subcommand && registry.has(subcommand))
     return registry.dispatch(subcommand, { args, cwd, ports })
   if (subcommand === 'version')
-    return { exitCode: 0, stdout: `${stdout}${ports.version}\n`, stderr }
+    return { exitCode: 0, stdout: `${stdout}${ports.identity.version}\n`, stderr }
   if (subcommand === 'help')
     return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
@@ -584,7 +585,7 @@ async function buildWelcomePanelData(input: {
   const config = await welcomeConfig(input.ports, input.cwd)
   const mcp = await welcomeMcp(input.ports)
   return {
-    version: input.ports.version,
+    version: input.ports.identity.version,
     sessionId: input.sessionId,
     trustLabel: input.trustLabel,
     cwd: input.cwd,

@@ -14,6 +14,8 @@ import type {
   SessionCandidate,
 } from '@apollo-code/ui'
 
+import type { AppIdentity } from './shared/app-identity'
+
 export interface DoctorHealth {
   detail: string
   valid?: boolean
@@ -110,6 +112,8 @@ export interface PluginPort {
   doctor(name: string): Promise<{ name: string; version: string; permissions: readonly string[] }>
 }
 export interface ApolloPorts {
+  identity: Readonly<AppIdentity>
+  /** @deprecated Use identity.version. */
   version: string
   native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
   auth: {
@@ -155,7 +159,8 @@ export interface ApolloPorts {
 }
 export function unavailablePorts(): ApolloPorts {
   return {
-    version: '0.0.0',
+    identity: { version: '0.0.0-test' },
+    version: '0.0.0-test',
     native: {
       probe: async () => ({
         tier: 'none',

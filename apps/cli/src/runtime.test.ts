@@ -303,7 +303,10 @@ describe('status configuration adapter', () => {
   it('persists whitelisted preferences atomically and rejects readonly state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.status-'))
     fixtures.push(root)
-    const ports = createProductionPorts({ apolloHome: root, version: 'test' })
+    const ports = createProductionPorts({
+      apolloHome: root,
+      identity: { version: '1.2.3-test' },
+    })
     const input = { cwd: process.cwd(), sessionId: 'session-test' }
     const updated = await ports.config.updatePreference?.('notifications', true, input)
     expect(updated?.config.find((item) => item.id === 'notifications')?.value).toBe(true)

@@ -15,6 +15,7 @@ afterEach(async () =>
 
 function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
   return {
+    identity: { version: '0.0.0-test' },
     version: '0.0.0-test',
     native: {
       probe: vi.fn(async () => ({

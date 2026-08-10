@@ -79,6 +79,7 @@ import type {
 import { v7 as uuidv7 } from 'uuid'
 
 import type { ApolloPorts, SessionPort } from './ports'
+import type { AppIdentity } from './shared/app-identity'
 import { DirectoryTrustStore } from './trust'
 
 export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
@@ -641,10 +642,10 @@ async function requestPermission(input: {
 
 export interface ProductionOptions {
   apolloHome?: string
+  identity: Readonly<AppIdentity>
   model?: string
-  version?: string
 }
-export function createProductionPorts(options: ProductionOptions = {}): ApolloPorts {
+export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
@@ -657,7 +658,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
   const pluginRoot = join(home, 'plugins')
   const plugins = new PluginManager(
     pluginRoot,
-    options.version ?? '0.0.0',
+    options.identity.version,
     async (manifest, expanded) => {
       const permissions = manifest.permissions.apollo.join(', ') || 'none'
       const answer = await promptLine(
@@ -730,7 +731,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     await promptLoader.registerProject(composer)
     const skills = new SkillsRuntime({
       skillsDir: join(home, 'skills'),
-      apolloVersion: options.version ?? '0.0.0',
+      apolloVersion: options.identity.version,
       composer,
       onWarning: (message) => logger.warn(message),
     })
@@ -1021,7 +1022,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
       interactivePermissionPrompt = handler
     },
     createStatusSnapshotAdapter({
-      version: options.version ?? '0.0.0',
+      version: options.identity.version,
       dangerousPermissions: () => permissionOptions.dangerouslySkip,
       configAvailable: () =>
         access(join(home, 'config.toml')).then(
@@ -1045,7 +1046,8 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     }),
   )
   return {
-    version: options.version ?? '0.0.0',
+    identity: options.identity,
+    version: options.identity.version,
     session,
     ui: {
       renderInteractiveApp: (input) => renderInteractiveApp({ history, ...input }),
@@ -1194,7 +1196,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
           tier: disclosure.tier,
           mechanism: disclosure.mechanism,
           abi,
-          version: options.version ?? '0.0.0',
+          version: options.identity.version,
           probedAt: new Date().toISOString(),
         })
         return disclosure
@@ -1278,7 +1280,7 @@ async function runtimeStatusData(
       { label: 'Settings sources', value: 'defaults, user' },
     ],
     status: [
-      { label: 'Version', value: options.version ?? '0.0.0' },
+      { label: 'Version', value: options.identity.version },
       { label: 'Session ID', value: input.sessionId ?? 'not available' },
       { label: 'cwd', value: input.cwd },
       { label: 'Auth method', value: 'credential store (value hidden)' },

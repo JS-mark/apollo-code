@@ -3,8 +3,9 @@ import process from 'node:process'
 
 import { runCli } from './cli'
 import { createProductionPorts } from './runtime'
+import { appIdentity } from './shared/app-identity'
 import { createSignalController } from './signals'
-const ports = createProductionPorts()
+const ports = createProductionPorts({ identity: appIdentity })
 const signals = createSignalController(ports.session)
 process.on('SIGINT', () => {
   void signals.handle('SIGINT')
