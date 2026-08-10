@@ -119,14 +119,15 @@ describe('welcome screen', () => {
     [{ columns: 90, rows: 24 }, 'compact'],
     [{ columns: 70, rows: 18 }, 'minimal'],
   ] as const)(
-    'renders the full block logo in the %s brand variant',
+    'renders the V14 concentric AC logo in the %s brand variant',
     async (terminalSize, _layout) => {
       const output = stripVTControlCharacters(
         await renderWelcome(terminalSize, fixture({ status: 'unknown' })),
       )
-      expect(output).toContain('       ██████████')
-      expect(output).toContain('██     ██████████     ██')
-      expect(output).not.toContain('████   ██    ██   ████')
+      expect(output).toContain('     ▄████████████▄')
+      expect(output).toContain(' ██    ██████████')
+      expect(output).toContain('     ▀████████▀')
+      expect(output).not.toContain('       ██████████')
     },
   )
 
@@ -144,8 +145,8 @@ describe('welcome screen', () => {
       ),
     )
     const lines = output.split('\n').filter((line) => /^[╭│╰]/.test(line))
-    expect(output).toContain('       ██████████')
-    expect(output).toContain('██     ██████████     ██')
+    expect(output).toContain('     ▄████████████▄')
+    expect(output).toContain(' ██    ██████████')
     expect(output).toContain('Workspace')
     expect(output).toContain('anthropic-enterprise-production')
     expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)
