@@ -18,6 +18,7 @@ import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
 import type { SessionCandidate } from './session-picker'
+import type { SlashCommandRegistry } from './slash-command-registry'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
 import type { WelcomePanelData } from './welcome'
 
@@ -73,6 +74,7 @@ export interface InteractiveAppOptions {
   resume?: SessionResumeController
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
+  slashCommandRegistry?: SlashCommandRegistry
   status?: string
   statusPanel?: StatusPanelData
   statusPanelController?: StatusPanelController
@@ -110,6 +112,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [activeSession, setActiveSession] = useState<ResumedInteractiveSession>()
   const [resumeCandidates, setResumeCandidates] = useState<readonly SessionCandidate[]>()
   const [resumeError, setResumeError] = useState<string>()
+  const [registryCommands, setRegistryCommands] = useState(
+    () => options.slashCommandRegistry?.snapshot() ?? [],
+  )
   const activeEvents = activeSession?.events ?? options.events
   const activeCwd = activeSession?.cwd ?? options.cwd
   const activeOnExit = activeSession?.onExit ?? options.onExit
@@ -138,6 +143,17 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       }))
     }, []),
   )
+
+  useEffect(() => {
+    const registry = options.slashCommandRegistry
+    if (!registry) {
+      setRegistryCommands([])
+      return
+    }
+    const refresh = () => setRegistryCommands(registry.snapshot())
+    refresh()
+    return registry.subscribe(refresh)
+  }, [options.slashCommandRegistry])
 
   useEffect(() => {
     if (!options.permissions) return
@@ -213,7 +229,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   }, [options.history])
 
   const slashCommands = useMemo(() => {
-    if (options.slashCommands) return options.slashCommands
     const hasModelPicker = Boolean(options.modelPicker?.models.length)
     const commands: SlashCommand[] = [
       {
@@ -295,7 +310,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           }
         : unavailableSlashCommand('model', 'Switch model'),
     ]
-    return commands
+    return [...commands, ...(options.slashCommands ?? []), ...registryCommands]
   }, [
     currentModelId,
     exit,
@@ -303,6 +318,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     activeOnExit,
     options.resume,
     options.slashCommands,
+    registryCommands,
     options.welcome,
   ])
 

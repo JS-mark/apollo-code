@@ -306,6 +306,8 @@ L1 必须内置以下 slash command：
 
 输入 `/` 立即弹 popup；支持前缀过滤、↑/↓ 选择、Enter 确认、Esc 关闭。插件贡献 slash command 走同一 registry，但不阻塞 L1 内置命令落地。
 
+实现约束：composition root 持有动态 registry，TUI 通过 `snapshot()` / `subscribe()` 消费插件贡献，并与 builtin 合并而不是替换。命令名统一去掉可选的 `/` 前缀并转为小写；builtin 名称保留，插件冲突注册会失败。插件 deactivate、disable 或 uninstall 时，注册 disposer 会立即从帮助、建议和执行分发中移除对应命令。
+
 端口不可用行为：
 
 - slash popup 仍显示内置命令，避免用户误以为命令不存在。

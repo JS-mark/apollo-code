@@ -33,7 +33,7 @@ import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-br
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
 import { BridgeRuntime, PluginManager, PluginRuntime } from '@apollo-code/plugin-runtime'
-import type { ToolSpec } from '@apollo-code/plugin-sdk'
+import type { CommandSpec, ToolSpec } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
@@ -63,6 +63,7 @@ import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
   renderSessionPicker,
+  MutableSlashCommandRegistry,
   validateStatusConfigValue,
 } from '@apollo-code/ui'
 import type {
@@ -695,6 +696,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   )
   const pluginsReady = plugins.init()
   const pluginRuntimes = new Set<PluginRuntime>()
+  const slashCommands = new MutableSlashCommandRegistry()
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
@@ -925,6 +927,21 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           }
         },
         register(kind, value, plugin) {
+          if (kind === 'command') {
+            // Only the top-level interactive session contributes commands. Child and
+            // non-interactive runners still activate safely without acquiring TUI state.
+            if (runner.state.lineage.depth !== 0) return { dispose() {} }
+            const spec = value as CommandSpec
+            const dispose = slashCommands.register(
+              {
+                name: spec.name,
+                description: spec.description ?? `Run ${spec.name}`,
+                run: ({ args }) => spec.handler(args),
+              },
+              { kind: 'plugin', plugin },
+            )
+            return { dispose }
+          }
           if (kind !== 'tool') throw new Error(`plugin_${kind}_registration_not_supported`)
           const spec = value as ToolSpec
           const dispose = registry.register(
@@ -1078,7 +1095,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     version: options.identity.version,
     session,
     ui: {
-      renderInteractiveApp: (input) => renderInteractiveApp({ history, ...input }),
+      renderInteractiveApp: (input) =>
+        renderInteractiveApp({ history, slashCommandRegistry: slashCommands, ...input }),
       renderDirectoryTrustPrompt,
       renderSessionPicker,
     },

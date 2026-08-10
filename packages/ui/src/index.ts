@@ -191,6 +191,16 @@ export type {
   SlashCommand,
   TranscriptEntry,
 } from './app'
+export {
+  BUILTIN_SLASH_COMMAND_NAMES,
+  MutableSlashCommandRegistry,
+  normalizeSlashCommandName,
+} from './slash-command-registry'
+export type {
+  RegisteredSlashCommand,
+  SlashCommandRegistry,
+  SlashCommandSource,
+} from './slash-command-registry'
 
 export interface ContextPanelState {
   strategy: string
