@@ -9,6 +9,7 @@ import { runSlashCommand, type SlashCommand } from './app'
 import { InputBox } from './components/InputBox'
 import { ModelPicker } from './components/ModelPicker'
 import { SelectList } from './components/SelectList'
+import { SessionPicker } from './components/SessionPicker'
 import { StatusPanel } from './components/StatusPanel'
 import { TabBar } from './components/TabBar'
 import { PermissionPromptController } from './permission'
@@ -389,6 +390,40 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('─')
     expect(stdout.output).not.toMatch(/[┌┐└┘│]/)
     expect(stdout.output).toContain('Enter send / Shift+Enter newline')
+  })
+
+  it('renders the session search as an input band with a placeholder', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const picker = render(
+      createElement(SessionPicker, {
+        onCancel: vi.fn(),
+        onSelect: vi.fn(),
+        placeholder: 'Find a saved session',
+        sessions: [
+          {
+            cwd: '/repo',
+            id: 'session-1234567890',
+            title: 'Apollo session',
+            updatedAt: '2026-08-10T00:00:00Z',
+          },
+        ],
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await picker.waitUntilRenderFlush()
+    expect(stdout.output).toContain('> ▌Find a saved session')
+    expect(stdout.output).toContain('─')
+
+    picker.unmount()
+    await picker.waitUntilExit()
   })
 
   it('hides the shortcut hint at narrow widths', async () => {

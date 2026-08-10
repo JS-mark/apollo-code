@@ -15,6 +15,7 @@ export function SessionPicker(props: {
   error?: string
   now?: number
   pageSize?: number
+  placeholder?: string
   onCancel(): void
   onSelect(session: SessionCandidate): void
 }) {
@@ -53,9 +54,30 @@ export function SessionPicker(props: {
   return (
     <Box borderStyle="round" flexDirection="column" paddingX={1}>
       <Text bold>Resume session</Text>
+      <Box
+        borderBottom
+        borderColor="cyan"
+        borderLeft={false}
+        borderRight={false}
+        borderStyle="single"
+        borderTop
+        paddingX={1}
+        width="100%"
+      >
+        <Text color="green">{'> '}</Text>
+        {state.query ? (
+          <Text>{state.query}</Text>
+        ) : (
+          <>
+            <Text color="cyan">▌</Text>
+            <Text color="gray">
+              {props.placeholder ?? 'Search sessions by title, path, summary, or ID'}
+            </Text>
+          </>
+        )}
+      </Box>
       <Text dimColor>
-        Search: {state.query || 'type to fuzzy filter'} · ↑/↓ select · PgUp/PgDn page · Enter resume
-        · Esc cancel
+        ↑/↓ select · PgUp/PgDn page · Home/End first/last · Enter resume · Esc cancel
       </Text>
       {props.error ? <Text color="red">{props.error}</Text> : null}
       {!state.sessions.length ? <Text>No saved sessions.</Text> : null}
