@@ -6,9 +6,8 @@ import {
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
   renderSecurityBanner,
-  renderTelemetryPanel,
+  statusPanelFromWelcome,
 } from '@apollo-code/ui'
-import { statusPanelFromWelcome } from '@apollo-code/ui'
 import type {
   DangerousMode,
   SandboxDisclosure,
@@ -17,17 +16,17 @@ import type {
 } from '@apollo-code/ui'
 import { parseArgs, renderUsage } from 'citty'
 
+import { CommandRegistry } from './app/command-registry'
 import { command } from './command'
-import { runDoctor } from './doctor'
+import { doctorCommand } from './commands/doctor'
+import { createStatusCommand } from './commands/status'
+import { telemetryCommand } from './commands/telemetry'
+import { trustCommand } from './commands/trust'
 import type { ApolloPorts } from './ports'
+import type { CliIo, CliResult, ParsedCliArgs } from './shared/cli-types'
 
 const defaultInteractiveModel = 'anthropic/claude-sonnet-4-20250514'
 
-export interface CliResult {
-  exitCode: number
-  stderr: string
-  stdout: string
-}
 const argsDefinition = {
   cwd: { type: 'string' as const },
   json: { type: 'boolean' as const },
@@ -48,10 +47,7 @@ const argsDefinition = {
   since: { type: 'string' as const },
   to: { type: 'string' as const },
 }
-export interface CliIo {
-  isInteractiveTerminal?(): boolean
-  readStdin(): Promise<string>
-}
+export type { CliIo, CliResult } from './shared/cli-types'
 const defaultIo: CliIo = {
   isInteractiveTerminal() {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY)
@@ -71,7 +67,7 @@ export async function runCli(
     return { exitCode: 0, stdout: await renderUsage(command), stderr: '' }
   if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
     return { exitCode: 0, stdout: `${ports.version}\n`, stderr: '' }
-  const args = parseArgs(rawArgs, argsDefinition)
+  const args = parseArgs(rawArgs, argsDefinition) as ParsedCliArgs
   const subcommand = args._[0]
   let stdout = ''
   let stderr = ''
@@ -95,86 +91,31 @@ export async function runCli(
       ? jsonFailure(message, 1, 'invalid_workspace')
       : { exitCode: 1, stdout, stderr: message }
   }
-  if (subcommand === 'doctor') {
-    const checks = await runDoctor(cwd, ports)
-    stdout += args.json
-      ? `${JSON.stringify(checks)}\n`
-      : `${checks.map((check) => `${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`).join('\n')}\n`
-    return { exitCode: args.strict && checks.some((check) => !check.ok) ? 1 : 0, stdout, stderr }
-  }
-  if (subcommand === 'telemetry') {
-    const action = args._[1] ?? 'show'
-    if (action === 'show') {
-      const summary = await ports.telemetry.summary()
-      stdout += `${args.json ? JSON.stringify(summary) : renderTelemetryPanel(summary)}\n`
-      return { exitCode: 0, stdout, stderr }
-    }
-    if (action === 'export') {
-      const target = args._[2]
-      if (!target) return { exitCode: 2, stdout, stderr: 'telemetry export requires a target path' }
-      const count = await ports.telemetry.export(target)
-      return { exitCode: 0, stdout: `${stdout}Exported ${count} redacted event(s).\n`, stderr }
-    }
-    if (action === 'clear') {
-      await ports.telemetry.clear()
-      return { exitCode: 0, stdout: `${stdout}Cleared local telemetry.\n`, stderr }
-    }
-    return { exitCode: 2, stdout, stderr: `Unknown telemetry action: ${action}` }
-  }
-  if (subcommand === 'trust') {
-    const action = args._[1] ?? 'list'
-    if (action === 'list') {
-      const rules = await ports.trust.list()
-      return {
-        exitCode: 0,
-        stdout: args.json
-          ? `${JSON.stringify(rules)}\n`
-          : rules.length
-            ? `${rules.map((rule) => `${rule.scope}\t${rule.path}\t${rule.trustedAt}`).join('\n')}\n`
-            : 'No trusted directories.\n',
-        stderr,
-      }
-    }
-    if (action === 'revoke') {
-      const target = args._[2]
-      if (!target && !args.all)
-        return { exitCode: 2, stdout, stderr: 'trust revoke requires a path or --all' }
-      const removed = args.all ? await ports.trust.revokeAll() : await ports.trust.revoke(target!)
-      return {
-        exitCode: 0,
-        stdout: args.json
-          ? `${JSON.stringify({ removed })}\n`
-          : `Revoked ${removed} trust rule(s).\n`,
-        stderr,
-      }
-    }
-    return { exitCode: 2, stdout, stderr: `Unknown trust action: ${action}` }
-  }
+  const registry = new CommandRegistry([
+    doctorCommand,
+    telemetryCommand,
+    trustCommand,
+    createStatusCommand({
+      buildFallback: async (fallbackCwd) =>
+        buildWelcomePanelData({
+          cwd: fallbackCwd,
+          dangerousPermissions: false,
+          ports,
+          probe: await ports.native.probe(),
+          sessionId: 'not available',
+          trustLabel: 'not available',
+        }),
+      renderText: renderTextStatus,
+    }),
+  ])
+  if (subcommand && registry.has(subcommand))
+    return registry.dispatch(subcommand, { args, cwd, ports })
   if (subcommand === 'version')
     return { exitCode: 0, stdout: `${stdout}${ports.version}\n`, stderr }
   if (subcommand === 'help')
     return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
-  if (subcommand === 'status') {
-    const data = ports.config.status
-      ? await ports.config.status({ cwd })
-      : statusPanelFromWelcome(
-          await buildWelcomePanelData({
-            cwd,
-            dangerousPermissions: false,
-            ports,
-            probe: await ports.native.probe(),
-            sessionId: 'not available',
-            trustLabel: 'not available',
-          }),
-        )
-    return {
-      exitCode: 0,
-      stdout: args.json ? `${JSON.stringify(data)}\n` : renderTextStatus(data),
-      stderr,
-    }
-  }
   if (subcommand === 'plugin') {
     if (!ports.plugin)
       return { exitCode: 2, stdout, stderr: 'plugin integration port is not connected' }
