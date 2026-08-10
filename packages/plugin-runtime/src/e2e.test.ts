@@ -55,7 +55,7 @@ run('sandboxed community plugin E2E (requires a supported native sandbox binary)
       log: () => undefined,
     })
     const runtime = new PluginRuntime(manager, bridge, { dataRoot: join(root, 'data') })
-    await runtime.loadEnabled()
+    expect(await runtime.loadEnabled()).toEqual([])
     expect(tool?.name).toBe('plugin:apollo-plugin-community-example:community.echo')
     await expect(tool!.handler({ text: 'sandboxed' }, {})).resolves.toEqual({
       content: [{ type: 'text', text: 'sandboxed' }],

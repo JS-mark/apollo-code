@@ -8,6 +8,7 @@ use crate::{
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
+    env,
     path::{Path, PathBuf},
 };
 
@@ -73,11 +74,16 @@ pub fn run_plugin(
     } else {
         String::new()
     };
+    // Linux bwrap deliberately clears the environment, including PATH. Resolve
+    // the trusted host runtime before entering the sandbox so plugin activation
+    // does not depend on a shell-specific fallback PATH.
+    let node = executable_on_path("node")?;
     let command = format!(
-        "ulimit -t {}; ulimit -n {}; {}exec node --input-type=module -e {} -- {}",
+        "ulimit -t {}; ulimit -n {}; {}exec {} --input-type=module -e {} -- {}",
         profile.limits.cpu_seconds,
         profile.limits.open_files,
         memory_limit,
+        shell_quote(&node.to_string_lossy()),
         shell_quote(HOST),
         shell_quote(&entry.to_string_lossy())
     );
@@ -151,6 +157,15 @@ fn canonical_roots(values: &[String]) -> Result<Vec<PathBuf>, String> {
                 .map_err(|_| "sandbox profile contains a missing root".into())
         })
         .collect()
+}
+fn executable_on_path(name: &str) -> Result<PathBuf, String> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|value| env::split_paths(&value).collect::<Vec<_>>())
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+        .and_then(|candidate| std::fs::canonicalize(candidate).ok())
+        .ok_or_else(|| format!("plugin host runtime not found: {name}"))
 }
 fn validate_limits(limits: &Limits) -> Result<(), String> {
     if limits.cpu_seconds == 0
