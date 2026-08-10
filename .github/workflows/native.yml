@@ -75,7 +75,10 @@ jobs:
           run_install: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          # Keep the native matrix aligned with the Windows TypeScript gate.
+          # Node 24 intermittently fails to initialize child build processes on
+          # windows-2022 (0xC0000142) after the Rust build has consumed memory.
+          node-version: 22.13.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The native matrix only consumes the CLI. Keeping the independent docs
