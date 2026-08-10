@@ -583,8 +583,10 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilRenderFlush()
     stdin.write('\r')
     await app.waitUntilRenderFlush()
-    expect(selectedModels).toEqual(['anthropic/sonnet'])
-    expect(stdout.output).toContain('Model set to Sonnet')
+    await vi.waitFor(() => {
+      expect(selectedModels).toEqual(['anthropic/sonnet'])
+      expect(stdout.output).toContain('Model set to Sonnet')
+    })
 
     await app.unmount()
     await app.waitUntilExit()
