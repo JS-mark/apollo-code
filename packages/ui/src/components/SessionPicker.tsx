@@ -1,9 +1,11 @@
 import { Box, Text, useInput } from 'ink'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   createSessionPickerState,
   filterSessions,
+  formatSessionTime,
+  sessionPickerPage,
   sessionPickerKey,
   type SessionCandidate,
 } from '../session-picker'
@@ -11,11 +13,18 @@ import {
 export function SessionPicker(props: {
   sessions: readonly SessionCandidate[]
   error?: string
+  now?: number
+  pageSize?: number
   onCancel(): void
   onSelect(session: SessionCandidate): void
 }) {
   const [state, setState] = useState(() => createSessionPickerState(props.sessions))
-  const filtered = filterSessions(state.sessions, state.query)
+  const pageSize = props.pageSize ?? 10
+  const filtered = useMemo(
+    () => filterSessions(state.sessions, state.query),
+    [state.sessions, state.query],
+  )
+  const page = sessionPickerPage(filtered, state.selected, pageSize)
   useInput((input, key) => {
     const name = key.escape
       ? 'Escape'
@@ -25,10 +34,18 @@ export function SessionPicker(props: {
           ? 'ArrowUp'
           : key.downArrow
             ? 'ArrowDown'
-            : key.backspace || key.delete
-              ? 'Backspace'
-              : input
-    const action = sessionPickerKey(state, name)
+            : key.pageUp
+              ? 'PageUp'
+              : key.pageDown
+                ? 'PageDown'
+                : key.home
+                  ? 'Home'
+                  : key.end
+                    ? 'End'
+                    : key.backspace || key.delete
+                      ? 'Backspace'
+                      : input
+    const action = sessionPickerKey(state, name, pageSize)
     if (action.type === 'cancel') props.onCancel()
     else if (action.type === 'select') props.onSelect(action.session)
     else setState(action.state)
@@ -37,19 +54,32 @@ export function SessionPicker(props: {
     <Box borderStyle="round" flexDirection="column" paddingX={1}>
       <Text bold>Resume session</Text>
       <Text dimColor>
-        Search: {state.query || 'type to filter'} · ↑/↓ select · Enter resume · Esc cancel
+        Search: {state.query || 'type to fuzzy filter'} · ↑/↓ select · PgUp/PgDn page · Enter resume
+        · Esc cancel
       </Text>
       {props.error ? <Text color="red">{props.error}</Text> : null}
       {!state.sessions.length ? <Text>No saved sessions.</Text> : null}
       {state.sessions.length && !filtered.length ? (
         <Text>No sessions match “{state.query}”.</Text>
       ) : null}
-      {filtered.slice(0, 12).map((session, index) => (
-        <Text key={session.id} {...(index === state.selected ? { color: 'cyan' as const } : {})}>
-          {index === state.selected ? '› ' : '  '}
-          {session.title} · {session.id.slice(0, 8)} · {session.cwd} · {session.updatedAt}
+      {page.items.map((session, index) => {
+        const absoluteIndex = page.start + index
+        return (
+          <Text
+            key={session.id}
+            {...(absoluteIndex === state.selected ? { color: 'cyan' as const } : {})}
+          >
+            {absoluteIndex === state.selected ? '› ' : '  '}
+            {session.title} · {formatSessionTime(session.updatedAt, props.now)} · {session.cwd} ·{' '}
+            {session.id.slice(0, 8)}
+          </Text>
+        )
+      })}
+      {filtered.length ? (
+        <Text dimColor>
+          Showing {page.start + 1}–{page.end} of {page.total}
         </Text>
-      ))}
+      ) : null}
     </Box>
   )
 }
