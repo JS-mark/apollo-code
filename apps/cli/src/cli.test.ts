@@ -623,7 +623,7 @@ describe('runCli', () => {
     expect(testPorts.session.resume).not.toHaveBeenCalled()
   })
 
-  it('uses the shared picker before resuming in an interactive terminal', async () => {
+  it('enters interactive chat after selecting a session to resume', async () => {
     const testPorts = ports()
     const candidate = {
       id: 'session-42',
@@ -632,9 +632,26 @@ describe('runCli', () => {
       title: 'Work',
     }
     testPorts.session.list = vi.fn(async () => [candidate])
+    const interactive = {
+      id: candidate.id,
+      events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const resumeInteractive = vi.fn(async () => interactive)
+    testPorts.session.resumeInteractive = resumeInteractive
     const renderSessionPicker = vi.fn(async () => candidate)
+    const waitUntilExit = vi.fn(async () => {})
+    const renderInteractiveApp = vi.fn(() => ({
+      clear: vi.fn(),
+      unmount: vi.fn(),
+      waitUntilExit,
+      waitUntilRenderFlush: vi.fn(async () => {}),
+    }))
     testPorts.ui = {
-      renderInteractiveApp: vi.fn(),
+      renderInteractiveApp,
       renderSessionPicker,
     } as never
     const result = await runCli(['resume'], testPorts, {
@@ -643,7 +660,17 @@ describe('runCli', () => {
     })
     expect(result.exitCode).toBe(0)
     expect(renderSessionPicker).toHaveBeenCalledWith({ sessions: [candidate] })
-    expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
+    expect(resumeInteractive).toHaveBeenCalledWith('session-42')
+    expect(testPorts.session.resume).not.toHaveBeenCalled()
+    expect(testPorts.trust.check).toHaveBeenCalledWith('/work')
+    expect(renderInteractiveApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/work',
+        events: interactive.events,
+        sessionId: 'session-42',
+      }),
+    )
+    expect(waitUntilExit).toHaveBeenCalledOnce()
   })
 
   it('supports restore dry-runs and reports conflicts without writing', async () => {

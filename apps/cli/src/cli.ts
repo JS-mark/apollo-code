@@ -75,6 +75,7 @@ export async function runCli(
   const jsonMode = Boolean(args.json)
   const noColor = Boolean(args.noColor) || (args as { color?: boolean }).color === false
   const noTui = Boolean(args.noTui) || (args as { tui?: boolean }).tui === false
+  let resumeSelection: { id: string; cwd: string } | undefined
   const unsupportedGlobalFlag =
     subcommand === undefined ? firstUnsupportedGlobalFlag(rawArgs) : undefined
   if (unsupportedGlobalFlag) {
@@ -320,14 +321,19 @@ export async function runCli(
     }
     const selected = await ports.ui.renderSessionPicker({ sessions: candidates })
     if (!selected) return { exitCode: 0, stdout, stderr }
-    try {
-      await ports.session.resume(selected.id)
-      return { exitCode: 0, stdout, stderr }
-    } catch (error) {
-      return {
-        exitCode: 1,
-        stdout,
-        stderr: `Could not resume ${selected.id}: ${error instanceof Error ? error.message : String(error)}`,
+    if (ports.session.resumeInteractive) {
+      resumeSelection = selected
+      cwd = selected.cwd
+    } else {
+      try {
+        await ports.session.resume(selected.id)
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        return {
+          exitCode: 1,
+          stdout,
+          stderr: `Could not resume ${selected.id}: ${error instanceof Error ? error.message : String(error)}`,
+        }
       }
     }
   }
@@ -391,13 +397,14 @@ export async function runCli(
       }
     }
   }
-  if (subcommand !== undefined && subcommand !== 'chat')
+  if (subcommand !== undefined && subcommand !== 'chat' && !resumeSelection)
     return {
       exitCode: 2,
       stdout,
       stderr: `${subcommand} integration port is not connected in the L1 shell.`,
     }
-  const rawPrompt = subcommand === 'chat' ? args._.slice(1).join(' ') : args._.join(' ')
+  const rawPrompt =
+    subcommand === 'chat' ? args._.slice(1).join(' ') : resumeSelection ? '' : args._.join(' ')
   const prompt = rawPrompt || undefined
   if (jsonMode && !prompt)
     return jsonFailure('JSON chat requires a prompt.', 2, 'prompt_required', 'usage')
@@ -488,7 +495,7 @@ export async function runCli(
     !noTui &&
     Boolean(io.isInteractiveTerminal?.()) &&
     Boolean(ports.ui?.renderInteractiveApp) &&
-    Boolean(ports.session.startInteractive)
+    Boolean(resumeSelection ? ports.session.resumeInteractive : ports.session.startInteractive)
   if (!jsonMode && !shouldUseTui) {
     stdout += `${renderPrivacyDisclosure()}\n`
     stdout += `${renderSandboxDisclosure(probe)}\n`
@@ -519,7 +526,9 @@ export async function runCli(
   ports.session.configureTerminalOutput?.({ streamToStdout: !jsonMode && !shouldUseTui })
   try {
     if (shouldUseTui) {
-      const interactive = await ports.session.startInteractive!({ cwd })
+      const interactive = resumeSelection
+        ? await ports.session.resumeInteractive!(resumeSelection.id)
+        : await ports.session.startInteractive!({ cwd })
       const permissions = new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
         interactive.setPermissionPromptHandler?.((request) => permissions.request(request))

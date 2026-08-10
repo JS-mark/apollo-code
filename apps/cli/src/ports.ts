@@ -29,6 +29,7 @@ export interface NativeHealth {
 export interface SessionPort {
   start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
+  resumeInteractive?(id: string): Promise<InteractiveSession>
   resume(id: string): Promise<{ id: string }>
   list?(): Promise<readonly SessionCandidate[]>
   interrupt(): Promise<void>
