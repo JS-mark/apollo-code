@@ -1,4 +1,5 @@
 import type { EventBus } from '@apollo-code/core'
+import type { MemoryService } from '@apollo-code/storage'
 import type { TelemetryHealth, TelemetrySummary } from '@apollo-code/telemetry'
 import type {
   InteractivePermissionDecision,
@@ -154,6 +155,8 @@ export interface ApolloPorts {
   }
   context?: ContextPort
   evolution?: EvolutionPort
+  /** Production-scoped memory service shared by all consumers. */
+  memory?: MemoryService
   mcp?: McpPort
   plugin?: PluginPort
   ui?: UiPort

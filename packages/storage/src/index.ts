@@ -23,6 +23,7 @@ import type { PermissionManager } from '@apollo-code/permission'
 import { sanitize, type JsonValue } from '@apollo-code/shared'
 export * from './evolution-store'
 export * from './memory-store'
+export * from './memory-runtime'
 export interface StoredEvent {
   v: 1
   id: string
