@@ -11,6 +11,7 @@ import type {
   StatusValue,
   StatusViewModel,
   SubmitOptions,
+  SessionCandidate,
 } from '@apollo-code/ui'
 
 export interface DoctorHealth {
@@ -27,6 +28,7 @@ export interface SessionPort {
   start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
   resume(id: string): Promise<{ id: string }>
+  list?(): Promise<readonly SessionCandidate[]>
   interrupt(): Promise<void>
   end(): Promise<void>
   configureSecurity?(input: { skipPermissions: boolean }): void
@@ -48,6 +50,10 @@ export interface InteractiveSession {
 }
 export interface UiPort {
   renderInteractiveApp(options: InteractiveAppOptions): InteractiveAppHandle
+  renderSessionPicker?(input: {
+    sessions: readonly SessionCandidate[]
+    error?: string
+  }): Promise<SessionCandidate | undefined>
   renderDirectoryTrustPrompt?(input: {
     canonicalPath: string
     parentPath: string
@@ -199,6 +205,7 @@ export function unavailablePorts(): ApolloPorts {
     session: {
       start: async () => ({ id: 'unconnected-session' }),
       resume: async (id) => ({ id }),
+      list: async () => [],
       interrupt: async () => {},
       end: async () => {},
     },

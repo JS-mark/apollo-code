@@ -183,6 +183,7 @@ export { statusPanelFromWelcome, validateStatusConfigValue } from './status'
 export * from './status'
 export { renderDirectoryTrustPrompt, renderInteractiveApp } from './tui'
 export * from './tui'
+export * from './session-picker'
 
 export interface ContextPanelState {
   strategy: string

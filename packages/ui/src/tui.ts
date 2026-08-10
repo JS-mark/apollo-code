@@ -6,12 +6,37 @@ import {
   DirectoryTrustPrompt,
   type DirectoryTrustDecision,
 } from './components/DirectoryTrustPrompt'
+import { SessionPicker } from './components/SessionPicker'
+import type { SessionCandidate } from './session-picker'
 
 export interface InteractiveAppHandle {
   clear(): void
   unmount(): void
   waitUntilRenderFlush(): Promise<void>
   waitUntilExit(): Promise<void>
+}
+
+export function renderSessionPicker(input: {
+  sessions: readonly SessionCandidate[]
+  error?: string
+}): Promise<SessionCandidate | undefined> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (value?: SessionCandidate) => {
+      if (settled) return
+      settled = true
+      instance.unmount()
+      resolve(value)
+    }
+    const instance = render(
+      createElement(SessionPicker, {
+        ...input,
+        onCancel: () => finish(),
+        onSelect: finish,
+      }),
+      { exitOnCtrlC: false },
+    )
+  })
 }
 
 export function renderInteractiveApp(

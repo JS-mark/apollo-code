@@ -291,9 +291,44 @@ export async function runCli(
   }
   if (subcommand === 'resume') {
     const id = args._[1]
-    if (!id) return { exitCode: 2, stdout, stderr: 'resume requires a session id' }
-    await ports.session.resume(id)
-    return { exitCode: 0, stdout, stderr }
+    if (id) {
+      try {
+        await ports.session.resume(id)
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return jsonMode
+          ? jsonFailure(message, 1, 'session_resume_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
+    const candidates = (await ports.session.list?.()) ?? []
+    if (jsonMode || noTui || !io.isInteractiveTerminal?.() || !ports.ui?.renderSessionPicker) {
+      const message = 'resume requires a session id outside an interactive TTY'
+      return jsonMode
+        ? {
+            exitCode: 2,
+            stdout: `${JSON.stringify({ ok: false, error: { code: 'session_id_required', message }, candidates })}\n`,
+            stderr: '',
+          }
+        : {
+            exitCode: 2,
+            stdout,
+            stderr: `${message}. Candidates: ${candidates.map((item) => item.id).join(', ') || 'none'}`,
+          }
+    }
+    const selected = await ports.ui.renderSessionPicker({ sessions: candidates })
+    if (!selected) return { exitCode: 0, stdout, stderr }
+    try {
+      await ports.session.resume(selected.id)
+      return { exitCode: 0, stdout, stderr }
+    } catch (error) {
+      return {
+        exitCode: 1,
+        stdout,
+        stderr: `Could not resume ${selected.id}: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
   }
   if (subcommand === 'restore') {
     const id = args._[1]

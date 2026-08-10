@@ -60,6 +60,7 @@ import { builtinTools, ToolExecutor } from '@apollo-code/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
+  renderSessionPicker,
   validateStatusConfigValue,
 } from '@apollo-code/ui'
 import type {
@@ -73,6 +74,7 @@ import type {
   StatusConfigItem,
   StatusPanelData,
   StatusValue,
+  SessionCandidate,
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -365,6 +367,32 @@ export class RuntimeSessionPort implements SessionPort {
     await this.snapshot()
     return { id }
   }
+  async list(): Promise<readonly SessionCandidate[]> {
+    const candidates: SessionCandidate[] = []
+    for await (const path of glob(join(this.sessionsDir, '*.jsonl'))) {
+      try {
+        const entries = await new SessionStore(path).load()
+        const snapshot = entries.findLast((entry) => entry.type === 'session.snapshot')
+        if (!snapshot) continue
+        const state = snapshot.payload as unknown as SessionState
+        if (!sessionIdPattern.test(state.id) || typeof state.cwd !== 'string') continue
+        const firstUser = state.messages.find((message) => message.role === 'user')
+        const summary = firstUser ? messageText(firstUser.content) : undefined
+        candidates.push({
+          id: state.id,
+          cwd: state.cwd,
+          updatedAt: snapshot.at,
+          title: summary?.slice(0, 72) || `Session in ${state.cwd}`,
+          ...(summary ? { summary } : {}),
+        })
+      } catch {
+        // Ignore corrupt records while keeping healthy sessions available.
+      }
+    }
+    return candidates.sort(
+      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id),
+    )
+  }
   async interrupt(): Promise<void> {
     this.#runner?.interrupt()
     await this.snapshot()
@@ -427,6 +455,15 @@ export class RuntimeSessionPort implements SessionPort {
       payload: state,
     })
   }
+}
+
+function messageText(content: SessionState['messages'][number]['content']): string {
+  return content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export class FileInputHistoryStore {
@@ -1013,6 +1050,7 @@ export function createProductionPorts(options: ProductionOptions = {}): ApolloPo
     ui: {
       renderInteractiveApp: (input) => renderInteractiveApp({ history, ...input }),
       renderDirectoryTrustPrompt,
+      renderSessionPicker,
     },
     trust,
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
