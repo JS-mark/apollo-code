@@ -367,6 +367,10 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilRenderFlush()
     stdin.write('\r')
     await vi.waitFor(() => expect(stdout.output).toContain('Resume session'))
+    // Seeing the picker output does not guarantee its useInput subscription has
+    // committed yet. Under a busy CI runner, an immediate Enter can still be
+    // handled by the command input that opened the picker.
+    await app.waitUntilRenderFlush()
     stdin.write('\r')
     await vi.waitFor(() => expect(stdout.output).toContain('restored context'))
     stdin.write('after switch')
