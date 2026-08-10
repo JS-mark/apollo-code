@@ -631,16 +631,17 @@ describe('runCli', () => {
       title: 'Work',
     }
     testPorts.session.list = vi.fn(async () => [candidate])
+    const renderSessionPicker = vi.fn(async () => candidate)
     testPorts.ui = {
       renderInteractiveApp: vi.fn(),
-      renderSessionPicker: vi.fn(async () => candidate),
+      renderSessionPicker,
     } as never
     const result = await runCli(['resume'], testPorts, {
       readStdin: async () => '',
       isInteractiveTerminal: () => true,
     })
     expect(result.exitCode).toBe(0)
-    expect(testPorts.ui.renderSessionPicker).toHaveBeenCalledWith({ sessions: [candidate] })
+    expect(renderSessionPicker).toHaveBeenCalledWith({ sessions: [candidate] })
     expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
   })
 
