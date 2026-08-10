@@ -608,6 +608,42 @@ describe('runCli', () => {
     expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
   })
 
+  it('returns structured resume candidates instead of waiting in JSON mode', async () => {
+    const testPorts = ports()
+    testPorts.session.list = vi.fn(async () => [
+      { id: 'session-42', cwd: '/work', updatedAt: '2026-08-10T00:00:00Z', title: 'Work' },
+    ])
+    const result = await runCli(['resume', '--json'], testPorts)
+    expect(result.exitCode).toBe(2)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      error: { code: 'session_id_required' },
+      candidates: [{ id: 'session-42' }],
+    })
+    expect(testPorts.session.resume).not.toHaveBeenCalled()
+  })
+
+  it('uses the shared picker before resuming in an interactive terminal', async () => {
+    const testPorts = ports()
+    const candidate = {
+      id: 'session-42',
+      cwd: '/work',
+      updatedAt: '2026-08-10T00:00:00Z',
+      title: 'Work',
+    }
+    testPorts.session.list = vi.fn(async () => [candidate])
+    testPorts.ui = {
+      renderInteractiveApp: vi.fn(),
+      renderSessionPicker: vi.fn(async () => candidate),
+    } as never
+    const result = await runCli(['resume'], testPorts, {
+      readStdin: async () => '',
+      isInteractiveTerminal: () => true,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(testPorts.ui.renderSessionPicker).toHaveBeenCalledWith({ sessions: [candidate] })
+    expect(testPorts.session.resume).toHaveBeenCalledWith('session-42')
+  })
+
   it('supports restore dry-runs and reports conflicts without writing', async () => {
     const restore = {
       restore: vi.fn(async () => ({
