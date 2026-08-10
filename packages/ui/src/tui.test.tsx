@@ -267,6 +267,9 @@ describe('renderInteractiveApp', () => {
     )
 
     await app.waitUntilRenderFlush()
+    // Ink's render flush can resolve before React has committed the event-subscription effect.
+    // Yield once so this test never emits stream events into an unsubscribed EventBus.
+    await new Promise<void>((resolve) => setImmediate(resolve))
 
     await events.emit({
       payload: {},
