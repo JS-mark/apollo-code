@@ -85,6 +85,20 @@ describe('RuntimeSessionPort', () => {
     expect(restored?.turns[0]?.status).toBe('aborted')
     expect(await readFile(join(root, `${id}.jsonl`), 'utf8')).toContain('session.resumed')
   })
+
+  it('returns an interactive handle for the restored session', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const first = new RuntimeSessionPort(root, fakeFactory())
+    const { id } = await first.start({ cwd: process.cwd(), prompt: 'before resume' })
+    const second = new RuntimeSessionPort(root, fakeFactory())
+
+    const interactive = await second.resumeInteractive(id)
+    await interactive.submit('after resume')
+
+    expect(interactive.id).toBe(id)
+    expect(await readFile(join(root, `${id}.jsonl`), 'utf8')).toContain('after resume')
+  })
 })
 
 describe('buildStatusViewModel', () => {

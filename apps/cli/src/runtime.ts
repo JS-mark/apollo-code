@@ -78,7 +78,7 @@ import type {
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
-import type { ApolloPorts, SessionPort } from './ports'
+import type { ApolloPorts, InteractiveSession, SessionPort } from './ports'
 import type { AppIdentity } from './shared/app-identity'
 import { DirectoryTrustStore } from './trust'
 
@@ -320,8 +320,15 @@ export class RuntimeSessionPort implements SessionPort {
       createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
       false,
     )
+    return this.interactiveSession()
+  }
+  async resumeInteractive(id: string) {
+    await this.resume(id)
+    return this.interactiveSession()
+  }
+  private interactiveSession(): InteractiveSession {
     return {
-      id,
+      id: this.#runner!.state.id,
       events: this.#events!,
       ...(this.statusSnapshot
         ? { getStatus: () => this.statusSnapshot!(this.#runner!.state) }
