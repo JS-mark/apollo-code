@@ -1,21 +1,23 @@
-# Apollo Code
-
 <p align="center">
-  <img src="apps/docs/public/apollo-mark.svg" alt="Apollo Code 标志" width="112" />
+  <img src="docs/assets/readme-hero.svg" alt="Apollo Code——让编程智能体始终可见、可控、可检查" width="100%" />
 </p>
 
 <p align="center">
-  <strong>权限优先、模型供应商无关的终端编程智能体。</strong>
+  <strong>面向专业开发者的开源编程基础设施：获得智能体的速度，不交出对系统的控制。</strong>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="apps/docs/zh/index.md">中文文档</a>
+  <a href="#快速开始"><strong>快速开始</strong></a> ·
+  <a href="apps/docs/zh/index.md"><strong>中文文档</strong></a> ·
+  <a href="README.md"><strong>English</strong></a>
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="许可证：Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" /></a>
-  <a href="CONTRIBUTING.md"><img alt="欢迎贡献" src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg" /></a>
-  <img alt="项目状态：早期开发" src="https://img.shields.io/badge/status-early_development-orange.svg" />
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-b9f559?style=flat-square&labelColor=101515" /></a>
+  <img alt="Node 20.19+" src="https://img.shields.io/badge/node-%E2%89%A520.19-b9f559?style=flat-square&labelColor=101515" />
+  <img alt="pnpm 11.10" src="https://img.shields.io/badge/pnpm-11.10-b9f559?style=flat-square&labelColor=101515" />
+  <a href="CONTRIBUTING.md"><img alt="欢迎贡献" src="https://img.shields.io/badge/PRs-welcome-b9f559?style=flat-square&labelColor=101515" /></a>
+  <img alt="早期开发" src="https://img.shields.io/badge/status-early_development-f0b35a?style=flat-square&labelColor=101515" />
 </p>
 
 Apollo Code 把智能体式编程循环带到命令行，同时让目录信任、操作权限、凭据与沙箱状态保持清晰可见。项目围绕明确的模型供应商边界、可恢复的文件修改、机器可读输出和原生隔离能力设计。
@@ -38,12 +40,11 @@ Apollo Code 把智能体式编程循环带到命令行，同时让目录信任�
 
 ## 为什么选择 Apollo Code
 
-- **权限优先**：初始化模型、工具和会话前先确认目录信任；文件写入、命令执行和网络访问仍需独立授权。
-- **供应商无关的架构**：模型适配器与路由是明确的独立模块，而不是写死在智能体循环中；目前首次使用流程以 Anthropic 为已文档化的供应商。
-- **原生沙箱辅助能力**：Rust 二进制提供平台相关的沙箱、搜索和文件系统能力，并可通过 `apollo doctor` 检查运行状态。
-- **可恢复的会话**：CLI 内置会话历史、可靠的续接边界以及带冲突保护的文件恢复流程。
-- **便于自动化**：聊天模式可输出版本化 NDJSON 事件，管理类命令则返回单个 JSON 文档。
-- **面向扩展设计**：本地插件和技能拥有明确的清单、权限、命名空间与隔离运行机制。
+| 默认保持控制                                                             | 面向真实工作流                                                       | 每一层都保持开放                                                   |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **显式目录信任**<br>启动供应商、工具或会话前，先确认真实目录和信任范围。 | **可恢复会话**<br>从可靠的轮次边界续接，并在恢复文件前预览影响。     | **供应商无关核心**<br>把模型适配与路由从智能体循环中分离出来。     |
+| **细粒度权限**<br>对写文件、执行命令和访问网络分别授权。                 | **原生隔离能力**<br>使用 Rust 实现的沙箱、搜索和文件系统辅助程序。   | **可组合运行时**<br>通过带命名空间的插件、技能、工具和 MCP 扩展。  |
+| **安全状态可见**<br>检查凭据、沙箱等级、目录信任与运行环境健康度。       | **为自动化而生**<br>输出版本化 NDJSON，不混入 ANSI 或 TUI 界面内容。 | **架构可检查**<br>清晰追踪 TypeScript 包与 Rust crate 之间的边界。 |
 
 ## 目前已经可用的能力
 

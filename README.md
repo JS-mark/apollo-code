@@ -1,21 +1,23 @@
-# Apollo Code
-
 <p align="center">
-  <img src="apps/docs/public/apollo-mark.svg" alt="Apollo Code logo" width="112" />
+  <img src="docs/assets/readme-hero.svg" alt="Apollo Code — ship code with an agent you can actually inspect" width="100%" />
 </p>
 
 <p align="center">
-  <strong>A permission-first, provider-neutral coding agent for your terminal.</strong>
+  <strong>Open-source coding infrastructure for developers who want agentic speed without giving up control.</strong>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="apps/docs/index.md">Documentation</a>
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="apps/docs/index.md"><strong>Documentation</strong></a> ·
+  <a href="README.zh-CN.md"><strong>简体中文</strong></a>
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" /></a>
-  <a href="CONTRIBUTING.md"><img alt="Contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg" /></a>
-  <img alt="Project status: early development" src="https://img.shields.io/badge/status-early_development-orange.svg" />
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-b9f559?style=flat-square&labelColor=101515" /></a>
+  <img alt="Node 20.19+" src="https://img.shields.io/badge/node-%E2%89%A520.19-b9f559?style=flat-square&labelColor=101515" />
+  <img alt="pnpm 11.10" src="https://img.shields.io/badge/pnpm-11.10-b9f559?style=flat-square&labelColor=101515" />
+  <a href="CONTRIBUTING.md"><img alt="Contributions welcome" src="https://img.shields.io/badge/PRs-welcome-b9f559?style=flat-square&labelColor=101515" /></a>
+  <img alt="Early development" src="https://img.shields.io/badge/status-early_development-f0b35a?style=flat-square&labelColor=101515" />
 </p>
 
 Apollo Code brings an agentic coding loop to the command line while keeping trust, permissions, credentials, and sandbox state visible. It is designed around explicit provider boundaries, recoverable file changes, machine-readable output, and native isolation helpers.
@@ -38,12 +40,11 @@ Apollo Code brings an agentic coding loop to the command line while keeping trus
 
 ## Why Apollo Code
 
-- **Permission-first execution** — directory trust is resolved before provider, tool, or session initialization; writes, commands, and network access remain separate approvals.
-- **Provider-neutral architecture** — provider adapters and routing are explicit packages instead of assumptions embedded in the agent loop. Anthropic is the documented first-run provider today.
-- **Native sandbox helpers** — Rust binaries provide platform-specific sandbox, search, and filesystem capabilities, with diagnostics through `apollo doctor`.
-- **Recoverable sessions** — session history, resume boundaries, and guarded file restoration are part of the CLI surface.
-- **Automation-friendly output** — chat supports versioned NDJSON events, while management commands return a single JSON document.
-- **Extensible by design** — local plugins and skills have explicit manifests, permissions, namespaces, and runtime isolation.
+| Control by default                                                                          | Built for real workflows                                                               | Open at every layer                                                                           |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Explicit trust**<br>Resolve directory trust before any provider, tool, or session starts. | **Recoverable sessions**<br>Resume durable turns and preview guarded file restoration. | **Provider-neutral core**<br>Keep adapters and routing outside the agent loop.                |
+| **Granular permissions**<br>Approve writes, commands, and network access independently.     | **Native isolation**<br>Use Rust-powered sandbox, search, and filesystem helpers.      | **Composable runtime**<br>Extend through namespaced plugins, skills, tools, and MCP.          |
+| **Visible security state**<br>Inspect credentials, sandbox tier, trust, and runtime health. | **Automation-ready**<br>Stream versioned NDJSON without ANSI or TUI frames.            | **Inspectable architecture**<br>Follow boundaries across TypeScript packages and Rust crates. |
 
 ## What works today
 
