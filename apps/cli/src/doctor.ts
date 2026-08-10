@@ -26,7 +26,7 @@ export async function runDoctor(cwd: string, ports: ApolloPorts): Promise<Doctor
       ok: Number(process.versions.node.split('.')[0]) >= 20,
       detail: process.versions.node,
     },
-    { name: 'apollo version', ok: true, detail: ports.version },
+    { name: 'apollo version', ok: true, detail: ports.identity.version },
     {
       name: 'native sandbox',
       ok: native.sandbox,
