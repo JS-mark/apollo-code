@@ -33,26 +33,27 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 原始整文档已按顶级章节 §1–§14 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
 在 GitHub、VS Code、绝大多数 IDE 与 AI 阅读器中均可点击/跳转。
 
-| §   | 章节                                                   | 文件                                                   | 行数 |
-| --- | ------------------------------------------------------ | ------------------------------------------------------ | ---- |
-| 1   | 仓库布局 (v3, review 修正版)                           | [`01-repo-layout.md`](./01-repo-layout.md)             | 249  |
-| 2   | 核心数据模型与 Agent Loop                              | [`02-agent-loop.md`](./02-agent-loop.md)               | 354  |
-| 3   | Provider 抽象层 & Router 策略                          | [`03-provider-router.md`](./03-provider-router.md)     | 426  |
-| 4   | 工具体系与权限                                         | [`04-tools-permissions.md`](./04-tools-permissions.md) | 264  |
-| 5   | Rust 侧车（沙箱 + 搜索 + FS）                          | [`05-rust-sidecar.md`](./05-rust-sidecar.md)           | 264  |
-| 6a  | Skill / Plugin / MCP / Hooks — 核心插件架构（6.1–6.4） | [`06a-plugins-core.md`](./06a-plugins-core.md)         | 372  |
-| 6b  | PromptComposer + 插件生命周期（6.5–6.11）              | [`06b-prompt-composer.md`](./06b-prompt-composer.md)   | 500  |
-| 6c  | Memory 系统（长期记忆，6.12）                          | [`06c-memory-system.md`](./06c-memory-system.md)       | 292  |
-| 7   | 终端 UI (Ink)                                          | [`07-terminal-ui.md`](./07-terminal-ui.md)             | 182  |
-| 8   | 会话与配置存储                                         | [`08-session-config.md`](./08-session-config.md)       | 291  |
-| 8b  | 上下文管理（ContextPolicy，r9 新增）                   | [`08b-context-policy.md`](./08b-context-policy.md)     | ~280 |
-| 9   | 构建 / CI / 分发                                       | [`09-build-ci-dist.md`](./09-build-ci-dist.md)         | 163  |
-| 10  | 里程碑 L1 → L4                                         | [`10-milestones.md`](./10-milestones.md)               | 100  |
-| 11  | CLI 命令树设计                                         | [`11-cli-commands.md`](./11-cli-commands.md)           | 290  |
-| 12  | 开源治理                                               | [`12-open-governance.md`](./12-open-governance.md)     | 141  |
-| 13  | 文档站 IA + 官网首页                                   | [`13-docs-site.md`](./13-docs-site.md)                 | 220  |
-| 14  | 首次运行 UX / Onboarding                               | [`14-onboarding.md`](./14-onboarding.md)               | 210  |
-| 15  | 自我进化框架（r10 新增）                               | [`15-self-evolution.md`](./15-self-evolution.md)       | ~230 |
+| §   | 章节                                                   | 文件                                                               | 行数 |
+| --- | ------------------------------------------------------ | ------------------------------------------------------------------ | ---- |
+| 1   | 仓库布局 (v3, review 修正版)                           | [`01-repo-layout.md`](./01-repo-layout.md)                         | 249  |
+| 2   | 核心数据模型与 Agent Loop                              | [`02-agent-loop.md`](./02-agent-loop.md)                           | 354  |
+| 3   | Provider 抽象层 & Router 策略                          | [`03-provider-router.md`](./03-provider-router.md)                 | 426  |
+| 4   | 工具体系与权限                                         | [`04-tools-permissions.md`](./04-tools-permissions.md)             | 264  |
+| 5   | Rust 侧车（沙箱 + 搜索 + FS）                          | [`05-rust-sidecar.md`](./05-rust-sidecar.md)                       | 264  |
+| 6a  | Skill / Plugin / MCP / Hooks — 核心插件架构（6.1–6.4） | [`06a-plugins-core.md`](./06a-plugins-core.md)                     | 372  |
+| 6b  | PromptComposer + 插件生命周期（6.5–6.11）              | [`06b-prompt-composer.md`](./06b-prompt-composer.md)               | 500  |
+| 6c  | Memory 系统（长期记忆，6.12）                          | [`06c-memory-system.md`](./06c-memory-system.md)                   | 292  |
+| 7   | 终端 UI (Ink)                                          | [`07-terminal-ui.md`](./07-terminal-ui.md)                         | 182  |
+| 8   | 会话与配置存储                                         | [`08-session-config.md`](./08-session-config.md)                   | 291  |
+| 8b  | 上下文管理（ContextPolicy，r9 新增）                   | [`08b-context-policy.md`](./08b-context-policy.md)                 | ~280 |
+| 9   | 构建 / CI / 分发                                       | [`09-build-ci-dist.md`](./09-build-ci-dist.md)                     | 163  |
+| 10  | 证据门路线图 R0 → R6                                   | [`10-milestones.md`](./10-milestones.md)                           | 动态 |
+| 11  | CLI 命令树设计                                         | [`11-cli-commands.md`](./11-cli-commands.md)                       | 290  |
+| 12  | 开源治理                                               | [`12-open-governance.md`](./12-open-governance.md)                 | 141  |
+| 13  | 文档站 IA + 官网首页                                   | [`13-docs-site.md`](./13-docs-site.md)                             | 220  |
+| 14  | 首次运行 UX / Onboarding                               | [`14-onboarding.md`](./14-onboarding.md)                           | 210  |
+| 15  | 自我进化框架（r10 新增）                               | [`15-self-evolution.md`](./15-self-evolution.md)                   | ~230 |
+| 16  | 能力追踪与验收基线                                     | [`16-capability-traceability.md`](./16-capability-traceability.md) | 动态 |
 
 ### 附属专题文档
 
