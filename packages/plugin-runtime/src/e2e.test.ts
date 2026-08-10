@@ -7,13 +7,13 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 import { BridgeRuntime, PluginManager, PluginRuntime } from './index'
 
-const run = process.env.APOLLO_RUN_PLUGIN_E2E === '1' ? describe : describe.skip
+const run = describe.skipIf(process.env.APOLLO_RUN_PLUGIN_E2E !== '1')
 const fixtures: string[] = []
 afterAll(async () => {
   await Promise.all(fixtures.map((path) => rm(path, { recursive: true, force: true })))
 })
 
-run('sandboxed community plugin E2E', () => {
+run('sandboxed community plugin E2E (requires a supported native sandbox binary)', () => {
   it('installs, activates, invokes, disables, enables, and uninstalls through the real host', async () => {
     const root = await mkdtemp(join(tmpdir(), 'apollo-plugin-e2e-'))
     fixtures.push(root)
@@ -68,14 +68,34 @@ run('sandboxed community plugin E2E', () => {
     expect(tool).toBeUndefined()
     await expect(access(join(manager.root, manifest.name))).rejects.toThrow()
 
-    await manager.install(source)
     await writeFile(
-      join(manager.root, manifest.name, manifest.main),
-      'export async function activate(',
+      join(source, manifest.main),
+      'await new Promise(() => {}); export async function activate() {}\n',
     )
-    for (let attempt = 0; attempt < 3; attempt++)
-      await expect(runtime.load(manifest.name)).rejects.toThrow()
+    await manager.install(source)
+    const timeoutRuntime = new PluginRuntime(manager, bridge, {
+      dataRoot: join(root, 'data'),
+      activationTimeoutMs: 100,
+    })
+    await expect(timeoutRuntime.load(manifest.name)).rejects.toThrow('plugin_activation_timeout')
+    expect(timeoutRuntime.active()).toEqual([])
+    await timeoutRuntime.uninstall(manifest.name)
+
+    await writeFile(join(source, manifest.main), "throw new Error('sk-test-secret');\n")
+    await manager.install(source)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let failure: Error | undefined
+      try {
+        await runtime.load(manifest.name)
+      } catch (error) {
+        failure = error as Error
+      }
+      expect(failure).toBeDefined()
+      expect(failure!.message).toContain('plugin_host_exited')
+      expect(failure!.message).not.toContain('sk-test-secret')
+    }
     expect(manager.list()[manifest.name]?.enabled).toBe(false)
     await runtime.uninstall(manifest.name)
+    await runtime.dispose()
   })
 })

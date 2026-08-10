@@ -33,7 +33,7 @@ import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-br
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
 import { BridgeRuntime, PluginManager, PluginRuntime } from '@apollo-code/plugin-runtime'
-import type { CommandSpec, ToolSpec } from '@apollo-code/plugin-sdk'
+import type { CommandSpec, PluginManifest, ToolSpec } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
@@ -668,6 +668,15 @@ export interface ProductionOptions {
   apolloHome?: string
   identity: Readonly<AppIdentity>
   model?: string
+  /** Diagnostics hook fired only after a contribution reaches its production registry. */
+  onPluginContribution?: (
+    value: Readonly<{
+      kind: 'tool' | 'command'
+      name: string
+      plugin: string
+    }>,
+  ) => void
+  pluginApproval?: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>
 }
 export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
@@ -687,6 +696,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     pluginRoot,
     options.identity.version,
     async (manifest, expanded) => {
+      if (options.pluginApproval) return options.pluginApproval(manifest, expanded)
       const permissions = manifest.permissions.apollo.join(', ') || 'none'
       const answer = await promptLine(
         `${expanded ? 'Expanded' : 'Requested'} plugin permissions for ${manifest.name}: ${permissions}\nApprove? [y/N] `,
@@ -940,6 +950,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
               },
               { kind: 'plugin', plugin },
             )
+            options.onPluginContribution?.({ kind: 'command', name: spec.name, plugin })
             return { dispose }
           }
           if (kind !== 'tool') throw new Error(`plugin_${kind}_registration_not_supported`)
@@ -974,6 +985,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
             },
             { kind: 'plugin', plugin },
           )
+          options.onPluginContribution?.({ kind: 'tool', name: spec.name, plugin })
           return { dispose }
         },
         fs: {

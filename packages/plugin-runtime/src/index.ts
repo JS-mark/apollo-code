@@ -478,6 +478,75 @@ const RPC_METHODS = new Set([
   'call',
 ])
 
+export type BridgeCapabilityStatus = 'supported' | 'unsupported'
+export interface BridgeCapability {
+  readonly method: string
+  readonly status: BridgeCapabilityStatus
+  readonly test: string
+  readonly reason?: string
+}
+
+/**
+ * Auditable contract for every leaf on ApolloBridge. Keep this data-only so CI and
+ * documentation can compare the public SDK with the production host without mocks.
+ */
+export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.freeze([
+  ...[
+    'tools.register',
+    'tools.unregister',
+    'hooks.on',
+    'hooks.off',
+    'hooks.kv.get',
+    'hooks.kv.set',
+    'hooks.kv.delete',
+    'hooks.kv.clear',
+    'commands.register',
+    'prompt.contribute',
+    'prompt.revoke',
+    'session.getMessages',
+    'session.getUsage',
+    'session.on',
+    'fs.readFile',
+    'fs.writeFile',
+    'fs.exists',
+    'fs.glob',
+    'fs.stat',
+    'exec',
+    'http.fetch',
+    'ui.confirm',
+    'ui.prompt',
+    'ui.pick',
+    'ui.notify',
+    'storage.get',
+    'storage.set',
+    'storage.delete',
+    'config.get',
+    'log.debug',
+    'log.info',
+    'log.warn',
+    'log.error',
+  ].map((method) => ({
+    method,
+    status: 'supported' as const,
+    test: 'packages/plugin-runtime/src/index.test.ts#ApolloBridge capability matrix',
+  })),
+  {
+    method: 'call',
+    status: 'unsupported' as const,
+    reason: 'Low-level calls are transport-only; there is no direct in-process handler.',
+    test: 'packages/plugin-runtime/src/index.test.ts#ApolloBridge capability matrix',
+  },
+  ...['provider.register', 'auth.getAuthHeaders', 'auth.getSigningEnvKeys'].map((method) => ({
+    method,
+    status: 'unsupported' as const,
+    reason: 'Declared by the provider-plugin design but not exposed by ApolloBridge yet.',
+    test: 'packages/plugin-runtime/src/provider.test.ts#provider plugin policy',
+  })),
+])
+
+const safeRpcError = (error: unknown) =>
+  error instanceof PluginError ? error.code : 'plugin_internal_error'
+
 class PluginConnection {
   #buffer = ''
   #nextId = 1
@@ -598,7 +667,9 @@ class PluginConnection {
         jsonrpc: '2.0',
         bridgeVersion: 1,
         id: frame.id,
-        error: { code: -32000, message: error instanceof Error ? error.message : String(error) },
+        // RPC errors cross a trust boundary. Return stable codes only; messages can
+        // contain commands, paths, URLs, or credentials supplied by a plugin.
+        error: { code: -32000, message: safeRpcError(error) },
       })
     }
   }
