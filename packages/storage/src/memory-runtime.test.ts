@@ -160,8 +160,14 @@ describe('DefaultMemoryService', () => {
     ).rejects.toMatchObject({
       code: 'memory_validation',
     })
-    expect(seen).toEqual(['blocked'])
-    expect(await service.list(project)).toEqual([])
+    await expect(
+      service.create({ ...input(project, '\ud800text'), id: 'unicode-prefix' }),
+    ).rejects.toMatchObject({ code: 'memory_validation' })
+    await expect(
+      service.create({ ...input(project, 'valid \ud83d\ude80'), id: 'valid-unicode' }),
+    ).resolves.toMatchObject({ content: 'valid \ud83d\ude80' })
+    expect(seen).toEqual(['blocked', 'valid \ud83d\ude80'])
+    expect(await service.list(project)).toMatchObject([{ id: 'valid-unicode' }])
   })
 })
 
