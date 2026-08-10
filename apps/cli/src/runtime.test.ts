@@ -314,6 +314,35 @@ describe('FileInputHistoryStore', () => {
 })
 
 describe('status configuration adapter', () => {
+  it('exposes one production memory service and reloads its durable state', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
+    fixtures.push(root)
+    const first = createProductionPorts({
+      apolloHome: root,
+      identity: { version: '1.2.3-test' },
+    })
+    const memory = first.memory
+    expect(memory).toBe(first.memory)
+    await memory?.create({
+      id: 'composition-root',
+      scope: { kind: 'project', workspaceId: 'local', projectId: 'apollo' },
+      content: 'production reachable',
+      provenance: { source: 'agent' },
+    })
+    await memory?.flush()
+
+    const restarted = createProductionPorts({
+      apolloHome: root,
+      identity: { version: '1.2.3-test' },
+    })
+    expect(
+      await restarted.memory?.get(
+        { kind: 'project', workspaceId: 'local', projectId: 'apollo' },
+        'composition-root',
+      ),
+    ).toMatchObject({ content: 'production reachable' })
+  })
+
   it('persists whitelisted preferences atomically and rejects readonly state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.status-'))
     fixtures.push(root)

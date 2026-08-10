@@ -44,7 +44,9 @@ import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
   BackupStore,
+  DefaultMemoryService,
   EvolutionStore,
+  LocalMemoryRepository,
   PromptLoader,
   SessionStore,
 } from '@apollo-code/storage'
@@ -656,6 +658,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
+  const memory = new DefaultMemoryService(
+    new LocalMemoryRepository(join(home, 'memory', 'records.json')),
+  )
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
@@ -1021,6 +1026,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     async () => {
       await Promise.all([...pluginRuntimes].map((runtime) => runtime.dispose()))
       pluginRuntimes.clear()
+      await memory.flush()
     },
     (input) => {
       streamToStdout = input.streamToStdout
@@ -1068,6 +1074,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       rollback: (rollbackOptions) =>
         evolution.rollback(rollbackOptions.namespace, rollbackOptions.to),
     },
+    memory,
     plugin: {
       async install(source) {
         await pluginsReady
