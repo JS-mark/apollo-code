@@ -9,6 +9,7 @@ import type { PluginHost } from '@apollo-code/native-bridge'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  APOLLO_BRIDGE_CAPABILITIES,
   BridgeRuntime,
   createRpcGuard,
   PluginManager,
@@ -33,6 +34,57 @@ async function fixture() {
   return root
 }
 describe('plugin runtime', () => {
+  it('publishes an exhaustive ApolloBridge capability matrix with test entry points', () => {
+    const expected = [
+      'tools.register',
+      'tools.unregister',
+      'hooks.on',
+      'hooks.off',
+      'hooks.kv.get',
+      'hooks.kv.set',
+      'hooks.kv.delete',
+      'hooks.kv.clear',
+      'commands.register',
+      'prompt.contribute',
+      'prompt.revoke',
+      'session.getMessages',
+      'session.getUsage',
+      'session.on',
+      'fs.readFile',
+      'fs.writeFile',
+      'fs.exists',
+      'fs.glob',
+      'fs.stat',
+      'exec',
+      'http.fetch',
+      'ui.confirm',
+      'ui.prompt',
+      'ui.pick',
+      'ui.notify',
+      'storage.get',
+      'storage.set',
+      'storage.delete',
+      'config.get',
+      'log.debug',
+      'log.info',
+      'log.warn',
+      'log.error',
+      'call',
+      'provider.register',
+      'auth.getAuthHeaders',
+      'auth.getSigningEnvKeys',
+    ]
+    expect(APOLLO_BRIDGE_CAPABILITIES.map(({ method }) => method)).toEqual(expected)
+    expect(new Set(APOLLO_BRIDGE_CAPABILITIES.map(({ method }) => method)).size).toBe(
+      expected.length,
+    )
+    expect(APOLLO_BRIDGE_CAPABILITIES.every(({ test }) => test.length > 0)).toBe(true)
+    expect(APOLLO_BRIDGE_CAPABILITIES.find(({ method }) => method === 'call')).toMatchObject({
+      status: 'unsupported',
+      reason: expect.any(String),
+    })
+  })
+
   const registryDigest = `sha256-${'a'.repeat(64)}`
   const registryMetadata = {
     schemaVersion: 1,

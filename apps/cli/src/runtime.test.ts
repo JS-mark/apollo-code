@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { createSession, updateSession } from '@apollo-code/core'
@@ -380,3 +380,55 @@ describe('status configuration adapter', () => {
     expect(JSON.stringify(updated)).not.toContain('sk-secret-value')
   })
 })
+
+describe.skipIf(process.env.APOLLO_RUN_PLUGIN_E2E !== '1')(
+  'production plugin composition root (requires a supported native sandbox binary)',
+  () => {
+    it('routes real host tool and command registrations into production registries', async () => {
+      const root = await mkdtemp(join(process.cwd(), '.plugin-composition-'))
+      fixtures.push(root)
+      const source = join(root, 'source')
+      await mkdir(source)
+      await writeFile(
+        join(source, 'manifest.json'),
+        JSON.stringify({
+          name: 'apollo-plugin-composition-test',
+          version: '1.2.3',
+          type: 'module',
+          main: 'index.js',
+          engines: { apollo: '^1.2.3' },
+          permissions: { apollo: ['tools.register', 'commands.register'] },
+        }),
+      )
+      await writeFile(
+        join(source, 'index.js'),
+        `export async function activate(apollo) {
+          await apollo.tools.register({ name: 'plugin:apollo-plugin-composition-test:composition.tool', description: 'test', inputSchema: {}, async handler() { return 'ok' } })
+          await apollo.commands.register({ name: 'composition-command', async handler() {} })
+        }`,
+      )
+      const contributions: Array<{ kind: 'tool' | 'command'; name: string; plugin: string }> = []
+      const ports = createProductionPorts({
+        apolloHome: join(root, 'home'),
+        identity: { version: '1.2.3' },
+        pluginApproval: async () => true,
+        onPluginContribution: (value) => contributions.push(value),
+      })
+      await ports.plugin?.install(source)
+      const session = await ports.session.startInteractive({ cwd: root })
+      expect(contributions).toEqual([
+        {
+          kind: 'tool',
+          name: 'plugin:apollo-plugin-composition-test:composition.tool',
+          plugin: 'apollo-plugin-composition-test',
+        },
+        {
+          kind: 'command',
+          name: 'composition-command',
+          plugin: 'apollo-plugin-composition-test',
+        },
+      ])
+      await session.end()
+    })
+  },
+)

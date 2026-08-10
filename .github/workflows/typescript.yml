@@ -21,3 +21,12 @@ jobs:
       - run: pnpm turbo run build
       - run: pnpm lint
       - run: pnpm turbo run typecheck test
+      - name: Build the production plugin sandbox host
+        run: cargo build -p apollo-sandbox --bin apollo-sandbox
+      - name: Run plugin host E2E through the production native binary
+        run: |
+          pnpm --filter @apollo-code/plugin-runtime test -- src/e2e.test.ts
+          pnpm --filter apollo-code exec vitest run src/runtime.test.ts
+        env:
+          APOLLO_RUN_PLUGIN_E2E: '1'
+          APOLLO_NATIVE_SANDBOX_BINARY: ${{ github.workspace }}/target/debug/apollo-sandbox
