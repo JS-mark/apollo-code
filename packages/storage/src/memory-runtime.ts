@@ -158,6 +158,7 @@ function hasInvalidUnicode(value: string): boolean {
     const code = value.charCodeAt(index)
     if (code === 0) return true
     if (code >= 0xd800 && code <= 0xdbff) {
+      if (index + 1 >= value.length) return true
       const low = value.charCodeAt(++index)
       if (low < 0xdc00 || low > 0xdfff) return true
     } else if (code >= 0xdc00 && code <= 0xdfff) return true
