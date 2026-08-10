@@ -38,6 +38,8 @@ Use `apollo restore <session-id> --dry-run` to preview a rollback. Every `Write`
 
 Resume marks an unfinished turn as aborted and starts from a new turn; it never re-runs an incomplete provider or tool call.
 
+Inside interactive chat, `/resume` opens the same saved-session picker. Cancelling or a failed resume leaves the current session and input history unchanged.
+
 ## Local telemetry
 
 `apollo telemetry show` summarizes locally stored Tier and sandbox escape decisions. A missing sample is reported as unknown, never as passing. `apollo telemetry export <path>` exports a freshly redacted JSONL copy, and `apollo telemetry clear` clears the active local file. `apollo doctor` reports sink writability and damaged JSONL lines.

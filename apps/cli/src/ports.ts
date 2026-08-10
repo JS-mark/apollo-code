@@ -13,6 +13,7 @@ import type {
   StatusViewModel,
   SubmitOptions,
   SessionCandidate,
+  TranscriptEntry,
 } from '@apollo-code/ui'
 
 import type { AppIdentity } from './shared/app-identity'
@@ -42,6 +43,8 @@ export interface SessionPort {
 export interface InteractiveSession {
   id: string
   events: EventBus
+  cwd?: string
+  transcript?: readonly TranscriptEntry[]
   getStatus?(): Promise<StatusViewModel>
   setPermissionPromptHandler?(
     handler:

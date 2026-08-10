@@ -99,6 +99,26 @@ describe('RuntimeSessionPort', () => {
     expect(interactive.id).toBe(id)
     expect(await readFile(join(root, `${id}.jsonl`), 'utf8')).toContain('after resume')
   })
+
+  it('keeps the current session active when a resumed runner cannot be constructed', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const targetRuntime = new RuntimeSessionPort(root, fakeFactory())
+    const target = await targetRuntime.start({ cwd: process.cwd(), prompt: 'target' })
+    let creations = 0
+    const runtime = new RuntimeSessionPort(root, (state, events) => {
+      creations += 1
+      if (creations > 1) throw new Error('runner construction failed')
+      return fakeFactory()(state, events)
+    })
+    const current = await runtime.startInteractive({ cwd: process.cwd() })
+
+    await expect(runtime.resumeInteractive(target.id)).rejects.toThrow('runner construction failed')
+    await current.submit('still current')
+
+    expect(await readFile(join(root, `${current.id}.jsonl`), 'utf8')).toContain('still current')
+    expect(await readFile(join(root, `${target.id}.jsonl`), 'utf8')).not.toContain('still current')
+  })
 })
 
 describe('buildStatusViewModel', () => {

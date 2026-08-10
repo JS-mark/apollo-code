@@ -667,6 +667,10 @@ describe('runCli', () => {
       expect.objectContaining({
         cwd: '/work',
         events: interactive.events,
+        resume: expect.objectContaining({
+          list: expect.any(Function),
+          resume: expect.any(Function),
+        }),
         sessionId: 'session-42',
       }),
     )

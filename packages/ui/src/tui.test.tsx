@@ -325,6 +325,59 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('> /help Show slash commands')
     expect(stdout.output).toContain('/status Show runtime status (not available)')
     expect(stdout.output).toContain('/context Show context status (not available)')
+    expect(stdout.output).toContain('/resume Resume a saved session (not available)')
+  })
+
+  it('lists /resume, switches bindings, and does not store the slash command in input history', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const append = vi.fn()
+    const submit = vi.fn(async () => {})
+    const candidate = {
+      id: 'target-session',
+      cwd: '/target',
+      updatedAt: '2026-08-10T00:00:00Z',
+      title: 'Target work',
+    }
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        history: { append, list: () => [] },
+        initialInput: '/resume',
+        resume: {
+          list: vi.fn(async () => [candidate]),
+          resume: vi.fn(async () => ({
+            cwd: candidate.cwd,
+            id: candidate.id,
+            onExit: async () => {},
+            onSubmit: submit,
+            transcript: [{ id: 'old', role: 'user' as const, text: 'restored context' }],
+          })),
+        },
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Resume session'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('restored context'))
+    stdin.write('after switch')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledWith('after switch', undefined))
+
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(append).toHaveBeenCalledWith('after switch')
+    app.unmount()
+    await app.waitUntilExit()
   })
 
   it('switches slash command suggestions with arrow keys', async () => {

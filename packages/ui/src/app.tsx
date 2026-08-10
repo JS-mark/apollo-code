@@ -7,6 +7,7 @@ import { InputBox } from './components/InputBox'
 import { ModelPicker } from './components/ModelPicker'
 import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
+import { SessionPicker } from './components/SessionPicker'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { StatusPanel } from './components/StatusPanel'
 import { TopBar } from './components/TopBar'
@@ -16,6 +17,7 @@ import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
+import type { SessionCandidate } from './session-picker'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
 import type { WelcomePanelData } from './welcome'
 
@@ -44,6 +46,20 @@ export interface InputHistoryStore {
   list(): Promise<readonly string[]> | readonly string[]
 }
 
+export interface ResumedInteractiveSession {
+  cwd: string
+  events?: EventBus
+  id: string
+  onExit(): Promise<void> | void
+  onSubmit(input: string, options?: SubmitOptions): Promise<void> | void
+  transcript?: readonly TranscriptEntry[]
+}
+
+export interface SessionResumeController {
+  list(): Promise<readonly SessionCandidate[]>
+  resume(session: SessionCandidate): Promise<ResumedInteractiveSession>
+}
+
 export interface InteractiveAppOptions {
   cwd: string
   events?: EventBus
@@ -54,6 +70,7 @@ export interface InteractiveAppOptions {
   onModelSelect?: (model: string) => Promise<void> | void
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
+  resume?: SessionResumeController
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   status?: string
@@ -90,6 +107,13 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [permissionRequests, setPermissionRequests] = useState(
     () => options.permissions?.requests() ?? [],
   )
+  const [activeSession, setActiveSession] = useState<ResumedInteractiveSession>()
+  const [resumeCandidates, setResumeCandidates] = useState<readonly SessionCandidate[]>()
+  const [resumeError, setResumeError] = useState<string>()
+  const activeEvents = activeSession?.events ?? options.events
+  const activeCwd = activeSession?.cwd ?? options.cwd
+  const activeOnExit = activeSession?.onExit ?? options.onExit
+  const activeOnSubmit = activeSession?.onSubmit ?? options.onSubmit
 
   const flushPendingToTranscript = useCallback(
     (state: InteractiveAppState, id: string): InteractiveAppState => {
@@ -121,7 +145,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   }, [options.permissions])
 
   useSessionEvents(
-    options.events,
+    activeEvents,
     useCallback(
       (event) => {
         if (event.type === 'stream.started') {
@@ -204,7 +228,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         name: 'exit',
         description: 'End the session',
         run: async () => {
-          await options.onExit?.()
+          await activeOnExit?.()
           exit()
         },
       },
@@ -235,6 +259,24 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         : unavailableSlashCommand('status', 'Show runtime status'),
       unavailableSlashCommand('context', 'Show context status'),
       unavailableSlashCommand('compact', 'Compact conversation context'),
+      options.resume
+        ? {
+            name: 'resume',
+            description: 'Resume a saved session',
+            run: async () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setResumeError(undefined)
+              setResumeCandidates(await options.resume!.list())
+              setState((current) => ({
+                ...current,
+                status: 'select session',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('resume', 'Resume a saved session'),
       hasModelPicker
         ? {
             name: 'model',
@@ -258,7 +300,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     currentModelId,
     exit,
     options.modelPicker,
-    options.onExit,
+    activeOnExit,
+    options.resume,
     options.slashCommands,
     options.welcome,
   ])
@@ -276,6 +319,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       disabled={
         statusPanelOpen ||
         modelPickerOpen ||
+        resumeCandidates !== undefined ||
         state.statusLevel === 'active' ||
         permissionRequests.length > 0
       }
@@ -288,7 +332,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         const trimmed = input.trim()
         if (!trimmed) return
         if (trimmed === 'exit' || trimmed === 'quit') {
-          await options.onExit?.()
+          await activeOnExit?.()
           exit()
           return
         }
@@ -312,7 +356,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             statusLevel: 'warning',
           }))
         }
-        await options.onSubmit?.(input, submitOptions(currentModelId))
+        await activeOnSubmit?.(input, submitOptions(currentModelId))
       }}
     />
   )
@@ -334,7 +378,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         />
       ) : (
         <>
-          <TopBar cwd={options.cwd} sessionId={state.sessionId} status={state.status} />
+          <TopBar cwd={activeCwd} sessionId={state.sessionId} status={state.status} />
           <ScrollableTranscript entries={transcript} />
           {options.permissions ? (
             <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
@@ -373,6 +417,37 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               await options.onModelSelect?.(`${model.provider}/${model.model}`)
               appendSystemMessage(setState, `Model set to ${model.label}`)
               setState((current) => ({ ...current, status: `model ${model.label}` }))
+            })()
+          }}
+        />
+      ) : null}
+      {resumeCandidates ? (
+        <SessionPicker
+          {...(resumeError ? { error: resumeError } : {})}
+          sessions={resumeCandidates}
+          onCancel={() => {
+            setResumeCandidates(undefined)
+            setResumeError(undefined)
+            setState((current) => ({ ...current, status: 'session resume cancelled' }))
+          }}
+          onSelect={(candidate) => {
+            void (async () => {
+              try {
+                const resumed = await options.resume!.resume(candidate)
+                setActiveSession(resumed)
+                setResumeCandidates(undefined)
+                setResumeError(undefined)
+                setState((current) => ({
+                  ...current,
+                  sessionId: resumed.id,
+                  transcript: [...(resumed.transcript ?? [])],
+                  pendingAssistantText: '',
+                  status: 'session resumed',
+                  statusLevel: 'muted',
+                }))
+              } catch (error) {
+                setResumeError(error instanceof Error ? error.message : String(error))
+              }
             })()
           }}
         />

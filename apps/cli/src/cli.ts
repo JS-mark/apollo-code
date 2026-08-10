@@ -547,6 +547,24 @@ export async function runCli(
         onSubmit: interactive.submit,
         modelPicker: buildModelPicker(defaultInteractiveModel),
         permissions,
+        ...(ports.session.list && ports.session.resumeInteractive
+          ? {
+              resume: {
+                list: () => ports.session.list!(),
+                resume: async (candidate: import('@apollo-code/ui').SessionCandidate) => {
+                  const resumed = await ports.session.resumeInteractive!(candidate.id)
+                  return {
+                    cwd: resumed.cwd ?? candidate.cwd,
+                    events: resumed.events,
+                    id: resumed.id,
+                    onExit: resumed.end,
+                    onSubmit: resumed.submit,
+                    ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
+                  }
+                },
+              },
+            }
+          : {}),
         sessionId: interactive.id,
         status:
           args.yolo || args.dangerouslySkipPermissions

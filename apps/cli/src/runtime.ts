@@ -332,7 +332,17 @@ export class RuntimeSessionPort implements SessionPort {
   private interactiveSession(): InteractiveSession {
     return {
       id: this.#runner!.state.id,
+      cwd: this.#runner!.state.cwd,
       events: this.#events!,
+      transcript: this.#runner!.state.messages.flatMap((message) => {
+        const text = messageText(message.content)
+        if (
+          !text ||
+          (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
+        )
+          return []
+        return [{ id: message.id, role: message.role, text }]
+      }),
       ...(this.statusSnapshot
         ? { getStatus: () => this.statusSnapshot!(this.#runner!.state) }
         : {}),
@@ -429,13 +439,15 @@ export class RuntimeSessionPort implements SessionPort {
   }
   private async activate(state: SessionState, resumed: boolean): Promise<void> {
     const events = new EventBus()
-    this.#lastExitCode = 0
     const store = new SessionStore(this.path(state.id))
     store.attach(events)
+    const runner = await this.createRunner(state, events)
+    let lastExitCode = 0
     events.subscribe((event) => {
       if (event.type !== 'turn.aborted') return
       const exitCode = (event.payload as { exitCode?: unknown }).exitCode
-      this.#lastExitCode = typeof exitCode === 'number' ? exitCode : 130
+      lastExitCode = typeof exitCode === 'number' ? exitCode : 130
+      if (this.#events === events) this.#lastExitCode = lastExitCode
     })
     if (this.#output?.json) {
       const formatter = new MachineEventFormatter()
@@ -446,7 +458,8 @@ export class RuntimeSessionPort implements SessionPort {
     }
     this.#events = events
     this.#store = store
-    this.#runner = await this.createRunner(state, events)
+    this.#runner = runner
+    this.#lastExitCode = lastExitCode
     await events.emit({
       type: resumed ? 'session.resumed' : 'session.started',
       version: state.version,

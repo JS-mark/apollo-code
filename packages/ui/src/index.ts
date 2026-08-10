@@ -184,6 +184,13 @@ export * from './status'
 export { renderDirectoryTrustPrompt, renderInteractiveApp } from './tui'
 export * from './tui'
 export * from './session-picker'
+export type {
+  InteractiveAppOptions,
+  ResumedInteractiveSession,
+  SessionResumeController,
+  SlashCommand,
+  TranscriptEntry,
+} from './app'
 
 export interface ContextPanelState {
   strategy: string
