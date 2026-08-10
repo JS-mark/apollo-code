@@ -146,10 +146,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
 
   useEffect(() => {
     const registry = options.slashCommandRegistry
-    if (!registry) {
-      setRegistryCommands([])
-      return
-    }
+    if (!registry) return
     const refresh = () => setRegistryCommands(registry.snapshot())
     refresh()
     return registry.subscribe(refresh)
