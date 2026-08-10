@@ -285,11 +285,15 @@ export class LocalMemoryRepository implements MemoryRepository {
       })
       await this.options.beforeRename?.(temporary, this.path)
       await rename(temporary, this.path)
-      const directory = await open(dirname(this.path), 'r')
-      try {
-        await directory.sync()
-      } finally {
-        await directory.close()
+      // Windows does not support fsync on directory handles and returns EPERM.
+      // The snapshot file itself is still synced before the atomic rename above.
+      if (process.platform !== 'win32') {
+        const directory = await open(dirname(this.path), 'r')
+        try {
+          await directory.sync()
+        } finally {
+          await directory.close()
+        }
       }
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined)
@@ -299,7 +303,7 @@ export class LocalMemoryRepository implements MemoryRepository {
   }
 
   async flush(): Promise<void> {
-    // save() fsyncs the file and containing directory; there is no deferred buffer.
+    // save() fsyncs the file and, where supported, its containing directory.
   }
 
   async #read(
