@@ -14,6 +14,12 @@ The local adapter writes a temporary file, fsyncs it, rotates the last valid sna
 
 The production CLI composition root creates exactly one `MemoryService` and exposes it through `ApolloPorts`. A successful mutation is durable before it resolves; `flush()` remains the explicit shutdown boundary and waits for queued writes.
 
+CRUD consumers share that service's stable contract: create is idempotent for an identical caller-supplied id, delete/pin/unpin are idempotent, `updatedAt` is the optimistic-concurrency token, and list cursors encode the immutable `(createdAt, id)` ordering key. Invalid cursors and stale updates return stable `memory_validation` and `memory_conflict` errors.
+
+Every create and content update passes an unconditional built-in `memory.preWrite` guard before any in-memory or durable mutation. It rejects invalid Unicode, oversized content, obvious secrets, and unsafe identifiers. An injected policy hook can impose additional restrictions but cannot replace or disable the built-in guard; a veto leaves the prior snapshot untouched.
+
+The production tool registry exposes `Memory.create/get/list/update/delete/pin/unpin`. Tool schemas do not accept workspace, project, or session identifiers: the adapter derives them from the trusted tool context, then delegates all behavior to the shared service. This keeps model parameters from widening scope and avoids a second CRUD implementation.
+
 ## Consequences
 
-Later interfaces depend only on `MemoryService`. The first schema uses JSON snapshots for deterministic recovery and migration; indexing and external synchronization remain separate adapters and are intentionally out of scope.
+Later CLI and TUI interfaces depend only on `MemoryService`. The first schema uses JSON snapshots for deterministic recovery and migration; indexing and external synchronization remain separate adapters and are intentionally out of scope.

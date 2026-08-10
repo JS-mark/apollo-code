@@ -80,6 +80,7 @@ import type {
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
+import { createMemoryTools } from './memory-tools'
 import type { ApolloPorts, InteractiveSession, SessionPort } from './ports'
 import type { AppIdentity } from './shared/app-identity'
 import { DirectoryTrustStore } from './trust'
@@ -813,6 +814,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
     }))
       registry.register(tool)
+    for (const tool of createMemoryTools(memory)) registry.register(tool)
     registry.register({
       name: 'Skill.activate',
       description: 'Activate an installed prompt skill for the current session',

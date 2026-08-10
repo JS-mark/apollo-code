@@ -97,6 +97,72 @@ describe('DefaultMemoryService', () => {
     })
     expect((await service.get(project, 'safe'))?.content).toBe('Use pnpm')
   })
+
+  it('provides stable pagination, optimistic concurrency, and idempotent mutations', async () => {
+    let tick = 0
+    const service = new DefaultMemoryService(
+      new LocalMemoryRepository(await snapshotPath()),
+      undefined,
+      () => new Date(tick++),
+    )
+    const one = await service.create({ ...input(project), id: 'one' })
+    expect(await service.create({ ...input(project), id: 'one' })).toEqual(one)
+    await service.create({ ...input(project), id: 'two' })
+    const first = await service.listPage(project, { limit: 1 })
+    expect(first.items.map(({ id }) => id)).toEqual(['one'])
+    expect(first.nextCursor).toBeDefined()
+    expect(
+      (await service.listPage(project, { limit: 1, cursor: first.nextCursor! })).items,
+    ).toMatchObject([{ id: 'two' }])
+
+    await service.update(
+      project,
+      'one',
+      { content: 'Use pnpm 11' },
+      { expectedUpdatedAt: one.updatedAt },
+    )
+    await expect(
+      service.update(project, 'one', { content: 'stale' }, { expectedUpdatedAt: one.updatedAt }),
+    ).rejects.toMatchObject({ code: 'memory_conflict' })
+    expect(await service.pin(project, 'one')).toMatchObject({ pinned: true })
+    const unpinned = await service.unpin(project, 'one')
+    expect(unpinned).toMatchObject({ pinned: false })
+    expect(
+      await service.delete(project, 'one', { expectedUpdatedAt: unpinned.updatedAt }),
+    ).toMatchObject({
+      deletedAt: expect.any(String),
+    })
+    expect(await service.delete(project, 'one')).toMatchObject({ deletedAt: expect.any(String) })
+  })
+
+  it('runs mandatory memory.preWrite before persistence and rejects secrets and invalid text', async () => {
+    const seen: string[] = []
+    const service = new DefaultMemoryService(
+      new LocalMemoryRepository(await snapshotPath()),
+      undefined,
+      undefined,
+      undefined,
+      ({ content }) => {
+        seen.push(content)
+        if (content === 'blocked') throw new Error('policy veto')
+      },
+    )
+    await expect(
+      service.create({ ...input(project, 'blocked'), id: 'blocked' }),
+    ).rejects.toMatchObject({
+      code: 'memory_validation',
+    })
+    await expect(
+      service.create({ ...input(project, 'api_key=sk-secret'), id: 'secret' }),
+    ).rejects.toMatchObject({ code: 'memory_validation' })
+    await expect(
+      service.create({ ...input(project, '\ud800'), id: 'unicode' }),
+    ).rejects.toMatchObject({
+      code: 'memory_validation',
+    })
+    expect(seen).toEqual(['blocked'])
+    expect(await service.list(project)).toEqual([])
+  })
 })
 
 describe('LocalMemoryRepository contract', () => {
