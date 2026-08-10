@@ -415,7 +415,7 @@ describe.skipIf(process.env.APOLLO_RUN_PLUGIN_E2E !== '1')(
         onPluginContribution: (value) => contributions.push(value),
       })
       await ports.plugin?.install(source)
-      const session = await ports.session.startInteractive({ cwd: root })
+      const session = await ports.session.startInteractive!({ cwd: root })
       expect(contributions).toEqual([
         {
           kind: 'tool',
