@@ -69,24 +69,11 @@ pub fn run_plugin(
     {
         return Err("plugin data directory is outside approved write roots".into());
     }
-    let memory_limit = if cfg!(target_os = "linux") {
-        format!("ulimit -v {}; ", profile.limits.rss_mb.saturating_mul(1024))
-    } else {
-        String::new()
-    };
     // Linux bwrap deliberately clears the environment, including PATH. Resolve
     // the trusted host runtime before entering the sandbox so plugin activation
     // does not depend on a shell-specific fallback PATH.
     let node = executable_on_path("node")?;
-    let command = format!(
-        "ulimit -t {}; ulimit -n {}; {}exec {} --input-type=module -e {} -- {}",
-        profile.limits.cpu_seconds,
-        profile.limits.open_files,
-        memory_limit,
-        shell_quote(&node.to_string_lossy()),
-        shell_quote(HOST),
-        shell_quote(&entry.to_string_lossy())
-    );
+    let command = plugin_host_command(&node, &entry, &profile.limits);
     let request = ExecRequest {
         command,
         cwd: entry.parent().unwrap().to_string_lossy().into_owned(),
@@ -99,6 +86,18 @@ pub fn run_plugin(
         env: BTreeMap::new(),
     };
     exec_persistent(&request)
+}
+
+fn plugin_host_command(node: &Path, entry: &Path, limits: &Limits) -> String {
+    format!(
+        "ulimit -t {}; ulimit -n {}; exec {} --max-old-space-size={} --input-type=module -e {} -- {}",
+        limits.cpu_seconds,
+        limits.open_files,
+        shell_quote(&node.to_string_lossy()),
+        limits.rss_mb,
+        shell_quote(HOST),
+        shell_quote(&entry.to_string_lossy())
+    )
 }
 
 fn validate_manifest_entry(entry: &Path) -> Result<(), String> {
@@ -189,6 +188,22 @@ mod tests {
     #[test]
     fn shell_arguments_are_single_quoted() {
         assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+    }
+    #[test]
+    fn plugin_host_caps_v8_heap_without_limiting_virtual_address_space() {
+        let limits = Limits {
+            cpu_seconds: 30,
+            rss_mb: 256,
+            processes: 1,
+            open_files: 64,
+        };
+        let command = plugin_host_command(
+            Path::new("/runtime/node"),
+            Path::new("/plugin/main.mjs"),
+            &limits,
+        );
+        assert!(command.contains("--max-old-space-size=256"));
+        assert!(!command.contains("ulimit -v"));
     }
     #[test]
     fn rejects_unknown_bridge_fd_before_probe() {
