@@ -14,9 +14,9 @@ jobs:
           - runner: macos-14
             turbo-concurrency: 100%
           # The Windows hosted runner can fail to initialize worker processes
-          # (0xC0000142) when Turbo starts every workspace task at once.
+          # (0xC0000142) when Turbo and Vitest overlap workspace worker pools.
           - runner: windows-2022
-            turbo-concurrency: 4
+            turbo-concurrency: 1
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4

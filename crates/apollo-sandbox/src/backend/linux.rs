@@ -42,10 +42,13 @@ pub fn probe() -> ProbeInfo {
     }
 }
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
-    let (command, _bundled) = command(request)?;
+    let (command, _bundled) = command(request, false)?;
     execute(command, SandboxTier::Full)
 }
-fn command(request: &ExecRequest) -> Result<(Command, bundled_bwrap::MaterializedBwrap), String> {
+fn command(
+    request: &ExecRequest,
+    preserve_bridge_fd: bool,
+) -> Result<(Command, bundled_bwrap::MaterializedBwrap), String> {
     let bundled = bundled_bwrap::materialize()
         .map_err(|error| format!("bundled bwrap unavailable; refusing execution: {error}"))?;
     seccomp_arch()?;
@@ -75,12 +78,17 @@ fn command(request: &ExecRequest) -> Result<(Command, bundled_bwrap::Materialize
             command.args(["--setenv", key, &value]);
         }
     }
+    if preserve_bridge_fd {
+        // bwrap closes inherited descriptors above stderr unless explicitly
+        // told how many to retain. The plugin RPC transport is exactly fd 3.
+        command.args(["--preserve-fds", "1"]);
+    }
     command.args(["/bin/sh", "-c", &request.command]);
     Ok((command, bundled))
 }
 pub(crate) fn exec_persistent(request: &ExecRequest) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
-    let (mut command, _bundled) = command(request)?;
+    let (mut command, _bundled) = command(request, true)?;
     Err(format!(
         "failed to execute sandbox backend: {}",
         command.exec()
