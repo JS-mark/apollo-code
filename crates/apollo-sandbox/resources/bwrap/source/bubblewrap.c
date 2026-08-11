@@ -312,6 +312,7 @@ usage (int ecode, FILE *out)
            "    --help                       Print this help\n"
            "    --version                    Print version\n"
            "    --args FD                    Parse NUL-separated args from FD\n"
+           "    --preserve-fds N             Preserve N inherited file descriptors starting at 3\n"
            "    --argv0 VALUE                Set argv[0] to the value VALUE before running the program\n"
            "    --level-prefix               Prepend e.g. <3> to diagnostic messages\n"
            "    --unshare-all                Unshare every namespace we support by default\n"
@@ -1872,6 +1873,24 @@ parse_args_recurse (int          *argcp,
           data_argv_copy = data_argv; /* Don't change data_argv, we need to free it */
           parse_args_recurse (&data_argc, &data_argv_copy, true, total_parsed_argc_p);
 
+          argv += 1;
+          argc -= 1;
+        }
+      else if (strcmp (arg, "--preserve-fds") == 0)
+        {
+          char *endptr;
+          long count;
+
+          if (argc < 2)
+            die ("--preserve-fds takes an argument");
+
+          count = strtol (argv[1], &endptr, 10);
+          if (argv[1][0] == 0 || endptr[0] != 0 || count < 0 || count > 1024)
+            die ("Invalid fd count: %s", argv[1]);
+
+          /* This non-setuid build already passes inherited descriptors to the
+           * final child. Accept the upstream-compatible option explicitly so
+           * callers can document and constrain that transport contract. */
           argv += 1;
           argc -= 1;
         }

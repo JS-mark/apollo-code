@@ -105,4 +105,19 @@ mod tests {
         crate::digest::verify_sha256(bundled.path(), bundled_bwrap::SHA256)
             .expect("runtime payload must match the architecture digest");
     }
+
+    #[test]
+    fn bundled_bwrap_accepts_plugin_bridge_preservation_contract() {
+        let request = ExecRequest {
+            command: "/bin/true".into(),
+            cwd: "/".into(),
+            timeout_ms: 1_000,
+            permissions: Default::default(),
+            env: BTreeMap::new(),
+        };
+        let (command, _bundled) = command(&request, true).expect("build bwrap command");
+        assert!(command
+            .get_args()
+            .any(|argument| argument == "--preserve-fds"));
+    }
 }
