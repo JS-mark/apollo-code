@@ -7,8 +7,9 @@
 - Build container: `debian:bookworm-slim` (the manifest digest is pinned in
   `../../../scripts/rebuild-bwrap.sh`)
 
-The minimal source inventory is copied without modification from the tagged
-upstream release. `build.sh` produces non-setuid, architecture-specific glibc
+The minimal source inventory is based on the tagged upstream release, with the
+non-setuid build accepting the upstream-compatible `--preserve-fds` contract
+used by Apollo's fd 3 plugin bridge. `build.sh` produces architecture-specific glibc
 payloads. The checked-in payloads are embedded into `apollo-sandbox`; their
 SHA-256 values are pinned in `manifest.toml` and verified before every exec.
 
