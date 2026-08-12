@@ -25,6 +25,7 @@ export const createCommand = (identity: AppIdentity) =>
       telemetry: leaf('telemetry', 'Inspect, export, or clear local telemetry'),
       trust: leaf('trust', 'List or revoke trusted directories'),
       doctor: leaf('doctor', 'Diagnose L1 dependencies'),
+      memory: leaf('memory', 'Search and maintain local memory'),
       hook: leaf('hook', 'List builtin hooks'),
       mcp: leaf('mcp', 'List, test, and inspect MCP servers'),
       version: leaf('version', 'Print version'),

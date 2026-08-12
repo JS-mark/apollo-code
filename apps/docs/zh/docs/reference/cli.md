@@ -14,6 +14,7 @@
 | `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。       |
 | `apollo restore <session-id>`  | 回滚该会话修改过的文件。               |
 | `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。     |
+| `apollo memory <action>`       | 搜索、诊断或重建本地 Memory 派生索引。 |
 | `apollo plugin <action>`       | 安装、列出、诊断、启停或卸载本地插件。 |
 | `apollo hook list`             | 列出内置 hooks。                       |
 
@@ -26,6 +27,16 @@
 使用 `apollo restore <session-id> --dry-run` 可预览回滚。每次 `Write`、`Edit` 和 `MultiEdit` 修改文件前都会生成会话级备份；如果文件在 Apollo 编辑后又被修改，restore 会拒绝覆盖。备份默认保留七天，总量限制为 500 MB。
 
 Resume 会把未完成的 turn 标记为 aborted，并从新 turn 继续；不会重新执行中断的 provider 或工具调用。
+
+## 本地 Memory 搜索与恢复
+
+```sh
+apollo memory search <query> [--scope workspace|project|session] [--limit 10] [--tag tag] [--json]
+apollo memory doctor [--strict] [--json]
+apollo memory reindex [--check] [--force] [--batch-size 250] [--json]
+```
+
+搜索仅使用本地关键词，不会调用 embedding 或网络。索引候选始终通过带 scope 策略的事实服务回读，因此不会返回过期、已删除、幽灵或越权条目。`memory doctor` 只读；`memory reindex --check` 仅报告是否需要重建。实际重建使用跨进程锁，全部批次成功后才原子发布新 generation。`--force` 会重建健康索引并可清理陈旧锁，但不会抢占仍存活进程持有的锁。
 
 ## Role 路由
 

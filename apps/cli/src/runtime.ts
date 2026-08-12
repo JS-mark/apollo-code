@@ -44,8 +44,12 @@ import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
   BackupStore,
+  DefaultMemoryMaintenanceService,
+  DefaultMemoryRecallService,
   DefaultMemoryService,
   EvolutionStore,
+  IndexingMemoryService,
+  LocalKeywordMemoryIndex,
   LocalMemoryRepository,
   PromptLoader,
   SessionStore,
@@ -682,9 +686,15 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
-  const memory = new DefaultMemoryService(
-    new LocalMemoryRepository(join(home, 'memory', 'records.json')),
+  const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
+  const memoryIndex = new LocalKeywordMemoryIndex(join(home, 'memory', 'index.json'))
+  const memory = new IndexingMemoryService(
+    new DefaultMemoryService(memoryRepository),
+    memoryRepository,
+    memoryIndex,
   )
+  const memoryRecall = new DefaultMemoryRecallService(memory, memoryIndex)
+  const memoryMaintenance = new DefaultMemoryMaintenanceService(memoryRepository, memoryIndex)
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
@@ -1120,6 +1130,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         evolution.rollback(rollbackOptions.namespace, rollbackOptions.to),
     },
     memory,
+    memoryRecall,
+    memoryMaintenance,
     plugin: {
       async install(source) {
         await pluginsReady

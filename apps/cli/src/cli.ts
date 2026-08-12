@@ -19,6 +19,7 @@ import { parseArgs, renderUsage } from 'citty'
 import { CommandRegistry } from './app/command-registry'
 import { createCommand } from './command'
 import { doctorCommand } from './commands/doctor'
+import { memoryCommand } from './commands/memory'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
@@ -46,6 +47,13 @@ const argsDefinition = {
   namespace: { type: 'string' as const },
   since: { type: 'string' as const },
   to: { type: 'string' as const },
+  scope: { type: 'string' as const },
+  sessionId: { type: 'string' as const },
+  tag: { type: 'string' as const },
+  limit: { type: 'string' as const },
+  batchSize: { type: 'string' as const },
+  check: { type: 'boolean' as const },
+  force: { type: 'boolean' as const },
 }
 export type { CliIo, CliResult } from './shared/cli-types'
 const defaultIo: CliIo = {
@@ -95,6 +103,7 @@ export async function runCli(
   }
   const registry = new CommandRegistry([
     doctorCommand,
+    memoryCommand,
     telemetryCommand,
     trustCommand,
     createStatusCommand({

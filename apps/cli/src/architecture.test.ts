@@ -10,6 +10,7 @@ describe('CLI dependency boundaries', () => {
   it('keeps domain commands independent from other command domains and runtime', async () => {
     const commandFiles = [
       'commands/doctor/index.ts',
+      'commands/memory/index.ts',
       'commands/status/index.ts',
       'commands/telemetry/index.ts',
       'commands/trust/index.ts',

@@ -25,6 +25,7 @@ apollo chat --cwd <path> --trust-workspace "prompt"
 | `apollo resume <session-id>`   | Resume at the last durable turn boundary.                                 |
 | `apollo restore <session-id>`  | Restore files changed during a session.                                   |
 | `apollo doctor [--strict]`     | Check configuration, credentials, native packages, and sandbox readiness. |
+| `apollo memory <action>`       | Search, diagnose, or rebuild the local derived memory index.              |
 | `apollo plugin <action>`       | Install, list, diagnose, enable, disable, or uninstall local plugins.     |
 | `apollo hook list`             | List built-in hooks.                                                      |
 | `apollo version`               | Print the version.                                                        |
@@ -39,6 +40,16 @@ Use `apollo restore <session-id> --dry-run` to preview a rollback. Every `Write`
 Resume marks an unfinished turn as aborted and starts from a new turn; it never re-runs an incomplete provider or tool call.
 
 Inside interactive chat, `/resume` opens the same saved-session picker. Cancelling or a failed resume leaves the current session and input history unchanged.
+
+## Local memory search and recovery
+
+```sh
+apollo memory search <query> [--scope workspace|project|session] [--limit 10] [--tag tag] [--json]
+apollo memory doctor [--strict] [--json]
+apollo memory reindex [--check] [--force] [--batch-size 250] [--json]
+```
+
+Search is local keyword matching only and performs no embedding or network request. Index hits are always read back through the scoped fact service, so stale, deleted, ghost, and unauthorized entries are not returned. `memory doctor` is read-only. `memory reindex --check` reports whether rebuilding is required, while a normal rebuild uses a cross-process lock and atomically publishes a new generation only after every batch succeeds. `--force` rebuilds a healthy generation and may clear a stale lock, but never steals a lock owned by a live process.
 
 ## Local telemetry
 
