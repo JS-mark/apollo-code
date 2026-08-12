@@ -38,11 +38,17 @@ apollo memory export [--scope workspace|project|both] > memory.json
 apollo memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
-`global` 是 `workspace` 的别名；管道输入使用 `--body-stdin`，多个 tag 可用逗号分隔。列表按稳定的 `(createdAt, id)` cursor 分页；`--json` 始终输出单个带 schema 版本且无 ANSI 的 JSON 文档。Memory 返回码固定为：`0` 成功、`2` 校验失败或缺少确认、`3` 未找到、`13` scope/授权拒绝。
+`global` 是 `workspace` 的别名；管道输入使用 `--body-stdin`，多个 tag 可用逗号分隔。列表按稳定的 `pinned 降序、updatedAt 降序、id 升序` cursor 分页；`--json` 始终输出单个带 schema 版本且无 ANSI 的 JSON 文档。Memory 返回码固定为：`0` 成功、`2` 校验失败或缺少确认、`3` 未找到、`13` scope/授权拒绝。
 
 删除在交互终端中必须确认；非 TTY、`--json` 或 `--no-tui` 场景必须显式传入 `--yes`。所有输出都会先脱敏。
 
 Pinned memory 以固定行数/token 预算进入每次 provider 请求。优先级为 session > project > workspace；重复正文只保留更窄 scope 的版本，再做确定性排序。正文转义后放进 `<untrusted source="memory:pinned">`，只作为建议数据，不能覆盖当前用户或 system 指令。pin 会立即刷新 prompt cache，unpin 或 delete 后下一次组合不再包含该正文。
+
+### Chat 内 `/memory` 面板
+
+在已启动的 TTY Chat 中输入 `/memory`，会打开与上述命令共用 `MemoryService` 和 `MemoryRecallService` 的 project scope 面板。面板支持 cursor 分页、debounce 本地搜索、详情、正文/tag 编辑、删除确认和 pin/unpin。方向键、Page Up/Down、Home/End、Enter、`/`、`E`、`P`、`D` 和 Esc 用于导航；编辑时用 `Ctrl+S` 保存。删除默认选中 Cancel，dirty 草稿必须显式确认后才丢弃。
+
+面板打开时 Chat 输入被禁用，Esc 关闭后恢复；面板键盘事件不会进入 Chat history。失败或并发冲突会保留当前记录和草稿；搜索结果在详情与 mutation 前重新通过事实服务回读。`--json`、`--no-tui`、stdin/stdout 任一非 TTY 时都不会打开 Ink 或等待按键。窄终端和 no-color 仍保留 `>`、`[P]`、`Error:`、`Modified` 等文字标识。
 
 使用 `apollo restore <session-id> --dry-run` 可预览回滚。每次 `Write`、`Edit` 和 `MultiEdit` 修改文件前都会生成会话级备份；如果文件在 Apollo 编辑后又被修改，restore 会拒绝覆盖。备份默认保留七天，总量限制为 500 MB。
 

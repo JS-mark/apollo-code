@@ -93,7 +93,7 @@ describe('apollo memory', () => {
     const firstPage = JSON.parse(listed.stdout) as { nextCursor: string }
     expect(firstPage).toEqual({
       schemaVersion: 1,
-      items: [expect.objectContaining({ id: 'preference', tags: ['package-manager', 'tooling'] })],
+      items: [expect.objectContaining({ id: 'second', tags: ['tooling'] })],
       nextCursor: expect.any(String),
     })
     expect(
@@ -116,7 +116,7 @@ describe('apollo memory', () => {
           )
         ).stdout,
       ),
-    ).toMatchObject({ items: [{ id: 'second' }], nextCursor: null })
+    ).toMatchObject({ items: [{ id: 'preference' }], nextCursor: null })
     expect(
       (
         await runCli(

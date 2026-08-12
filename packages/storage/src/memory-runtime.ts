@@ -223,22 +223,35 @@ function builtinPreWrite(context: MemoryPreWriteContext): void {
 }
 
 export function memoryCursorFor(record: MemoryRecord): string {
-  return Buffer.from(JSON.stringify([record.createdAt, record.id]), 'utf8').toString('base64url')
+  return Buffer.from(JSON.stringify([record.pinned, record.updatedAt, record.id]), 'utf8').toString(
+    'base64url',
+  )
 }
 
-function decodeCursor(cursor: string): readonly [string, string] {
+function decodeCursor(cursor: string): Readonly<Pick<MemoryRecord, 'id' | 'pinned' | 'updatedAt'>> {
   try {
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as unknown
     if (
       !Array.isArray(value) ||
-      value.length !== 2 ||
-      value.some((item) => typeof item !== 'string')
+      value.length !== 3 ||
+      typeof value[0] !== 'boolean' ||
+      typeof value[1] !== 'string' ||
+      typeof value[2] !== 'string'
     )
       throw new TypeError('invalid cursor')
-    return value as unknown as readonly [string, string]
+    return { pinned: value[0], updatedAt: value[1], id: value[2] }
   } catch (error) {
     throw new MemoryError('memory_validation', 'Memory cursor is invalid', { cause: error })
   }
+}
+
+/** Product-wide list order. CLI and TUI both consume the service in this order. */
+export function compareMemoryRecords(
+  left: Readonly<Pick<MemoryRecord, 'id' | 'pinned' | 'updatedAt'>>,
+  right: Readonly<Pick<MemoryRecord, 'id' | 'pinned' | 'updatedAt'>>,
+): number {
+  if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
+  return right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
 }
 
 function normalizeTags(tags: readonly string[]): string[] {
@@ -390,13 +403,8 @@ export class DefaultMemoryService implements MemoryService {
           (!options.sources?.length || options.sources.includes(record.provenance.source)) &&
           tags.every((tag) => record.tags.includes(tag)),
       )
-      .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-      .filter(
-        (record) =>
-          !after ||
-          record.createdAt > after[0] ||
-          (record.createdAt === after[0] && record.id > after[1]),
-      )
+      .toSorted(compareMemoryRecords)
+      .filter((record) => !after || compareMemoryRecords(record, after) > 0)
     const items = records.slice(0, limit)
     return {
       items,

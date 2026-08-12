@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
+import { MemoryPanel } from './components/MemoryPanel'
 import { ModelPicker } from './components/ModelPicker'
 import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
@@ -15,6 +16,7 @@ import { WelcomeScreen } from './components/welcome/WelcomeScreen'
 import { buildWelcomeScreenState } from './components/welcome/welcomeStateAdapter'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
+import type { MemoryPanelController } from './memory-panel'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
 import type { SessionCandidate } from './session-picker'
@@ -66,7 +68,9 @@ export interface InteractiveAppOptions {
   events?: EventBus
   history?: InputHistoryStore
   initialInput?: string
+  memory?: MemoryPanelController
   modelPicker?: ModelPickerState
+  noColor?: boolean
   onExit?: () => Promise<void> | void
   onModelSelect?: (model: string) => Promise<void> | void
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
@@ -102,6 +106,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
   const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
+  const [memoryOpen, setMemoryOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
@@ -271,6 +276,24 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         : unavailableSlashCommand('status', 'Show runtime status'),
       unavailableSlashCommand('context', 'Show context status'),
       unavailableSlashCommand('compact', 'Compact conversation context'),
+      options.memory
+        ? {
+            name: 'memory',
+            description: 'Browse and manage memory',
+            run: () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setResumeCandidates(undefined)
+              setMemoryOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'memory',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('memory', 'Browse and manage memory'),
       options.resume
         ? {
             name: 'resume',
@@ -311,6 +334,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   }, [
     currentModelId,
     exit,
+    options.memory,
     options.modelPicker,
     activeOnExit,
     options.resume,
@@ -331,6 +355,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     <InputBox
       disabled={
         statusPanelOpen ||
+        memoryOpen ||
         modelPickerOpen ||
         resumeCandidates !== undefined ||
         state.statusLevel === 'active' ||
@@ -431,6 +456,19 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               appendSystemMessage(setState, `Model set to ${model.label}`)
               setState((current) => ({ ...current, status: `model ${model.label}` }))
             })()
+          }}
+        />
+      ) : null}
+      {memoryOpen && options.memory ? (
+        <MemoryPanel
+          controller={options.memory}
+          {...(options.noColor === undefined ? {} : { noColor: options.noColor })}
+          paused={permissionRequests.length > 0}
+          terminalColumns={terminalSize.columns}
+          terminalRows={terminalSize.rows}
+          onClose={() => {
+            setMemoryOpen(false)
+            setState((current) => ({ ...current, status: 'memory closed' }))
           }}
         />
       ) : null}

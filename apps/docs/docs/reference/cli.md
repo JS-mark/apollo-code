@@ -55,11 +55,17 @@ apollo memory export [--scope workspace|project|both] > memory.json
 apollo memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
-`global` is accepted as an alias for `workspace`. Use `--body-stdin` instead of an inline body when piping content. Repeated tags can be comma-separated. Listings use stable `(createdAt, id)` cursor pagination and `--json` returns one schema-versioned document without ANSI. Memory exit codes are `0` success, `2` validation or required confirmation, `3` not found, and `13` scope/authorization denial.
+`global` is accepted as an alias for `workspace`. Use `--body-stdin` instead of an inline body when piping content. Repeated tags can be comma-separated. Listings use stable `pinned desc, updatedAt desc, id asc` cursor pagination and `--json` returns one schema-versioned document without ANSI. Memory exit codes are `0` success, `2` validation or required confirmation, `3` not found, and `13` scope/authorization denial.
 
 Deletion requires an interactive confirmation. Non-TTY, `--json`, and `--no-tui` calls must pass `--yes`, so automation cannot delete by accident. Output is sanitized before rendering.
 
 Pinned memory is injected before every provider request with a fixed line/token budget. Session memory wins over project memory, which wins over workspace memory; duplicate content is kept only at the narrowest scope, then sorted deterministically. Every body is escaped inside `<untrusted source="memory:pinned">`; it is advisory data and cannot override current user or system instructions. Pinning invalidates the prompt cache immediately, while unpinning or deleting removes the body from the next composition.
+
+### Interactive `/memory` panel
+
+Inside an active TTY chat, `/memory` opens the project-scoped browser backed by the same `MemoryService` and `MemoryRecallService` as the commands above. It supports cursor paging, debounced local search, details, content/tag editing, delete confirmation, and pin/unpin. Use arrows, Page Up/Down, Home/End, Enter, `/`, `E`, `P`, `D`, and Esc; `Ctrl+S` saves an edit. Delete defaults to Cancel, and a dirty edit requires an explicit discard.
+
+The panel disables Chat input while open and restores it after Esc; panel keystrokes never enter Chat history. Failed or stale writes retain the current record and draft. Search results are read back through the fact service before details or mutations. `--json`, `--no-tui`, or a non-TTY stdin/stdout never opens Ink or waits for panel input. Narrow terminals keep text markers such as `>`, `[P]`, `Error:`, and `Modified`, so `--no-color` does not remove meaning.
 
 ## Local memory search and recovery
 
