@@ -128,6 +128,16 @@ node apps/cli/dist/apollo.js resume <session-id>
 node apps/cli/dist/apollo.js restore <session-id> --dry-run
 ```
 
+Save durable project knowledge and pin selected memories into future prompts:
+
+```bash
+node apps/cli/dist/apollo.js memory add --id package-manager --tag tooling --content "Use pnpm"
+node apps/cli/dist/apollo.js memory pin package-manager
+node apps/cli/dist/apollo.js memory list --scope project --pinned --json
+```
+
+Pinned memories are bounded and injected as untrusted advisory data. Current user and system instructions always take precedence. Use `memory unpin` or `memory delete --yes` to stop future injection.
+
 Use `apollo help` or the [CLI reference](apps/docs/docs/reference/cli.md) for all commands. The [JSON output reference](apps/docs/docs/reference/json-output.md) documents the automation contract.
 
 ## Configuration and security

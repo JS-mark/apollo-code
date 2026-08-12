@@ -128,6 +128,16 @@ node apps/cli/dist/apollo.js resume <session-id>
 node apps/cli/dist/apollo.js restore <session-id> --dry-run
 ```
 
+保存项目级长期知识，并把选定记忆固定注入后续提示词：
+
+```bash
+node apps/cli/dist/apollo.js memory add --id package-manager --tag tooling --content "使用 pnpm"
+node apps/cli/dist/apollo.js memory pin package-manager
+node apps/cli/dist/apollo.js memory list --scope project --pinned --json
+```
+
+Pinned memory 受固定预算限制，并以不可信建议数据注入；当前用户和 system 指令始终优先。执行 `memory unpin` 或 `memory delete --yes` 后，后续提示词不再注入该内容。
+
 全部命令请运行 `apollo help` 或查看[中文 CLI 参考](apps/docs/zh/docs/reference/cli.md)。自动化输出协议见英文版 [JSON 输出参考](apps/docs/docs/reference/json-output.md)；该页面目前尚无对应中文版本。
 
 ## 配置与安全

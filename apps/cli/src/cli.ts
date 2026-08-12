@@ -1,4 +1,5 @@
 import { dirname } from 'node:path'
+import { createInterface } from 'node:readline/promises'
 
 import { sanitize, validateWorkspacePath } from '@apollo-code/shared'
 import {
@@ -19,7 +20,7 @@ import { parseArgs, renderUsage } from 'citty'
 import { CommandRegistry } from './app/command-registry'
 import { createCommand } from './command'
 import { doctorCommand } from './commands/doctor'
-import { memoryCommand } from './commands/memory'
+import { createMemoryCommand, memoryUsage } from './commands/memory'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
@@ -54,6 +55,14 @@ const argsDefinition = {
   batchSize: { type: 'string' as const },
   check: { type: 'boolean' as const },
   force: { type: 'boolean' as const },
+  source: { type: 'string' as const },
+  pinned: { type: 'boolean' as const },
+  cursor: { type: 'string' as const },
+  id: { type: 'string' as const },
+  content: { type: 'string' as const },
+  bodyStdin: { type: 'boolean' as const },
+  expectedUpdatedAt: { type: 'string' as const },
+  yes: { type: 'boolean' as const },
 }
 export type { CliIo, CliResult } from './shared/cli-types'
 const defaultIo: CliIo = {
@@ -65,6 +74,14 @@ const defaultIo: CliIo = {
     for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
     return Buffer.concat(chunks).toString('utf8')
   },
+  async confirm(message) {
+    const prompt = createInterface({ input: process.stdin, output: process.stdout })
+    try {
+      return (await prompt.question(`${message} [y/N] `)).trim().toLowerCase() === 'y'
+    } finally {
+      prompt.close()
+    }
+  },
 }
 export async function runCli(
   rawArgs: string[],
@@ -72,6 +89,11 @@ export async function runCli(
   io: CliIo = defaultIo,
 ): Promise<CliResult> {
   const command = createCommand(ports.identity)
+  if (
+    rawArgs[0] === 'memory' &&
+    (rawArgs[1] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
+  )
+    return { exitCode: 0, stdout: memoryUsage, stderr: '' }
   if (rawArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
     return { exitCode: 0, stdout: await renderUsage(command), stderr: '' }
   if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
@@ -103,7 +125,6 @@ export async function runCli(
   }
   const registry = new CommandRegistry([
     doctorCommand,
-    memoryCommand,
     telemetryCommand,
     trustCommand,
     createStatusCommand({
@@ -118,6 +139,7 @@ export async function runCli(
         }),
       renderText: renderTextStatus,
     }),
+    createMemoryCommand(io),
   ])
   if (subcommand && registry.has(subcommand))
     return registry.dispatch(subcommand, { args, cwd, ports })

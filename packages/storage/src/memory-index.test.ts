@@ -62,6 +62,18 @@ function input(id: string, content: string) {
 }
 
 describe('local keyword memory index', () => {
+  it('forwards fact mutation notifications to wrapper consumers', async () => {
+    const { memory } = await fixture()
+    let changes = 0
+    const subscription = memory.onDidChange(() => changes++)
+
+    await memory.create(input('observed', 'first value'))
+    expect(changes).toBe(1)
+    subscription.dispose()
+    await memory.update(projectScope, 'observed', { content: 'second value' })
+    expect(changes).toBe(1)
+  })
+
   it('incrementally removes old terms and deleted facts', async () => {
     const { maintenance, memory, recall } = await fixture()
     await memory.create(input('preference', 'Use pnpm workspaces'))

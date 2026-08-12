@@ -25,7 +25,7 @@ apollo chat --cwd <path> --trust-workspace "prompt"
 | `apollo resume <session-id>`   | Resume at the last durable turn boundary.                                 |
 | `apollo restore <session-id>`  | Restore files changed during a session.                                   |
 | `apollo doctor [--strict]`     | Check configuration, credentials, native packages, and sandbox readiness. |
-| `apollo memory <action>`       | Search, diagnose, or rebuild the local derived memory index.              |
+| `apollo memory <action>`       | Manage durable memories, pinned context, and the local search index.      |
 | `apollo plugin <action>`       | Install, list, diagnose, enable, disable, or uninstall local plugins.     |
 | `apollo hook list`             | List built-in hooks.                                                      |
 | `apollo version`               | Print the version.                                                        |
@@ -40,6 +40,24 @@ Use `apollo restore <session-id> --dry-run` to preview a rollback. Every `Write`
 Resume marks an unfinished turn as aborted and starts from a new turn; it never re-runs an incomplete provider or tool call.
 
 Inside interactive chat, `/resume` opens the same saved-session picker. Cancelling or a failed resume leaves the current session and input history unchanged.
+
+## Memory
+
+```sh
+apollo memory list [--scope workspace|project|both] [--tag <tag>] [--source user|agent|evolution|import] [--pinned] [--limit <n>] [--cursor <cursor>]
+apollo memory get <id> [--scope workspace|project|both]
+apollo memory add [content] [--id <id>] [--scope workspace|project] [--tag <tag>] [--source user|import] [--pinned]
+apollo memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated-at <time>]
+apollo memory delete <id> [--yes]
+apollo memory pin <id>
+apollo memory unpin <id>
+```
+
+`global` is accepted as an alias for `workspace`. Use `--body-stdin` instead of an inline body when piping content. Repeated tags can be comma-separated. Listings use stable `(createdAt, id)` cursor pagination and `--json` returns one schema-versioned document without ANSI. Memory exit codes are `0` success, `2` validation or required confirmation, `3` not found, and `13` scope/authorization denial.
+
+Deletion requires an interactive confirmation. Non-TTY, `--json`, and `--no-tui` calls must pass `--yes`, so automation cannot delete by accident. Output is sanitized before rendering.
+
+Pinned memory is injected before every provider request with a fixed line/token budget. Session memory wins over project memory, which wins over workspace memory; duplicate content is kept only at the narrowest scope, then sorted deterministically. Every body is escaped inside `<untrusted source="memory:pinned">`; it is advisory data and cannot override current user or system instructions. Pinning invalidates the prompt cache immediately, while unpinning or deleting removes the body from the next composition.
 
 ## Local memory search and recovery
 

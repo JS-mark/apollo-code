@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import type {
   MemoryListOptions,
   MemoryRecordScope,
@@ -8,17 +6,17 @@ import type {
 } from '@apollo-code/storage'
 import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
 
+import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
+
 type ScopeKind = MemoryRecordScope['kind']
 
 const scopeSchema = { type: 'string', enum: ['workspace', 'project', 'session'] }
 const baseProperties = { scope: scopeSchema }
 
 function scopeFor(kind: ScopeKind, context: ToolContext): MemoryRecordScope {
-  const workspaceId = 'local'
-  if (kind === 'workspace') return { kind, workspaceId }
-  const projectId = createHash('sha256').update(context.session.cwd).digest('hex').slice(0, 32)
-  if (kind === 'project') return { kind, workspaceId, projectId }
-  return { kind, workspaceId, projectId, sessionId: context.session.id }
+  if (kind === 'workspace') return workspaceMemoryScope()
+  if (kind === 'project') return projectMemoryScope(context.session.cwd)
+  return sessionMemoryScope(context.session.cwd, context.session.id)
 }
 
 function text(value: unknown): ToolResult {
