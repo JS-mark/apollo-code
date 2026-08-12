@@ -19,6 +19,27 @@ export interface MemoryProvenance {
   readonly source: 'user' | 'agent' | 'evolution' | 'import'
   readonly actorId?: string
   readonly sourceId?: string
+  /** Original, untrusted provenance retained by import without granting its authority. */
+  readonly importedFrom?: Readonly<{
+    source: MemoryProvenance['source']
+    actorId?: string
+    sourceId?: string
+  }>
+}
+
+export type MemoryAttachmentState = 'active' | 'invalidated' | 'deleted'
+
+export interface MemoryRecordAttachment {
+  readonly schemaVersion: 1
+  readonly id: string
+  readonly handle: string
+  readonly mime: string
+  readonly size: number
+  readonly digest: string
+  readonly state: MemoryAttachmentState
+  readonly createdAt: string
+  readonly invalidatedAt: string | null
+  readonly deletedAt: string | null
 }
 
 export interface MemoryRecord {
@@ -27,6 +48,8 @@ export interface MemoryRecord {
   readonly scope: MemoryRecordScope
   readonly content: string
   readonly provenance: MemoryProvenance
+  /** Data-only references. Attachment bytes are never embedded in a memory snapshot or export. */
+  readonly attachments: readonly MemoryRecordAttachment[]
   readonly tags: readonly string[]
   readonly pinned: boolean
   readonly createdAt: string
@@ -38,6 +61,7 @@ export type NewMemoryRecord = Pick<MemoryRecord, 'scope' | 'content' | 'provenan
   readonly id?: string
   readonly tags?: readonly string[]
   readonly pinned?: boolean
+  readonly attachments?: readonly MemoryRecordAttachment[]
 }
 
 export interface MemoryListOptions {
@@ -102,6 +126,7 @@ export interface MemoryPolicy {
 
 export interface MemoryService {
   start(): Promise<void>
+  validateWrite?(input: NewMemoryRecord, operation?: 'create' | 'update'): Promise<void>
   create(input: NewMemoryRecord): Promise<MemoryRecord>
   get(scope: MemoryRecordScope, id: string): Promise<MemoryRecord | undefined>
   list(
@@ -112,7 +137,9 @@ export interface MemoryService {
   update(
     scope: MemoryRecordScope,
     id: string,
-    patch: Partial<Pick<MemoryRecord, 'content' | 'tags' | 'pinned'>>,
+    patch: Partial<
+      Pick<MemoryRecord, 'content' | 'tags' | 'pinned' | 'provenance' | 'attachments'>
+    >,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord>
   delete(
@@ -124,6 +151,18 @@ export interface MemoryService {
   unpin(
     scope: MemoryRecordScope,
     id: string,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord>
+  invalidateAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord>
+  deleteAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord>
   onDidChange?(listener: () => void): { dispose(): void }
@@ -209,6 +248,39 @@ function normalizeTags(tags: readonly string[]): string[] {
   return normalized.toSorted()
 }
 
+const attachmentHandlePattern = /^[a-f0-9]{64}\.(?:png|jpg|gif|webp)$/
+const attachmentMimePattern = /^image\/(?:png|jpeg|gif|webp)$/
+
+export function validateMemoryRecordAttachment(value: unknown): value is MemoryRecordAttachment {
+  if (!value || typeof value !== 'object') return false
+  const attachment = value as MemoryRecordAttachment
+  const digest = attachmentHandlePattern.exec(attachment.handle)?.[0]?.slice(0, 64)
+  return (
+    attachment.schemaVersion === 1 &&
+    validIdentifier(attachment.id) &&
+    digest === attachment.digest &&
+    attachmentMimePattern.test(attachment.mime) &&
+    Number.isSafeInteger(attachment.size) &&
+    attachment.size > 0 &&
+    ['active', 'invalidated', 'deleted'].includes(attachment.state) &&
+    !Number.isNaN(Date.parse(attachment.createdAt)) &&
+    (attachment.invalidatedAt === null || !Number.isNaN(Date.parse(attachment.invalidatedAt))) &&
+    (attachment.deletedAt === null || !Number.isNaN(Date.parse(attachment.deletedAt)))
+  )
+}
+
+function normalizeAttachments(
+  attachments: readonly MemoryRecordAttachment[],
+): MemoryRecordAttachment[] {
+  if (attachments.length > 64)
+    throw new MemoryError('memory_validation', 'Memory cannot reference more than 64 attachments')
+  if (!attachments.every(validateMemoryRecordAttachment))
+    throw new MemoryError('memory_validation', 'Memory attachment reference is invalid')
+  if (new Set(attachments.map(({ id }) => id)).size !== attachments.length)
+    throw new MemoryError('memory_validation', 'Memory attachment ids must be unique')
+  return structuredClone([...attachments])
+}
+
 export class DefaultMemoryService implements MemoryService {
   readonly #records = new Map<string, MemoryRecord>()
   readonly #changeListeners = new Set<() => void>()
@@ -229,6 +301,17 @@ export class DefaultMemoryService implements MemoryService {
     this.#started = true
   }
 
+  async validateWrite(
+    input: NewMemoryRecord,
+    operation: 'create' | 'update' = 'create',
+  ): Promise<void> {
+    validateScope(input.scope)
+    const id = input.id ?? this.createId()
+    normalizeTags(input.tags ?? [])
+    normalizeAttachments(input.attachments ?? [])
+    await this.#runPreWrite({ operation, scope: input.scope, id, content: input.content })
+  }
+
   async create(input: NewMemoryRecord): Promise<MemoryRecord> {
     validateScope(input.scope)
     const result = await this.#write(async () => {
@@ -236,16 +319,19 @@ export class DefaultMemoryService implements MemoryService {
       const existing = this.#records.get(id)
       if (existing) {
         const tags = normalizeTags(input.tags ?? [])
+        const attachments = normalizeAttachments(input.attachments ?? [])
         if (
           !existing.deletedAt &&
           this.policy.canAccess(input.scope, existing.scope) &&
           existing.content === input.content &&
           existing.pinned === (input.pinned ?? false) &&
           JSON.stringify(existing.tags) === JSON.stringify(tags) &&
+          JSON.stringify(existing.attachments) === JSON.stringify(attachments) &&
           JSON.stringify(existing.provenance) === JSON.stringify(input.provenance)
         )
           return existing
-        throw new MemoryError('memory_conflict', `Memory ${id} exists`)
+        if (!existing.deletedAt || !this.policy.canAccess(input.scope, existing.scope))
+          throw new MemoryError('memory_conflict', `Memory ${id} exists`)
       }
       await this.#runPreWrite({
         operation: 'create',
@@ -260,6 +346,7 @@ export class DefaultMemoryService implements MemoryService {
         scope: input.scope,
         content: input.content,
         provenance: input.provenance,
+        attachments: normalizeAttachments(input.attachments ?? []),
         tags: normalizeTags(input.tags ?? []),
         pinned: input.pinned ?? false,
         createdAt: now,
@@ -322,7 +409,9 @@ export class DefaultMemoryService implements MemoryService {
   async update(
     scope: MemoryRecordScope,
     id: string,
-    patch: Partial<Pick<MemoryRecord, 'content' | 'tags' | 'pinned'>>,
+    patch: Partial<
+      Pick<MemoryRecord, 'content' | 'tags' | 'pinned' | 'provenance' | 'attachments'>
+    >,
     options: MemoryMutationOptions = {},
   ): Promise<MemoryRecord> {
     const result = await this.#write(async () => {
@@ -334,10 +423,17 @@ export class DefaultMemoryService implements MemoryService {
       const tags = patch.tags === undefined ? current.tags : normalizeTags(patch.tags)
       const pinned = patch.pinned ?? current.pinned
       const content = patch.content ?? current.content
+      const provenance = patch.provenance ?? current.provenance
+      const attachments =
+        patch.attachments === undefined
+          ? current.attachments
+          : normalizeAttachments(patch.attachments)
       if (
         content === current.content &&
         pinned === current.pinned &&
-        JSON.stringify(tags) === JSON.stringify(current.tags)
+        JSON.stringify(tags) === JSON.stringify(current.tags) &&
+        JSON.stringify(provenance) === JSON.stringify(current.provenance) &&
+        JSON.stringify(attachments) === JSON.stringify(current.attachments)
       )
         return current
       const record: MemoryRecord = {
@@ -345,6 +441,8 @@ export class DefaultMemoryService implements MemoryService {
         content,
         tags,
         pinned,
+        provenance,
+        attachments,
         updatedAt: this.now().toISOString(),
       }
       this.#records.set(id, record)
@@ -388,6 +486,24 @@ export class DefaultMemoryService implements MemoryService {
     return this.update(scope, id, { pinned: false }, options)
   }
 
+  async invalidateAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord> {
+    return this.#transitionAttachment(scope, id, attachmentId, 'invalidated', options)
+  }
+
+  async deleteAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord> {
+    return this.#transitionAttachment(scope, id, attachmentId, 'deleted', options)
+  }
+
   async flush(): Promise<void> {
     await this.#mutation
     await this.repository.flush()
@@ -419,6 +535,41 @@ export class DefaultMemoryService implements MemoryService {
   #checkVersion(record: MemoryRecord, options: MemoryMutationOptions): void {
     if (options.expectedUpdatedAt && record.updatedAt !== options.expectedUpdatedAt)
       throw new MemoryError('memory_conflict', `Memory ${record.id} changed concurrently`)
+  }
+
+  async #transitionAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
+    state: Exclude<MemoryAttachmentState, 'active'>,
+    options: MemoryMutationOptions = {},
+  ): Promise<MemoryRecord> {
+    const current = await this.get(scope, id)
+    if (!current || current.deletedAt)
+      throw new MemoryError('memory_not_found', `Memory ${id} was not found`)
+    this.#checkVersion(current, options)
+    const attachment = current.attachments.find((item) => item.id === attachmentId)
+    if (!attachment)
+      throw new MemoryError('memory_not_found', `Memory attachment ${attachmentId} was not found`)
+    if (attachment.state === 'deleted' || attachment.state === state) return current
+    const now = this.now().toISOString()
+    return this.update(
+      scope,
+      id,
+      {
+        attachments: current.attachments.map((item) =>
+          item.id === attachmentId
+            ? {
+                ...item,
+                state,
+                invalidatedAt: item.invalidatedAt ?? now,
+                deletedAt: state === 'deleted' ? now : null,
+              }
+            : item,
+        ),
+      },
+      options,
+    )
   }
 
   async #runPreWrite(context: MemoryPreWriteContext): Promise<void> {
@@ -545,11 +696,16 @@ function migrateSnapshot(value: unknown): readonly MemoryRecord[] {
   const snapshot = value as Partial<MemorySnapshotV1>
   if (snapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION || !Array.isArray(snapshot.records))
     throw new TypeError('Unsupported memory snapshot schema')
-  for (const record of snapshot.records) {
+  const records = snapshot.records.map((record) => ({
+    ...record,
+    attachments: Array.isArray(record.attachments) ? record.attachments : [],
+  }))
+  for (const record of records) {
     if (record.schemaVersion !== MEMORY_RECORD_SCHEMA_VERSION) {
       throw new TypeError(`Unsupported memory record schema: ${String(record.schemaVersion)}`)
     }
     validateScope(record.scope)
+    normalizeAttachments(record.attachments)
   }
-  return snapshot.records
+  return records
 }

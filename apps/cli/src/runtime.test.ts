@@ -389,6 +389,39 @@ describe('status configuration adapter', () => {
     ).toMatchObject({ content: 'production reachable' })
   })
 
+  it('round trips a local memory archive through production ports without widening scope', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.memory-transfer-composition-'))
+    fixtures.push(root)
+    const scope = { kind: 'project', workspaceId: 'local', projectId: 'apollo' } as const
+    const source = createProductionPorts({
+      apolloHome: join(root, 'source'),
+      identity: { version: '1.2.3-test' },
+    })
+    await source.memory?.create({
+      id: 'portable',
+      scope,
+      content: 'production transfer',
+      provenance: { source: 'user', actorId: 'owner' },
+    })
+    const archive = source.memoryTransfer?.serialize(await source.memoryTransfer.export([scope]))
+    const target = createProductionPorts({
+      apolloHome: join(root, 'target'),
+      identity: { version: '1.2.3-test' },
+    })
+    await expect(target.memoryTransfer?.import(archive!, scope)).resolves.toMatchObject({
+      applied: 1,
+      conflicts: [],
+    })
+    expect(await target.memory?.get(scope, 'portable')).toMatchObject({
+      scope,
+      content: 'production transfer',
+      provenance: { source: 'import', importedFrom: { source: 'user', actorId: 'owner' } },
+    })
+    expect(await target.memory?.get({ kind: 'workspace', workspaceId: 'local' }, 'portable')).toBe(
+      undefined,
+    )
+  })
+
   it('persists whitelisted preferences atomically and rejects readonly state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.status-'))
     fixtures.push(root)

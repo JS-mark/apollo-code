@@ -194,6 +194,7 @@ describe('local keyword memory index', () => {
       scope: projectScope,
       content: `local keyword document ${number} ${number === 4_999 ? 'needle' : 'ordinary'}`,
       provenance: { source: 'user' },
+      attachments: [],
       tags: ['benchmark'],
       pinned: false,
       createdAt: '2027-01-15T08:00:00.000Z',

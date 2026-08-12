@@ -3,6 +3,7 @@ import type {
   MemoryMaintenanceService,
   MemoryRecallService,
   MemoryService,
+  MemoryTransferService,
 } from '@apollo-code/storage'
 import type { TelemetryHealth, TelemetrySummary } from '@apollo-code/telemetry'
 import type {
@@ -166,6 +167,7 @@ export interface ApolloPorts {
   memory?: MemoryService
   memoryRecall?: MemoryRecallService
   memoryMaintenance?: MemoryMaintenanceService
+  memoryTransfer?: MemoryTransferService
   mcp?: McpPort
   plugin?: PluginPort
   ui?: UiPort

@@ -64,6 +64,13 @@ describe('plugin runtime', () => {
       'storage.get',
       'storage.set',
       'storage.delete',
+      'memory.get',
+      'memory.list',
+      'memory.search',
+      'memory.create',
+      'memory.update',
+      'memory.delete',
+      'memory.export',
       'config.get',
       'log.debug',
       'log.info',
@@ -489,7 +496,8 @@ describe('plugin runtime', () => {
     await writeFile(join(cwd, 'allowed.txt'), 'ok')
     const logs: unknown[] = [],
       storage = new Map<string, unknown>(),
-      registrations: string[] = []
+      registrations: string[] = [],
+      memoryCalls: string[] = []
     const runtime = new BridgeRuntime({
       session: {
         id: 's1',
@@ -521,6 +529,10 @@ describe('plugin runtime', () => {
         if (operation === 'delete') storage.delete(isolated)
         return storage.get(isolated)
       },
+      memory: async (_plugin, operation, params) => {
+        memoryCalls.push(operation)
+        return { operation, params }
+      },
       config: () => 'configured',
       log: (_level, _message, meta) => logs.push(meta),
     })
@@ -541,9 +553,19 @@ describe('plugin runtime', () => {
           'http.fetch',
           'storage.read',
           'storage.write',
+          'memory.read',
+          'memory.write',
+          'memory.search',
+          'memory.export',
           'config.read',
           'log.write',
         ],
+        memory: {
+          read: ['project'],
+          write: true,
+          search: true,
+          export: true,
+        },
       },
     } as const
     const bridge = runtime.create(bridgeManifest, join(cwd, 'data'), 'turn-1')
@@ -562,6 +584,16 @@ describe('plugin runtime', () => {
     expect(messages).not.toBe(runtime.host.session.messages)
     await bridge.storage.set('key', { value: 1 })
     expect(await bridge.storage.get('key')).toEqual({ value: 1 })
+    await expect(bridge.memory.get('project', 'one')).resolves.toMatchObject({ operation: 'get' })
+    await expect(bridge.memory.search('project', 'query')).resolves.toMatchObject({
+      operation: 'search',
+    })
+    await expect(
+      bridge.memory.create({ scope: 'project', content: 'safe' }),
+    ).resolves.toMatchObject({ operation: 'create' })
+    await expect(bridge.memory.export('project')).resolves.toMatchObject({ operation: 'export' })
+    await expect(bridge.memory.get('workspace', 'one')).rejects.toThrow('scope_denied')
+    expect(memoryCalls).toEqual(['get', 'search', 'create', 'export'])
     bridge.log.info('Bearer top-secret', { apiKey: 'secret' })
     expect(JSON.stringify(logs)).not.toContain('top-secret')
     expect(JSON.stringify(logs)).not.toContain('secret')

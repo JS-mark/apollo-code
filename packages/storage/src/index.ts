@@ -21,10 +21,13 @@ import { createInterface } from 'node:readline'
 import type { CoreEvent, EventBus, PromptComposer } from '@apollo-code/core'
 import type { PermissionManager } from '@apollo-code/permission'
 import { sanitize, type JsonValue } from '@apollo-code/shared'
+
+import type { MemoryRecordAttachment } from './memory-runtime'
 export * from './evolution-store'
 export * from './memory-store'
 export * from './memory-index'
 export * from './memory-runtime'
+export * from './memory-transfer'
 export * from './memory-prompt-provider'
 export interface StoredEvent {
   v: 1
@@ -239,6 +242,7 @@ export interface StagedAttachment {
   handle: string
   mime: string
   size: number
+  digest: string
 }
 export class AttachmentStore {
   constructor(
@@ -257,14 +261,34 @@ export class AttachmentStore {
       throw new TypeError('Attachment bytes do not match MIME: image/webp')
     const digest = createHash('sha256').update(bytes).digest('hex')
     const handle = `${digest}.${signature.extension}`
-    await mkdir(this.root, { recursive: true })
+    await mkdir(this.root, { recursive: true, mode: 0o700 })
     const path = resolve(this.root, handle)
     try {
-      await writeFile(path, bytes, { flag: 'wx' })
+      await writeFile(path, bytes, { flag: 'wx', mode: 0o600 })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
-    return { handle, mime, size: bytes.byteLength }
+    return { handle, mime, size: bytes.byteLength, digest }
+  }
+  reference(
+    id: string,
+    staged: StagedAttachment,
+    createdAt = new Date().toISOString(),
+  ): MemoryRecordAttachment {
+    return {
+      schemaVersion: 1,
+      id,
+      ...staged,
+      state: 'active',
+      createdAt,
+      invalidatedAt: null,
+      deletedAt: null,
+    }
+  }
+  async delete(handle: string): Promise<void> {
+    if (!/^[a-f0-9]{64}\.(?:png|jpg|gif|webp)$/.test(handle))
+      throw new TypeError('Invalid attachment handle')
+    await rm(resolve(this.root, handle), { force: true })
   }
   async read(source: import('@apollo-code/provider-kit').AttachmentRef): Promise<Uint8Array> {
     if (source.kind === 'inline') return source.bytes
