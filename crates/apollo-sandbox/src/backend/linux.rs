@@ -88,15 +88,36 @@ fn command(
 }
 pub(crate) fn exec_persistent(request: &ExecRequest) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
+    preserve_inherited_fd(3)?;
     let (mut command, _bundled) = command(request, true)?;
     Err(format!(
         "failed to execute sandbox backend: {}",
         command.exec()
     ))
 }
+
+fn preserve_inherited_fd(fd: libc::c_int) -> Result<(), String> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(format!(
+            "plugin bridge fd unavailable: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if flags & libc::FD_CLOEXEC != 0
+        && unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0
+    {
+        return Err(format!(
+            "cannot preserve plugin bridge fd: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::fd::AsRawFd;
     #[test]
     fn runtime_selects_digest_verified_bundled_bwrap() {
         let bundled = bundled_bwrap::materialize().expect("materialize reviewed payload");
@@ -119,5 +140,23 @@ mod tests {
         assert!(command
             .get_args()
             .any(|argument| argument == "--preserve-fds"));
+    }
+
+    #[test]
+    fn inherited_bridge_fd_survives_the_bwrap_exec() {
+        let file = std::fs::File::open("/dev/null").expect("open test fd");
+        let fd = file.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) },
+            0
+        );
+
+        preserve_inherited_fd(fd).expect("preserve inherited fd");
+
+        let preserved = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(preserved >= 0);
+        assert_eq!(preserved & libc::FD_CLOEXEC, 0);
     }
 }
