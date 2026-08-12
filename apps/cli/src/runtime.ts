@@ -52,6 +52,7 @@ import {
   LocalKeywordMemoryIndex,
   LocalMemoryRepository,
   MemoryPromptProvider,
+  MemoryTransferService,
   PromptLoader,
   SessionStore,
 } from '@apollo-code/storage'
@@ -713,6 +714,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   )
   const memoryRecall = new DefaultMemoryRecallService(memory, memoryIndex)
   const memoryMaintenance = new DefaultMemoryMaintenanceService(memoryRepository, memoryIndex)
+  const memoryTransfer = new MemoryTransferService(memory, {
+    journalPath: join(home, 'memory', 'import-journal.json'),
+  })
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
@@ -1064,6 +1068,73 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           if (operation === 'delete') pluginStorage.delete(isolated)
           return pluginStorage.get(isolated)
         },
+        memory: async (plugin, operation, rawParams) => {
+          const params = rawParams as {
+            scope: 'workspace' | 'project'
+            id?: string
+            query?: string
+            options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
+            content?: string
+            tags?: readonly string[]
+            pinned?: boolean
+            patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
+          }
+          const scope =
+            params.scope === 'workspace'
+              ? workspaceMemoryScope()
+              : projectMemoryScope(runner.state.cwd)
+          const auditPath = join(home, 'memory', 'audit.jsonl')
+          const writeOperation = ['create', 'update', 'delete'].includes(operation)
+          if (writeOperation) {
+            await mkdir(join(home, 'memory'), { recursive: true, mode: 0o700 })
+            await appendFile(
+              auditPath,
+              `${JSON.stringify({
+                schemaVersion: 1,
+                at: new Date().toISOString(),
+                phase: 'attempt',
+                plugin,
+                operation,
+                scope: params.scope,
+                ...(params.id ? { id: sanitize(params.id) } : {}),
+              })}\n`,
+              { encoding: 'utf8', mode: 0o600 },
+            )
+          }
+          let result: unknown
+          if (operation === 'get') result = (await memory.get(scope, String(params.id))) ?? null
+          else if (operation === 'list') result = await memory.list(scope, params.options)
+          else if (operation === 'search')
+            result = await memoryRecall.recall(scope, String(params.query ?? ''), params.options)
+          else if (operation === 'create')
+            result = await memory.create({
+              ...(params.id ? { id: params.id } : {}),
+              scope,
+              content: String(params.content ?? ''),
+              provenance: { source: 'agent', actorId: `plugin:${plugin}` },
+              ...(params.tags ? { tags: params.tags } : {}),
+              ...(params.pinned === undefined ? {} : { pinned: params.pinned }),
+            })
+          else if (operation === 'update')
+            result = await memory.update(scope, String(params.id), params.patch ?? {})
+          else if (operation === 'delete') result = await memory.delete(scope, String(params.id))
+          else result = await memoryTransfer.export([scope])
+          await mkdir(join(home, 'memory'), { recursive: true, mode: 0o700 })
+          await appendFile(
+            auditPath,
+            `${JSON.stringify({
+              schemaVersion: 1,
+              at: new Date().toISOString(),
+              phase: 'success',
+              plugin,
+              operation,
+              scope: params.scope,
+              ...(params.id ? { id: sanitize(params.id) } : {}),
+            })}\n`,
+            { encoding: 'utf8', mode: 0o600 },
+          )
+          return result
+        },
         config: () => undefined,
         log: (level, message) => {
           if (level === 'error') logger.error(message)
@@ -1151,6 +1222,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     memory,
     memoryRecall,
     memoryMaintenance,
+    memoryTransfer,
     plugin: {
       async install(source) {
         await pluginsReady

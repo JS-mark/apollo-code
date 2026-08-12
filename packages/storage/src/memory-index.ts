@@ -468,6 +468,13 @@ export class IndexingMemoryService implements MemoryService {
     return this.#startPromise
   }
 
+  async validateWrite(
+    input: NewMemoryRecord,
+    operation: 'create' | 'update' = 'create',
+  ): Promise<void> {
+    if (this.facts.validateWrite) await this.facts.validateWrite(input, operation)
+  }
+
   async create(input: NewMemoryRecord): Promise<MemoryRecord> {
     return this.#mutate('create', () => this.facts.create(input))
   }
@@ -493,7 +500,9 @@ export class IndexingMemoryService implements MemoryService {
   async update(
     scope: MemoryRecordScope,
     id: string,
-    patch: Partial<Pick<MemoryRecord, 'content' | 'tags' | 'pinned'>>,
+    patch: Partial<
+      Pick<MemoryRecord, 'content' | 'tags' | 'pinned' | 'provenance' | 'attachments'>
+    >,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
     return this.#mutate('update', () => this.facts.update(scope, id, patch, options))
@@ -521,6 +530,28 @@ export class IndexingMemoryService implements MemoryService {
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
     return this.#mutate('unpin', () => this.facts.unpin(scope, id, options))
+  }
+
+  async invalidateAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord> {
+    return this.#mutate('invalidate-attachment', () =>
+      this.facts.invalidateAttachment(scope, id, attachmentId, options),
+    )
+  }
+
+  async deleteAttachment(
+    scope: MemoryRecordScope,
+    id: string,
+    attachmentId: string,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord> {
+    return this.#mutate('delete-attachment', () =>
+      this.facts.deleteAttachment(scope, id, attachmentId, options),
+    )
   }
 
   onDidChange(listener: () => void): { dispose(): void } {

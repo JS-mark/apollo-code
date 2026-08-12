@@ -1,3 +1,5 @@
+import { readFile, stat } from 'node:fs/promises'
+
 import { sanitize } from '@apollo-code/shared'
 import type {
   MemoryProvenance,
@@ -5,7 +7,7 @@ import type {
   MemoryRecordScope,
   MemoryService,
 } from '@apollo-code/storage'
-import { MemoryError, memoryCursorFor } from '@apollo-code/storage'
+import { MAX_MEMORY_ARCHIVE_BYTES, MemoryError, memoryCursorFor } from '@apollo-code/storage'
 
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from '../../memory-scope'
 import type { ApolloPorts } from '../../ports'
@@ -24,6 +26,8 @@ Commands:
   search <query>       Search the local memory index
   doctor               Check memory facts and index health
   reindex              Rebuild or check the local memory index
+  export               Export a versioned local JSON archive to stdout
+  import <path>        Import a local archive (or use --body-stdin)
 
 Options:
   --scope workspace|project|both  Scope to access (search also supports session)
@@ -40,6 +44,8 @@ Options:
   --batch-size <number>            Records per reindex batch
   --check                          Check whether reindexing is required
   --force                          Force a full reindex
+  --strategy skip|overwrite|rename Import conflict strategy (default: skip)
+  --dry-run                        Validate import and report conflicts without writes
   --strict                         Fail doctor when memory is unhealthy
   --json                           Emit one versioned JSON document
   --no-color                       Disable color (memory text is always plain)
@@ -65,7 +71,7 @@ export function createMemoryCommand(io: CliIo): CommandDefinition {
         if (indexResult) return indexResult
         if (!ports.memory)
           return failure(args, 2, 'memory_unavailable', 'memory port is not connected')
-        return await runMemory(args, cwd, ports.memory, io)
+        return await runMemory(args, cwd, ports.memory, ports, io)
       } catch (error) {
         return memoryFailure(args, error)
       }
@@ -211,11 +217,43 @@ async function runMemory(
   args: ParsedCliArgs,
   cwd: string,
   memory: MemoryService,
+  ports: ApolloPorts,
   io: CliIo,
 ): Promise<CliResult> {
   const action = args._[1] ?? 'list'
-  const selection = parseScope(args.scope, action === 'add' ? 'project' : 'both')
+  const selection = parseScope(
+    args.scope,
+    action === 'add' || action === 'import' ? 'project' : 'both',
+  )
   const scopes = scopesFor(selection, cwd)
+  if (action === 'export') {
+    if (!ports.memoryTransfer) throw new UsageError('memory transfer port is not connected')
+    const document = await ports.memoryTransfer.export(scopes)
+    return { exitCode: 0, stdout: ports.memoryTransfer.serialize(document), stderr: '' }
+  }
+  if (action === 'import') {
+    if (!ports.memoryTransfer) throw new UsageError('memory transfer port is not connected')
+    if (selection === 'both') throw new UsageError('memory import requires one target scope')
+    const path = args._[2]
+    if (!path && !args.bodyStdin)
+      throw new UsageError('memory import requires a local path or --body-stdin')
+    if (path && (await stat(path)).size > MAX_MEMORY_ARCHIVE_BYTES)
+      throw new UsageError('memory import exceeds 16 MiB')
+    const serialized = path ? await readFile(path, 'utf8') : await io.readStdin()
+    const strategy = String(args.strategy ?? 'skip')
+    if (!['skip', 'overwrite', 'rename'].includes(strategy))
+      throw new UsageError('memory --strategy must be skip, overwrite, or rename')
+    const report = await ports.memoryTransfer.import(serialized, scopes[0]!, {
+      strategy: strategy as 'skip' | 'overwrite' | 'rename',
+      dryRun: Boolean(args.dryRun),
+      actorId: 'cli',
+    })
+    return success(
+      args,
+      report,
+      `${report.dryRun ? 'Would import' : 'Imported'} ${report.applied}/${report.total} memories; ${report.conflicts.length} conflicts.\n`,
+    )
+  }
   if (action === 'list') {
     const limit = parseLimit(args.limit)
     const tags = parseTags(args.tag)

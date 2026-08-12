@@ -1,11 +1,17 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DefaultMemoryService, LocalMemoryRepository, MemoryError } from '@apollo-code/storage'
+import {
+  DefaultMemoryService,
+  LocalMemoryRepository,
+  MemoryError,
+  MemoryTransferService,
+} from '@apollo-code/storage'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from '../../cli'
+import { projectMemoryScope } from '../../memory-scope'
 import { unavailablePorts } from '../../ports'
 import type { CliIo } from '../../shared/cli-types'
 
@@ -29,8 +35,11 @@ async function fixture() {
     undefined,
     () => new Date(`2026-08-12T00:00:0${tick++}.000Z`),
   )
-  const ports = { ...unavailablePorts(), memory }
-  return { memory, ports }
+  const memoryTransfer = new MemoryTransferService(memory, {
+    journalPath: join(root, 'import-journal.json'),
+  })
+  const ports = { ...unavailablePorts(), memory, memoryTransfer }
+  return { root, memory, ports }
 }
 
 describe('apollo memory', () => {
@@ -238,5 +247,60 @@ describe('apollo memory', () => {
     expect(result).toMatchObject({ exitCode: 0, stderr: '' })
     expect(result.stdout).toContain('apollo memory <command>')
     expect(result.stdout).toContain('--cursor')
+  })
+
+  it('exports a versioned local archive and imports with dry-run conflict reporting', async () => {
+    const source = await fixture()
+    await runCli(
+      ['memory', 'add', '--id', 'portable', '--scope', 'project', '--content', 'portable body'],
+      source.ports,
+      nonInteractive,
+    )
+    await runCli(
+      ['memory', 'add', '--id', 'workspace-only', '--scope', 'workspace', '--content', 'private'],
+      source.ports,
+      nonInteractive,
+    )
+    const exported = await runCli(
+      ['memory', 'export', '--scope', 'project'],
+      source.ports,
+      nonInteractive,
+    )
+    expect(JSON.parse(exported.stdout)).toMatchObject({
+      schemaVersion: 'apollo.memory.export.v1',
+      records: [{ id: 'portable' }],
+    })
+
+    const archive = join(source.root, 'memory-export.json')
+    await writeFile(archive, exported.stdout)
+    const target = await fixture()
+    await runCli(
+      ['memory', 'add', '--id', 'portable', '--scope', 'project', '--content', 'existing'],
+      target.ports,
+      nonInteractive,
+    )
+    const dryRun = await runCli(
+      [
+        'memory',
+        'import',
+        archive,
+        '--scope',
+        'project',
+        '--strategy',
+        'overwrite',
+        '--dry-run',
+        '--json',
+      ],
+      target.ports,
+      nonInteractive,
+    )
+    expect(JSON.parse(dryRun.stdout)).toMatchObject({
+      dryRun: true,
+      applied: 0,
+      conflicts: [{ id: 'portable', action: 'overwritten' }],
+    })
+    expect((await target.memory.get(projectMemoryScope(process.cwd()), 'portable'))?.content).toBe(
+      'existing',
+    )
   })
 })

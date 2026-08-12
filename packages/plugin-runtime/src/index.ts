@@ -246,6 +246,17 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
     )
   if (!m.permissions || !Array.isArray(m.permissions.apollo))
     throw new PluginError('plugin_manifest_invalid', 'permissions.apollo is required')
+  const memory = m.permissions.memory
+  if (
+    memory &&
+    ((memory.read !== undefined &&
+      (!Array.isArray(memory.read) ||
+        memory.read.some((scope) => !['workspace', 'project'].includes(scope)))) ||
+      (memory.write !== undefined && typeof memory.write !== 'boolean') ||
+      (memory.search !== undefined && typeof memory.search !== 'boolean') ||
+      (memory.export !== undefined && typeof memory.export !== 'boolean'))
+  )
+    throw new PluginError('plugin_manifest_invalid', 'permissions.memory is invalid')
   validateUiContributions(m)
   if (m.kind === 'provider') {
     const provider = m.provider
@@ -470,6 +481,13 @@ const RPC_METHODS = new Set([
   'storage.get',
   'storage.set',
   'storage.delete',
+  'memory.get',
+  'memory.list',
+  'memory.search',
+  'memory.create',
+  'memory.update',
+  'memory.delete',
+  'memory.export',
   'config.get',
   'log.debug',
   'log.info',
@@ -520,6 +538,13 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
     'storage.get',
     'storage.set',
     'storage.delete',
+    'memory.get',
+    'memory.list',
+    'memory.search',
+    'memory.create',
+    'memory.update',
+    'memory.delete',
+    'memory.export',
     'config.get',
     'log.debug',
     'log.info',
@@ -1002,6 +1027,13 @@ const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
   'storage.get': 'storage.read',
   'storage.set': 'storage.write',
   'storage.delete': 'storage.write',
+  'memory.get': 'memory.read',
+  'memory.list': 'memory.read',
+  'memory.search': 'memory.search',
+  'memory.create': 'memory.write',
+  'memory.update': 'memory.write',
+  'memory.delete': 'memory.write',
+  'memory.export': 'memory.export',
   'config.get': 'config.read',
   'log.write': 'log.write',
 })
@@ -1030,6 +1062,11 @@ export interface BridgeHost {
     operation: 'get' | 'set' | 'delete',
     key: string,
     value?: unknown,
+  ): Promise<unknown>
+  memory?(
+    plugin: string,
+    operation: 'get' | 'list' | 'search' | 'create' | 'update' | 'delete' | 'export',
+    params: unknown,
   ): Promise<unknown>
   config(plugin: string, key: string): unknown
   log(level: string, message: string, meta?: unknown): void
@@ -1290,6 +1327,18 @@ export class BridgeRuntime {
           return this.host.storage(manifest.name, 'delete', key) as Promise<void>
         },
       },
+      memory: {
+        get: (scope, id) => this.#memoryCall(manifest, check, 'get', { scope, id }) as never,
+        list: (scope, options) =>
+          this.#memoryCall(manifest, check, 'list', { scope, options }) as never,
+        search: (scope, query, options) =>
+          this.#memoryCall(manifest, check, 'search', { scope, query, options }) as never,
+        create: (input) => this.#memoryCall(manifest, check, 'create', input) as never,
+        update: (scope, id, patch) =>
+          this.#memoryCall(manifest, check, 'update', { scope, id, patch }) as never,
+        delete: (scope, id) => this.#memoryCall(manifest, check, 'delete', { scope, id }) as never,
+        export: (scope) => this.#memoryCall(manifest, check, 'export', { scope }) as never,
+      },
       config: {
         get: (key) => {
           check('config.get')
@@ -1313,6 +1362,36 @@ export class BridgeRuntime {
       },
     }
     return Object.freeze(bridge)
+  }
+
+  async #memoryCall(
+    manifest: PluginManifest,
+    check: (method: string) => void,
+    operation: 'get' | 'list' | 'search' | 'create' | 'update' | 'delete' | 'export',
+    params: unknown,
+  ): Promise<unknown> {
+    check(`memory.${operation}`)
+    if (!this.host.memory) throw new PluginError('plugin_memory_unavailable', operation)
+    const scope =
+      params && typeof params === 'object' && 'scope' in params
+        ? (params as { scope?: unknown }).scope
+        : undefined
+    if (scope !== 'workspace' && scope !== 'project')
+      throw new PluginError('plugin_memory_scope_denied', String(scope))
+    const permission = manifest.permissions.memory
+    const readable = permission?.read?.includes(scope)
+    if ((operation === 'get' || operation === 'list') && !readable)
+      throw new PluginError('plugin_memory_scope_denied', scope)
+    if (operation === 'search' && (!permission?.search || !readable))
+      throw new PluginError('plugin_memory_scope_denied', scope)
+    if (operation === 'export' && (!permission?.export || !readable))
+      throw new PluginError('plugin_memory_scope_denied', scope)
+    if (
+      (operation === 'create' || operation === 'update' || operation === 'delete') &&
+      (!permission?.write || !readable)
+    )
+      throw new PluginError('plugin_memory_write_denied', operation)
+    return this.host.memory(manifest.name, operation, clone(params))
   }
 
   async runHooks(

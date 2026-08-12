@@ -169,6 +169,33 @@ describe('DefaultMemoryService', () => {
     expect(seen).toEqual(['blocked', 'valid \ud83d\ude80'])
     expect(await service.list(project)).toMatchObject([{ id: 'valid-unicode' }])
   })
+
+  it('tracks attachment invalidation and deletion as tombstones without embedding bytes', async () => {
+    const service = new DefaultMemoryService(new LocalMemoryRepository(await snapshotPath()))
+    const attachment = {
+      schemaVersion: 1 as const,
+      id: 'diagram',
+      handle: `${'a'.repeat(64)}.png`,
+      mime: 'image/png',
+      size: 42,
+      digest: 'a'.repeat(64),
+      state: 'active' as const,
+      createdAt: '2026-08-12T00:00:00.000Z',
+      invalidatedAt: null,
+      deletedAt: null,
+    }
+    await service.create({ ...input(project), id: 'with-attachment', attachments: [attachment] })
+    await expect(
+      service.invalidateAttachment(project, 'with-attachment', 'diagram'),
+    ).resolves.toMatchObject({ attachments: [{ state: 'invalidated', deletedAt: null }] })
+    await expect(
+      service.deleteAttachment(project, 'with-attachment', 'diagram'),
+    ).resolves.toMatchObject({
+      attachments: [
+        { state: 'deleted', invalidatedAt: expect.any(String), deletedAt: expect.any(String) },
+      ],
+    })
+  })
 })
 
 describe('LocalMemoryRepository contract', () => {

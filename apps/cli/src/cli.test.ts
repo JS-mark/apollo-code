@@ -807,6 +807,7 @@ describe('runCli', () => {
           scope: { kind: 'project' as const, workspaceId: 'local', projectId: 'project' },
           content: 'Use pnpm',
           provenance: { source: 'user' as const },
+          attachments: [],
           tags: ['tooling'],
           pinned: false,
           createdAt: '2027-01-15T08:00:00.000Z',

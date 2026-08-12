@@ -62,6 +62,7 @@ const argsDefinition = {
   content: { type: 'string' as const },
   bodyStdin: { type: 'boolean' as const },
   expectedUpdatedAt: { type: 'string' as const },
+  strategy: { type: 'string' as const },
   yes: { type: 'boolean' as const },
 }
 export type { CliIo, CliResult } from './shared/cli-types'

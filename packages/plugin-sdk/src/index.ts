@@ -12,6 +12,12 @@ export type HookEvent =
   | 'pluginEnabled'
   | 'pluginDisabled'
   | 'permissionsChanged'
+  | 'memory.preRecall'
+  | 'memory.postRecall'
+  | 'memory.preWrite'
+  | 'memory.postWrite'
+  | 'memory.preRead'
+  | 'memory.deleted'
 
 export interface HookResult {
   veto?: boolean
@@ -97,8 +103,56 @@ export interface PluginManifest {
     bash?: { allowlist: readonly string[] }
     net?: false | { allowlist: readonly string[] }
     apollo: readonly string[]
+    memory?: {
+      read?: readonly ('workspace' | 'project')[]
+      write?: boolean
+      search?: boolean
+      export?: boolean
+    }
   }
   config?: Readonly<Record<string, unknown>>
+}
+
+export type PluginMemoryScope = 'workspace' | 'project'
+export interface PluginMemoryRecord {
+  readonly schemaVersion: 1
+  readonly id: string
+  readonly scope: Readonly<Record<string, string>>
+  readonly content: string
+  readonly tags: readonly string[]
+  readonly pinned: boolean
+  readonly provenance: Readonly<Record<string, unknown>>
+  readonly attachments: readonly Readonly<Record<string, unknown>>[]
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly deletedAt: string | null
+}
+
+export interface PluginMemoryBridge {
+  get(scope: PluginMemoryScope, id: string): Promise<PluginMemoryRecord | null>
+  list(
+    scope: PluginMemoryScope,
+    options?: { limit?: number; tags?: readonly string[]; pinned?: boolean },
+  ): Promise<readonly PluginMemoryRecord[]>
+  search(
+    scope: PluginMemoryScope,
+    query: string,
+    options?: { limit?: number; tags?: readonly string[] },
+  ): Promise<readonly Readonly<{ record: PluginMemoryRecord; score: number }>[]>
+  create(input: {
+    scope: PluginMemoryScope
+    id?: string
+    content: string
+    tags?: readonly string[]
+    pinned?: boolean
+  }): Promise<PluginMemoryRecord>
+  update(
+    scope: PluginMemoryScope,
+    id: string,
+    patch: Readonly<{ content?: string; tags?: readonly string[]; pinned?: boolean }>,
+  ): Promise<PluginMemoryRecord>
+  delete(scope: PluginMemoryScope, id: string): Promise<PluginMemoryRecord>
+  export(scope: PluginMemoryScope): Promise<Readonly<Record<string, unknown>>>
 }
 
 /** Versioned, data-only metadata returned by a plugin registry. */
@@ -186,6 +240,7 @@ export interface ApolloBridge {
     set(key: string, value: unknown): Promise<void>
     delete(key: string): Promise<void>
   }
+  readonly memory: PluginMemoryBridge
   readonly config: { get<T = unknown>(key: string): T }
   readonly log: {
     debug(message: string, meta?: object): void

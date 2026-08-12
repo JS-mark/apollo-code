@@ -34,6 +34,8 @@ apollo memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated
 apollo memory delete <id> [--yes]
 apollo memory pin <id>
 apollo memory unpin <id>
+apollo memory export [--scope workspace|project|both] > memory.json
+apollo memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
 `global` 是 `workspace` 的别名；管道输入使用 `--body-stdin`，多个 tag 可用逗号分隔。列表按稳定的 `(createdAt, id)` cursor 分页；`--json` 始终输出单个带 schema 版本且无 ANSI 的 JSON 文档。Memory 返回码固定为：`0` 成功、`2` 校验失败或缺少确认、`3` 未找到、`13` scope/授权拒绝。
@@ -55,6 +57,12 @@ apollo memory reindex [--check] [--force] [--batch-size 250] [--json]
 ```
 
 搜索仅使用本地关键词，不会调用 embedding 或网络。索引候选始终通过带 scope 策略的事实服务回读，因此不会返回过期、已删除、幽灵或越权条目。`memory doctor` 只读；`memory reindex --check` 仅报告是否需要重建。实际重建使用跨进程锁，全部批次成功后才原子发布新 generation。`--force` 会重建健康索引并可清理陈旧锁，但不会抢占仍存活进程持有的锁。
+
+Memory 归档使用版本化的 `apollo.memory.export.v1` JSON 格式。Export 通过 ACL 读取指定
+scope，只导出 attachment 引用而不复制二进制。Import 默认 `skip`，会报告全部冲突，
+支持无写入的 `--dry-run`，并用 journal 在失败或中断后回滚。导入记录的 provenance 固定为
+`source: import`；原始 provenance 仅作为不可信 `importedFrom` 信息保留，不能提升权限。
+整个流程仅处理本地数据，不执行上传、分享、远端同步或 embedding。
 
 ## Role 路由
 

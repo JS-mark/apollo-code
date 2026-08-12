@@ -51,6 +51,8 @@ apollo memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated
 apollo memory delete <id> [--yes]
 apollo memory pin <id>
 apollo memory unpin <id>
+apollo memory export [--scope workspace|project|both] > memory.json
+apollo memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
 `global` is accepted as an alias for `workspace`. Use `--body-stdin` instead of an inline body when piping content. Repeated tags can be comma-separated. Listings use stable `(createdAt, id)` cursor pagination and `--json` returns one schema-versioned document without ANSI. Memory exit codes are `0` success, `2` validation or required confirmation, `3` not found, and `13` scope/authorization denial.
@@ -68,6 +70,13 @@ apollo memory reindex [--check] [--force] [--batch-size 250] [--json]
 ```
 
 Search is local keyword matching only and performs no embedding or network request. Index hits are always read back through the scoped fact service, so stale, deleted, ghost, and unauthorized entries are not returned. `memory doctor` is read-only. `memory reindex --check` reports whether rebuilding is required, while a normal rebuild uses a cross-process lock and atomically publishes a new generation only after every batch succeeds. `--force` rebuilds a healthy generation and may clear a stale lock, but never steals a lock owned by a live process.
+
+Memory archives use the versioned `apollo.memory.export.v1` JSON schema. Export reads each requested
+scope through the Memory ACL and includes attachment references only—never attachment bytes. Import
+defaults to `skip`, reports every conflict, supports a no-write `--dry-run`, journals changes before
+applying them, and rolls back partial or interrupted work. Imported records always receive
+`source: import`; original provenance is retained as untrusted `importedFrom` metadata and cannot
+grant authority. This flow is local-only and performs no upload, sharing, remote sync, or embedding.
 
 ## Local telemetry
 
