@@ -112,9 +112,17 @@ const proxy = (path) =>
   })
 const entry = process.argv[1]
 if (!entry) throw new Error('missing plugin entry')
-await write({ jsonrpc: '2.0', bridgeVersion: VERSION, method: 'host.ready', params: {} })
-const plugin = await import(pathToFileURL(entry).href)
-const activate = plugin.activate || plugin.default?.activate || plugin.default
-if (typeof activate !== 'function') throw new Error('plugin must export activate')
-await activate(Object.assign(proxy([]), { apiVersion: '1.0' }))
-await write({ jsonrpc: '2.0', bridgeVersion: VERSION, method: 'host.activated', params: {} })
+try {
+  await write({ jsonrpc: '2.0', bridgeVersion: VERSION, method: 'host.ready', params: {} })
+  const plugin = await import(pathToFileURL(entry).href)
+  const activate = plugin.activate || plugin.default?.activate || plugin.default
+  if (typeof activate !== 'function') throw new Error('plugin must export activate')
+  await activate(Object.assign(proxy([]), { apiVersion: '1.0' }))
+  await write({ jsonrpc: '2.0', bridgeVersion: VERSION, method: 'host.activated', params: {} })
+} catch {
+  // An active fd 3 read watcher otherwise keeps Node alive after startup
+  // failures. Exit directly so the native parent observes the failure promptly
+  // without exposing the plugin's error details.
+  clearInterval(heartbeat)
+  process.kill(process.pid, 'SIGKILL')
+}
