@@ -28,7 +28,7 @@ import {
   updateSession,
   wrapUntrusted,
 } from '@apollo-code/core'
-import type { RunnerToolPort, SessionState } from '@apollo-code/core'
+import type { PromptComposer, RunnerToolPort, SessionState } from '@apollo-code/core'
 import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
@@ -51,9 +51,11 @@ import {
   IndexingMemoryService,
   LocalKeywordMemoryIndex,
   LocalMemoryRepository,
+  MemoryPromptProvider,
   PromptLoader,
   SessionStore,
 } from '@apollo-code/storage'
+import type { MemoryService } from '@apollo-code/storage'
 import { SubagentDispatcher } from '@apollo-code/subagent'
 import {
   LocalTelemetrySink,
@@ -85,6 +87,7 @@ import type {
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
+import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import type { ApolloPorts, InteractiveSession, SessionPort } from './ports'
 import type { AppIdentity } from './shared/app-identity'
@@ -682,6 +685,21 @@ export interface ProductionOptions {
   ) => void
   pluginApproval?: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>
 }
+
+export function registerRuntimeMemoryPrompts(
+  composer: PromptComposer,
+  memory: MemoryService,
+  state: Pick<SessionState, 'cwd' | 'id'>,
+) {
+  return new MemoryPromptProvider(memory, {
+    scopes: [
+      sessionMemoryScope(state.cwd, state.id),
+      projectMemoryScope(state.cwd),
+      workspaceMemoryScope(),
+    ],
+  }).register(composer)
+}
+
 export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
@@ -775,6 +793,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     })
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
+    registerRuntimeMemoryPrompts(composer, memory, state)
     const promptLoader = new PromptLoader({ cwd: state.cwd, apolloHome: home, permissions })
     await promptLoader.registerProject(composer)
     const skills = new SkillsRuntime({

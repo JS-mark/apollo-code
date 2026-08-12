@@ -523,6 +523,10 @@ export class IndexingMemoryService implements MemoryService {
     return this.#mutate('unpin', () => this.facts.unpin(scope, id, options))
   }
 
+  onDidChange(listener: () => void): { dispose(): void } {
+    return this.facts.onDidChange?.(listener) ?? { dispose() {} }
+  }
+
   async flush(): Promise<void> {
     await this.#mutation
     await this.facts.flush()

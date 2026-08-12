@@ -25,6 +25,7 @@ export * from './evolution-store'
 export * from './memory-store'
 export * from './memory-index'
 export * from './memory-runtime'
+export * from './memory-prompt-provider'
 export interface StoredEvent {
   v: 1
   id: string

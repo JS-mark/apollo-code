@@ -14,6 +14,7 @@ describe('CLI dependency boundaries', () => {
       'commands/status/index.ts',
       'commands/telemetry/index.ts',
       'commands/trust/index.ts',
+      'commands/memory/index.ts',
     ]
 
     for (const file of commandFiles) {

@@ -4,25 +4,43 @@
 
 `apollo evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`apollo evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。`~/.apollo/config.toml` 中设置 `[evolution] enabled = false` 后，新会话使用内置 context 默认值。
 
-| 命令                           | 用途                                   |
-| ------------------------------ | -------------------------------------- |
-| `apollo` / `apollo chat`       | 启动交互式或单次编程会话。             |
-| `apollo login <provider>`      | 验证并安全保存 provider 凭据。         |
-| `apollo logout <provider>`     | 删除已保存的 provider 凭据。           |
-| `apollo config`                | 查看配置。                             |
-| `apollo history list` / `show` | 查看本地会话历史。                     |
-| `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。       |
-| `apollo restore <session-id>`  | 回滚该会话修改过的文件。               |
-| `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。     |
-| `apollo memory <action>`       | 搜索、诊断或重建本地 Memory 派生索引。 |
-| `apollo plugin <action>`       | 安装、列出、诊断、启停或卸载本地插件。 |
-| `apollo hook list`             | 列出内置 hooks。                       |
+| 命令                           | 用途                                        |
+| ------------------------------ | ------------------------------------------- |
+| `apollo` / `apollo chat`       | 启动交互式或单次编程会话。                  |
+| `apollo login <provider>`      | 验证并安全保存 provider 凭据。              |
+| `apollo logout <provider>`     | 删除已保存的 provider 凭据。                |
+| `apollo config`                | 查看配置。                                  |
+| `apollo history list` / `show` | 查看本地会话历史。                          |
+| `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。            |
+| `apollo restore <session-id>`  | 回滚该会话修改过的文件。                    |
+| `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。          |
+| `apollo memory <action>`       | 管理长期记忆、pinned 上下文和本地搜索索引。 |
+| `apollo plugin <action>`       | 安装、列出、诊断、启停或卸载本地插件。      |
+| `apollo hook list`             | 列出内置 hooks。                            |
 
 `apollo plugin install <本地目录>` 会校验 manifest 与 bundle、展示权限，并仅在明确批准后安装。新建和恢复会话只会通过原生沙箱宿主激活已安装、已批准且 enabled 的插件。工具必须使用 `plugin:<manifest-name>:<tool-name>` 命名空间，返回内容会标记为 untrusted；disable 或 uninstall 会终止宿主并清除注册，enable 会在活动会话中恢复加载。可用 `plugin list [--json]`、`plugin doctor <name>`、`plugin enable|disable <name>` 和 `plugin uninstall <name>` 管理。registry/GitHub spec、升级与 L4 热重载尚未实现。
 | `apollo version` | 输出版本。 |
 | `apollo help` | 显示帮助。 |
 
 常用模式包括 `--no-tui`、`--json` 和 `--no-color`。非交互运行不会加载项目配置，除非显式传入 `--trust-project-config`。危险沙箱绕过参数会被审计，并要求显式确认。
+
+## Memory
+
+```sh
+apollo memory list [--scope workspace|project|both] [--tag <tag>] [--source user|agent|evolution|import] [--pinned] [--limit <n>] [--cursor <cursor>]
+apollo memory get <id> [--scope workspace|project|both]
+apollo memory add [content] [--id <id>] [--scope workspace|project] [--tag <tag>] [--source user|import] [--pinned]
+apollo memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated-at <time>]
+apollo memory delete <id> [--yes]
+apollo memory pin <id>
+apollo memory unpin <id>
+```
+
+`global` 是 `workspace` 的别名；管道输入使用 `--body-stdin`，多个 tag 可用逗号分隔。列表按稳定的 `(createdAt, id)` cursor 分页；`--json` 始终输出单个带 schema 版本且无 ANSI 的 JSON 文档。Memory 返回码固定为：`0` 成功、`2` 校验失败或缺少确认、`3` 未找到、`13` scope/授权拒绝。
+
+删除在交互终端中必须确认；非 TTY、`--json` 或 `--no-tui` 场景必须显式传入 `--yes`。所有输出都会先脱敏。
+
+Pinned memory 以固定行数/token 预算进入每次 provider 请求。优先级为 session > project > workspace；重复正文只保留更窄 scope 的版本，再做确定性排序。正文转义后放进 `<untrusted source="memory:pinned">`，只作为建议数据，不能覆盖当前用户或 system 指令。pin 会立即刷新 prompt cache，unpin 或 delete 后下一次组合不再包含该正文。
 
 使用 `apollo restore <session-id> --dry-run` 可预览回滚。每次 `Write`、`Edit` 和 `MultiEdit` 修改文件前都会生成会话级备份；如果文件在 Apollo 编辑后又被修改，restore 会拒绝覆盖。备份默认保留七天，总量限制为 500 MB。
 

@@ -9,6 +9,7 @@ export interface CliResult {
 export interface CliIo {
   isInteractiveTerminal?(): boolean
   readStdin(): Promise<string>
+  confirm?(message: string): Promise<boolean>
 }
 
 export interface ParsedCliArgs {

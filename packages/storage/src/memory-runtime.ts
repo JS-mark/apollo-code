@@ -46,6 +46,7 @@ export interface MemoryListOptions {
   readonly cursor?: string
   readonly pinned?: boolean
   readonly tags?: readonly string[]
+  readonly sources?: readonly MemoryProvenance['source'][]
 }
 
 export interface MemoryPage {
@@ -125,6 +126,7 @@ export interface MemoryService {
     id: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord>
+  onDidChange?(listener: () => void): { dispose(): void }
   flush(): Promise<void>
 }
 
@@ -181,7 +183,7 @@ function builtinPreWrite(context: MemoryPreWriteContext): void {
     throw new MemoryError('memory_validation', 'Memory content appears to contain a secret')
 }
 
-function encodeCursor(record: MemoryRecord): string {
+export function memoryCursorFor(record: MemoryRecord): string {
   return Buffer.from(JSON.stringify([record.createdAt, record.id]), 'utf8').toString('base64url')
 }
 
@@ -209,6 +211,7 @@ function normalizeTags(tags: readonly string[]): string[] {
 
 export class DefaultMemoryService implements MemoryService {
   readonly #records = new Map<string, MemoryRecord>()
+  readonly #changeListeners = new Set<() => void>()
   #started = false
   #mutation = Promise.resolve()
 
@@ -228,7 +231,7 @@ export class DefaultMemoryService implements MemoryService {
 
   async create(input: NewMemoryRecord): Promise<MemoryRecord> {
     validateScope(input.scope)
-    return this.#write(async () => {
+    const result = await this.#write(async () => {
       const id = input.id ?? this.createId()
       const existing = this.#records.get(id)
       if (existing) {
@@ -266,6 +269,8 @@ export class DefaultMemoryService implements MemoryService {
       this.#records.set(id, record)
       return record
     })
+    this.#notifyChange()
+    return result
   }
 
   async get(scope: MemoryRecordScope, id: string): Promise<MemoryRecord | undefined> {
@@ -295,6 +300,7 @@ export class DefaultMemoryService implements MemoryService {
           this.policy.canAccess(scope, record.scope) &&
           (options.includeDeleted || !record.deletedAt) &&
           (options.pinned === undefined || record.pinned === options.pinned) &&
+          (!options.sources?.length || options.sources.includes(record.provenance.source)) &&
           tags.every((tag) => record.tags.includes(tag)),
       )
       .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
@@ -308,7 +314,7 @@ export class DefaultMemoryService implements MemoryService {
     return {
       items,
       ...(records.length > limit && items.length
-        ? { nextCursor: encodeCursor(items.at(-1)!) }
+        ? { nextCursor: memoryCursorFor(items.at(-1)!) }
         : {}),
     }
   }
@@ -319,7 +325,7 @@ export class DefaultMemoryService implements MemoryService {
     patch: Partial<Pick<MemoryRecord, 'content' | 'tags' | 'pinned'>>,
     options: MemoryMutationOptions = {},
   ): Promise<MemoryRecord> {
-    return this.#write(async () => {
+    const result = await this.#write(async () => {
       const current = this.#require(scope, id)
       if (current.deletedAt) throw new MemoryError('memory_not_found', `Memory ${id} is deleted`)
       this.#checkVersion(current, options)
@@ -344,6 +350,8 @@ export class DefaultMemoryService implements MemoryService {
       this.#records.set(id, record)
       return record
     })
+    this.#notifyChange()
+    return result
   }
 
   async delete(
@@ -351,7 +359,7 @@ export class DefaultMemoryService implements MemoryService {
     id: string,
     options: MemoryMutationOptions = {},
   ): Promise<MemoryRecord> {
-    return this.#write(async () => {
+    const result = await this.#write(async () => {
       const current = this.#require(scope, id)
       if (current.deletedAt) return current
       this.#checkVersion(current, options)
@@ -360,6 +368,8 @@ export class DefaultMemoryService implements MemoryService {
       this.#records.set(id, record)
       return record
     })
+    this.#notifyChange()
+    return result
   }
 
   async pin(
@@ -381,6 +391,21 @@ export class DefaultMemoryService implements MemoryService {
   async flush(): Promise<void> {
     await this.#mutation
     await this.repository.flush()
+  }
+
+  onDidChange(listener: () => void): { dispose(): void } {
+    this.#changeListeners.add(listener)
+    return { dispose: () => this.#changeListeners.delete(listener) }
+  }
+
+  #notifyChange(): void {
+    for (const listener of this.#changeListeners) {
+      try {
+        listener()
+      } catch {
+        // Durable mutations must not fail because an observer could not refresh its cache.
+      }
+    }
   }
 
   #require(scope: MemoryRecordScope, id: string): MemoryRecord {

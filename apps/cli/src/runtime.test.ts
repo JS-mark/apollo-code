@@ -1,15 +1,18 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { createSession, updateSession } from '@apollo-code/core'
+import { createSession, DefaultPromptComposer, updateSession } from '@apollo-code/core'
 import type { EventBus, Runner, SessionState } from '@apollo-code/core'
+import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storage'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { projectMemoryScope } from './memory-scope'
 import {
   buildStatusViewModel,
   createProductionPorts,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
+  registerRuntimeMemoryPrompts,
   RuntimeSessionPort,
 } from './runtime'
 
@@ -334,6 +337,29 @@ describe('FileInputHistoryStore', () => {
 })
 
 describe('status configuration adapter', () => {
+  it('injects pinned project memory through the production composition helper', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.memory-prompt-composition-'))
+    fixtures.push(root)
+    const cwd = join(root, 'workspace')
+    await mkdir(cwd)
+    const memory = new DefaultMemoryService(
+      new LocalMemoryRepository(join(root, 'memory', 'records.json')),
+    )
+    const composer = new DefaultPromptComposer()
+    registerRuntimeMemoryPrompts(composer, memory, { cwd, id: 'session-1' })
+    await memory.create({
+      id: 'composition-pinned',
+      scope: projectMemoryScope(cwd),
+      content: 'Always run the focused tests first.',
+      provenance: { source: 'user' },
+      pinned: true,
+    })
+    const context = { cwd, model: 'test-model', provider: 'test-provider' }
+    expect(await composer.compose(context)).toContain('Always run the focused tests first.')
+    await memory.unpin(projectMemoryScope(cwd), 'composition-pinned')
+    expect(await composer.compose(context)).not.toContain('Always run the focused tests first.')
+  })
+
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
     fixtures.push(root)
