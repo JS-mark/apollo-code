@@ -7,7 +7,12 @@ import type {
   MemoryRecordScope,
   MemoryService,
 } from '@apollo-code/storage'
-import { MAX_MEMORY_ARCHIVE_BYTES, MemoryError, memoryCursorFor } from '@apollo-code/storage'
+import {
+  compareMemoryRecords,
+  MAX_MEMORY_ARCHIVE_BYTES,
+  MemoryError,
+  memoryCursorFor,
+} from '@apollo-code/storage'
 
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from '../../memory-scope'
 import type { ApolloPorts } from '../../ports'
@@ -266,12 +271,7 @@ async function runMemory(
       ...(source === undefined ? {} : { sources: [source] }),
     }
     const pages = await Promise.all(scopes.map((scope) => memory.listPage(scope, options)))
-    const merged = pages
-      .flatMap((page) => page.items)
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
+    const merged = pages.flatMap((page) => page.items).toSorted(compareMemoryRecords)
     const items = merged.slice(0, limit)
     const hasMore = merged.length > limit || pages.some((page) => page.nextCursor)
     const nextCursor = hasMore && items.length ? memoryCursorFor(items.at(-1)!) : undefined

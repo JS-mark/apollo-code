@@ -109,11 +109,11 @@ describe('DefaultMemoryService', () => {
     expect(await service.create({ ...input(project), id: 'one' })).toEqual(one)
     await service.create({ ...input(project), id: 'two' })
     const first = await service.listPage(project, { limit: 1 })
-    expect(first.items.map(({ id }) => id)).toEqual(['one'])
+    expect(first.items.map(({ id }) => id)).toEqual(['two'])
     expect(first.nextCursor).toBeDefined()
     expect(
       (await service.listPage(project, { limit: 1, cursor: first.nextCursor! })).items,
-    ).toMatchObject([{ id: 'two' }])
+    ).toMatchObject([{ id: 'one' }])
 
     await service.update(
       project,

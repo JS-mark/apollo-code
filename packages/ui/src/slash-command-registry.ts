@@ -22,6 +22,7 @@ export const BUILTIN_SLASH_COMMAND_NAMES = Object.freeze([
   'status',
   'context',
   'compact',
+  'memory',
   'resume',
   'model',
 ])

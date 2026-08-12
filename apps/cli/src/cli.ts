@@ -24,6 +24,8 @@ import { createMemoryCommand, memoryUsage } from './commands/memory'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
+import { createMemoryPanelController } from './memory-panel'
+import { projectMemoryScope } from './memory-scope'
 import type { ApolloPorts } from './ports'
 import type { CliIo, CliResult, ParsedCliArgs } from './shared/cli-types'
 
@@ -575,6 +577,16 @@ export async function runCli(
       const app = ports.ui!.renderInteractiveApp({
         cwd,
         events: interactive.events,
+        ...(ports.memory
+          ? {
+              memory: createMemoryPanelController(
+                ports.memory,
+                ports.memoryRecall,
+                projectMemoryScope(cwd),
+              ),
+            }
+          : {}),
+        noColor,
         onExit: interactive.end,
         onSubmit: interactive.submit,
         modelPicker: buildModelPicker(defaultInteractiveModel),

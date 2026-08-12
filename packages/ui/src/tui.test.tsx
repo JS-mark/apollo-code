@@ -325,6 +325,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('> /help Show slash commands')
     expect(stdout.output).toContain('/status Show runtime status (not available)')
     expect(stdout.output).toContain('/context Show context status (not available)')
+    expect(stdout.output).toContain('/memory Browse and manage memory (not available)')
     expect(stdout.output).toContain('/resume Resume a saved session (not available)')
   })
 

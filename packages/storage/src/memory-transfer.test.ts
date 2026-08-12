@@ -132,7 +132,10 @@ describe('MemoryTransferService', () => {
     expect(await target.memory.list(project)).toEqual([])
     fail = false
     await expect(target.transfer.import(archive, project)).resolves.toMatchObject({ applied: 2 })
-    expect((await target.memory.list(project)).map(({ id }) => id)).toEqual(['one', 'two'])
+    expect((await target.memory.list(project)).map(({ id }) => id).toSorted()).toEqual([
+      'one',
+      'two',
+    ])
   })
 
   it('recovers a durable interruption journal and rejects large, duplicate, malicious, and incompatible input', async () => {

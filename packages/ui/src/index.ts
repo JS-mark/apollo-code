@@ -184,6 +184,7 @@ export * from './status'
 export { renderDirectoryTrustPrompt, renderInteractiveApp } from './tui'
 export * from './tui'
 export * from './session-picker'
+export * from './memory-panel'
 export type {
   InteractiveAppOptions,
   ResumedInteractiveSession,
