@@ -70,6 +70,9 @@ export type MemoryPreWrite = (context: MemoryPreWriteContext) => void | Promise<
 export type MemoryErrorCode =
   | 'memory_conflict'
   | 'memory_corrupt'
+  | 'memory_index_busy'
+  | 'memory_index_corrupt'
+  | 'memory_index_unavailable'
   | 'memory_io'
   | 'memory_not_found'
   | 'memory_scope_denied'

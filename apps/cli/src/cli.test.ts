@@ -89,6 +89,7 @@ describe('runCli', () => {
       'telemetry',
       'trust',
       'doctor',
+      'memory',
       'hook',
       'mcp',
       'version',
@@ -794,5 +795,80 @@ describe('runCli', () => {
       'Revoked 1',
     )
     expect(trust.check).not.toHaveBeenCalled()
+  })
+
+  it('searches memory through the recall port with stable JSON output', async () => {
+    const recall = vi.fn(async () => [
+      {
+        score: 2.5,
+        record: {
+          schemaVersion: 1 as const,
+          id: 'tooling',
+          scope: { kind: 'project' as const, workspaceId: 'local', projectId: 'project' },
+          content: 'Use pnpm',
+          provenance: { source: 'user' as const },
+          tags: ['tooling'],
+          pinned: false,
+          createdAt: '2027-01-15T08:00:00.000Z',
+          updatedAt: '2027-01-15T08:00:00.000Z',
+          deletedAt: null,
+        },
+      },
+    ])
+    const result = await runCli(
+      ['memory', 'search', 'pnpm', '--scope', 'project', '--limit', '3', '--json'],
+      ports({ memoryRecall: { recall } }),
+    )
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      query: 'pnpm',
+      scope: { kind: 'project', workspaceId: 'local' },
+      hits: [{ score: 2.5, record: { id: 'tooling', content: 'Use pnpm' } }],
+    })
+    expect(recall).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'project', workspaceId: 'local' }),
+      'pnpm',
+      { limit: 3, tags: [] },
+    )
+  })
+
+  it('keeps memory doctor read-only and exposes reindex check/force semantics', async () => {
+    const doctor = vi.fn(async () => ({
+      healthy: false,
+      facts: { healthy: true, records: 1, detail: 'fact snapshot is readable' },
+      index: {
+        healthy: false,
+        status: 'dirty' as const,
+        detail: 'reindex required',
+        indexedRecords: 0,
+        sourceRecords: 1,
+      },
+    }))
+    const reindex = vi.fn(async () => ({
+      action: 'checked' as const,
+      before: {
+        healthy: false,
+        status: 'dirty' as const,
+        detail: 'reindex required',
+        indexedRecords: 0,
+      },
+      after: {
+        healthy: false,
+        status: 'dirty' as const,
+        detail: 'reindex required',
+        indexedRecords: 0,
+      },
+      durationMs: 1,
+      processedRecords: 0,
+    }))
+    const testPorts = ports({ memoryMaintenance: { doctor, reindex } })
+
+    expect((await runCli(['memory', 'doctor', '--strict', '--json'], testPorts)).exitCode).toBe(1)
+    expect(doctor).toHaveBeenCalledOnce()
+    expect((await runCli(['memory', 'reindex', '--check', '--json'], testPorts)).exitCode).toBe(1)
+    expect(reindex).toHaveBeenLastCalledWith({ batchSize: 250, check: true, force: false })
+    await runCli(['memory', 'reindex', '--force', '--batch-size', '10'], testPorts)
+    expect(reindex).toHaveBeenLastCalledWith({ batchSize: 10, check: false, force: true })
   })
 })
