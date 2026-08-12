@@ -33,8 +33,6 @@ const rpc = async (method, params) => {
   })
 }
 input.setEncoding('utf8')
-input.on('error', () => process.kill(process.pid, 'SIGUSR1'))
-output.on('error', () => process.kill(process.pid, 'SIGUSR2'))
 input.on('data', (chunk) => {
   buffer += chunk
   if (Buffer.byteLength(buffer) > MAX_FRAME) throw new Error('bridge frame exceeds limit')
@@ -92,7 +90,7 @@ input.on('end', () => {
     clearTimeout(item.timeout)
     item.reject(new Error('bridge closed'))
   }
-  process.kill(process.pid, 'SIGTERM')
+  process.exitCode = 1
 })
 const encode = (value) => {
   if (typeof value === 'function') {
