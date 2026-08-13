@@ -6,6 +6,7 @@ import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storag
 import type { ToolContext } from '@apollo-code/tool-kit'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 
 const roots: string[] = []
@@ -76,5 +77,16 @@ describe('Memory.* model tools', () => {
     const other = { ...context, session: { ...context.session, id: 'session-2' } }
     const result = await tools.get('Memory.get')!.invoke({ scope: 'session', id: 'private' }, other)
     expect(JSON.parse((result.content[0] as { text: string }).text)).toBeNull()
+  })
+
+  it('fails closed when model output contains a provider credential', async () => {
+    const { memory, tools, context } = await fixture()
+    const fakeProviderSecret = `sk-proj-${'FAKE'.repeat(6)}`
+    await expect(
+      tools
+        .get('Memory.create')!
+        .invoke({ scope: 'project', id: 'rejected', content: fakeProviderSecret }, context),
+    ).rejects.toMatchObject({ code: 'memory_validation' })
+    expect(await memory.list(projectMemoryScope(context.session.cwd))).toEqual([])
   })
 })

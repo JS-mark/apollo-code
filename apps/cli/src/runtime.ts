@@ -69,6 +69,7 @@ import {
 import type {
   MemoryMutationHookContext,
   MemoryMutationHooks,
+  MemoryRecallService,
   MemoryRecord,
   MemoryRecordScope,
   MemoryService,
@@ -883,6 +884,101 @@ function memoryScopeForPolicyHook(
   throw new MemoryError('memory_scope_denied', `Policy hook cannot widen to ${requested} scope`)
 }
 
+export interface PluginMemoryHostOptions {
+  readonly home: string
+  readonly cwd: string
+  readonly sessionId?: string
+  readonly memory: MemoryService
+  readonly memoryRecall: MemoryRecallService
+  readonly memoryTransfer: MemoryTransferService
+}
+
+export type PluginMemoryHost = (
+  plugin: string,
+  operation: string,
+  rawParams: unknown,
+) => Promise<unknown>
+
+/** Production plugin adapter. Memory content stays inside MemoryService and never enters audit. */
+export function createPluginMemoryHost(options: PluginMemoryHostOptions): PluginMemoryHost {
+  return async (plugin: string, operation: string, rawParams: unknown): Promise<unknown> => {
+    const params = rawParams as {
+      scope: PluginMemoryScope
+      id?: string
+      query?: string
+      options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
+      content?: string
+      tags?: readonly string[]
+      pinned?: boolean
+      patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
+    }
+    const scope =
+      params.scope === 'workspace'
+        ? workspaceMemoryScope()
+        : params.scope === 'project'
+          ? projectMemoryScope(options.cwd)
+          : options.sessionId
+            ? sessionMemoryScope(options.cwd, options.sessionId)
+            : (() => {
+                throw new MemoryError(
+                  'memory_scope_denied',
+                  'Session memory requires an active session',
+                )
+              })()
+    const auditPath = join(options.home, 'memory', 'audit.jsonl')
+    const writeOperation = ['create', 'update', 'delete'].includes(operation)
+    if (writeOperation) {
+      await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
+      await appendFile(
+        auditPath,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          at: new Date().toISOString(),
+          phase: 'attempt',
+          plugin,
+          operation,
+          scope: params.scope,
+          ...(params.id ? { id: sanitize(params.id) } : {}),
+        })}\n`,
+        { encoding: 'utf8', mode: 0o600 },
+      )
+    }
+    let result: unknown
+    if (operation === 'get') result = (await options.memory.get(scope, String(params.id))) ?? null
+    else if (operation === 'list') result = await options.memory.list(scope, params.options)
+    else if (operation === 'search')
+      result = await options.memoryRecall.recall(scope, String(params.query ?? ''), params.options)
+    else if (operation === 'create')
+      result = await options.memory.create({
+        ...(params.id ? { id: params.id } : {}),
+        scope,
+        content: String(params.content ?? ''),
+        provenance: { source: 'agent', actorId: `plugin:${plugin}` },
+        ...(params.tags ? { tags: params.tags } : {}),
+        ...(params.pinned === undefined ? {} : { pinned: params.pinned }),
+      })
+    else if (operation === 'update')
+      result = await options.memory.update(scope, String(params.id), params.patch ?? {})
+    else if (operation === 'delete') result = await options.memory.delete(scope, String(params.id))
+    else result = await options.memoryTransfer.export([scope])
+    await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
+    await appendFile(
+      auditPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        at: new Date().toISOString(),
+        phase: 'success',
+        plugin,
+        operation,
+        scope: params.scope,
+        ...(params.id ? { id: sanitize(params.id) } : {}),
+      })}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    )
+    return result
+  }
+}
+
 export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
@@ -1384,75 +1480,14 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           if (operation === 'delete') pluginStorage.delete(isolated)
           return pluginStorage.get(isolated)
         },
-        memory: async (plugin, operation, rawParams) => {
-          const params = rawParams as {
-            scope: PluginMemoryScope
-            id?: string
-            query?: string
-            options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
-            content?: string
-            tags?: readonly string[]
-            pinned?: boolean
-            patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
-          }
-          const scope =
-            params.scope === 'workspace'
-              ? workspaceMemoryScope()
-              : params.scope === 'project'
-                ? projectMemoryScope(runner.state.cwd)
-                : sessionMemoryScope(runner.state.cwd, runner.state.id)
-          const auditPath = join(home, 'memory', 'audit.jsonl')
-          const writeOperation = ['create', 'update', 'delete'].includes(operation)
-          if (writeOperation) {
-            await mkdir(join(home, 'memory'), { recursive: true, mode: 0o700 })
-            await appendFile(
-              auditPath,
-              `${JSON.stringify({
-                schemaVersion: 1,
-                at: new Date().toISOString(),
-                phase: 'attempt',
-                plugin,
-                operation,
-                scope: params.scope,
-                ...(params.id ? { id: sanitize(params.id) } : {}),
-              })}\n`,
-              { encoding: 'utf8', mode: 0o600 },
-            )
-          }
-          let result: unknown
-          if (operation === 'get') result = (await memory.get(scope, String(params.id))) ?? null
-          else if (operation === 'list') result = await memory.list(scope, params.options)
-          else if (operation === 'search')
-            result = await memoryRecall.recall(scope, String(params.query ?? ''), params.options)
-          else if (operation === 'create')
-            result = await memory.create({
-              ...(params.id ? { id: params.id } : {}),
-              scope,
-              content: String(params.content ?? ''),
-              provenance: { source: 'agent', actorId: `plugin:${plugin}` },
-              ...(params.tags ? { tags: params.tags } : {}),
-              ...(params.pinned === undefined ? {} : { pinned: params.pinned }),
-            })
-          else if (operation === 'update')
-            result = await memory.update(scope, String(params.id), params.patch ?? {})
-          else if (operation === 'delete') result = await memory.delete(scope, String(params.id))
-          else result = await memoryTransfer.export([scope])
-          await mkdir(join(home, 'memory'), { recursive: true, mode: 0o700 })
-          await appendFile(
-            auditPath,
-            `${JSON.stringify({
-              schemaVersion: 1,
-              at: new Date().toISOString(),
-              phase: 'success',
-              plugin,
-              operation,
-              scope: params.scope,
-              ...(params.id ? { id: sanitize(params.id) } : {}),
-            })}\n`,
-            { encoding: 'utf8', mode: 0o600 },
-          )
-          return result
-        },
+        memory: createPluginMemoryHost({
+          home,
+          cwd: runner.state.cwd,
+          sessionId: runner.state.id,
+          memory,
+          memoryRecall,
+          memoryTransfer,
+        }),
         config: () => undefined,
         log: (level, message) => {
           if (level === 'error') logger.error(message)
