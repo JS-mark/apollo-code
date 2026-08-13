@@ -1,6 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -14,6 +16,7 @@ import {
 } from './memory-runtime'
 
 const roots: string[] = []
+const fixedNow = () => new Date(1_800_000_000_000)
 const workspace = { kind: 'workspace', workspaceId: 'ws' } as const
 const project = { kind: 'project', workspaceId: 'ws', projectId: 'apollo' } as const
 const otherProject = { kind: 'project', workspaceId: 'ws', projectId: 'other' } as const
@@ -135,6 +138,90 @@ describe('DefaultMemoryService', () => {
     expect(await service.delete(project, 'one')).toMatchObject({ deletedAt: expect.any(String) })
   })
 
+  it('merges concurrent writes from separate service instances across scopes', async () => {
+    const file = await snapshotPath()
+    for (let round = 0; round < 20; round++) {
+      const first = new DefaultMemoryService(new LocalMemoryRepository(file))
+      const second = new DefaultMemoryService(new LocalMemoryRepository(file))
+      await Promise.all([first.start(), second.start()])
+
+      await Promise.all([
+        first.create({ ...input(project, `project-${round}`), id: `project-${round}` }),
+        second.create({ ...input(otherProject, `other-${round}`), id: `other-${round}` }),
+      ])
+    }
+
+    const records = await new LocalMemoryRepository(file).load()
+    expect(records).toHaveLength(40)
+    expect(new Set(records.map(({ id }) => id)).size).toBe(40)
+  })
+
+  it('returns memory_conflict when separate instances race on the same id', async () => {
+    const file = await snapshotPath()
+    const first = new DefaultMemoryService(new LocalMemoryRepository(file))
+    const second = new DefaultMemoryService(new LocalMemoryRepository(file))
+    await Promise.all([first.start(), second.start()])
+
+    const results = await Promise.allSettled([
+      first.create({ ...input(project, 'first value'), id: 'shared' }),
+      second.create({ ...input(project, 'second value'), id: 'shared' }),
+    ])
+
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter(({ status }) => status === 'rejected')).toMatchObject([
+      { reason: { code: 'memory_conflict' } },
+    ])
+    expect(await new LocalMemoryRepository(file).load()).toHaveLength(1)
+  })
+
+  it('checks optimistic concurrency against the lock-time snapshot', async () => {
+    const file = await snapshotPath()
+    const seed = new DefaultMemoryService(new LocalMemoryRepository(file), undefined, fixedNow)
+    const original = await seed.create({ ...input(project, 'original'), id: 'shared' })
+    const first = new DefaultMemoryService(new LocalMemoryRepository(file), undefined, fixedNow)
+    const stale = new DefaultMemoryService(new LocalMemoryRepository(file), undefined, fixedNow)
+    await Promise.all([first.start(), stale.start()])
+
+    const current = await first.update(
+      project,
+      'shared',
+      { content: 'current' },
+      { expectedUpdatedAt: original.updatedAt },
+    )
+    expect(current.updatedAt).not.toBe(original.updatedAt)
+    await expect(
+      stale.update(
+        project,
+        'shared',
+        { content: 'stale' },
+        { expectedUpdatedAt: original.updatedAt },
+      ),
+    ).rejects.toMatchObject({ code: 'memory_conflict' })
+    expect((await new LocalMemoryRepository(file).load())[0]?.content).toBe('current')
+  })
+
+  it('preserves writes from two real child processes', async () => {
+    const file = await snapshotPath()
+    const gate = `${file}.gate`
+    await mkdir(dirname(file), { recursive: true })
+    const helper = join(import.meta.dirname, 'memory-runtime.child.test.ts')
+    const children = ['first', 'second'].map((id) =>
+      runChild(helper, {
+        APOLLO_MEMORY_CHILD_FILE: file,
+        APOLLO_MEMORY_CHILD_GATE: gate,
+        APOLLO_MEMORY_CHILD_ID: id,
+      }),
+    )
+    await Promise.all(['first', 'second'].map((id) => waitForFile(`${gate}.${id}.ready`)))
+    await writeFile(gate, 'go')
+    await Promise.all(children)
+
+    expect((await new LocalMemoryRepository(file).load()).map(({ id }) => id).toSorted()).toEqual([
+      'first',
+      'second',
+    ])
+  }, 30_000)
+
   it('runs mandatory memory.preWrite before persistence and rejects secrets and invalid text', async () => {
     const seen: string[] = []
     const service = new DefaultMemoryService(
@@ -227,6 +314,21 @@ describe('DefaultMemoryService', () => {
 })
 
 describe('LocalMemoryRepository contract', () => {
+  it('recovers a lock left behind by a crashed process', async () => {
+    const file = await snapshotPath()
+    await mkdir(join(file, '..'), { recursive: true })
+    await writeFile(
+      `${file}.lock`,
+      JSON.stringify({ pid: 2_147_483_647, token: 'crashed', at: '2000-01-01T00:00:00.000Z' }),
+    )
+
+    const service = new DefaultMemoryService(new LocalMemoryRepository(file))
+    await expect(service.create({ ...input(project), id: 'recovered' })).resolves.toMatchObject({
+      id: 'recovered',
+    })
+    await expect(access(`${file}.lock`)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('recovers the last durable snapshot after a corrupt primary', async () => {
     const file = await snapshotPath()
     const service = new DefaultMemoryService(new LocalMemoryRepository(file))
@@ -264,3 +366,39 @@ describe('LocalMemoryRepository contract', () => {
     })
   })
 })
+
+async function waitForFile(path: string): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    try {
+      await access(path)
+      return
+    } catch {
+      await delay(10)
+    }
+  }
+  throw new Error(`Timed out waiting for child process readiness: ${path}`)
+}
+
+function runChild(helper: string, environment: Record<string, string>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const executable = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+    const child = spawn(
+      executable,
+      ['exec', 'vitest', 'run', helper, '--pool=forks', '--maxWorkers=1', '--no-file-parallelism'],
+      {
+        cwd: join(import.meta.dirname, '../../..'),
+        env: { ...process.env, ...environment },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    let output = ''
+    child.stdout.on('data', (chunk) => (output += String(chunk)))
+    child.stderr.on('data', (chunk) => (output += String(chunk)))
+    child.once('error', reject)
+    child.once('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`Memory child process exited with ${String(code)}:\n${output}`))
+    })
+  })
+}
