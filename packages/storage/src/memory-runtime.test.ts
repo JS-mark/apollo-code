@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -17,6 +18,10 @@ import {
 
 const roots: string[] = []
 const fixedNow = () => new Date(1_800_000_000_000)
+const vitestExecutable = join(
+  dirname(createRequire(import.meta.url).resolve('vitest/package.json')),
+  'vitest.mjs',
+)
 const workspace = { kind: 'workspace', workspaceId: 'ws' } as const
 const project = { kind: 'project', workspaceId: 'ws', projectId: 'apollo' } as const
 const otherProject = { kind: 'project', workspaceId: 'ws', projectId: 'other' } as const
@@ -212,9 +217,15 @@ describe('DefaultMemoryService', () => {
         APOLLO_MEMORY_CHILD_ID: id,
       }),
     )
-    await Promise.all(['first', 'second'].map((id) => waitForFile(`${gate}.${id}.ready`)))
+    const childrenDone = Promise.all(children)
+    await Promise.race([
+      Promise.all(['first', 'second'].map((id) => waitForFile(`${gate}.${id}.ready`))),
+      childrenDone.then(() => {
+        throw new Error('Memory child processes exited before reporting readiness')
+      }),
+    ])
     await writeFile(gate, 'go')
-    await Promise.all(children)
+    await childrenDone
 
     expect((await new LocalMemoryRepository(file).load()).map(({ id }) => id).toSorted()).toEqual([
       'first',
@@ -354,10 +365,9 @@ async function waitForFile(path: string): Promise<void> {
 
 function runChild(helper: string, environment: Record<string, string>): Promise<void> {
   return new Promise((resolve, reject) => {
-    const executable = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
     const child = spawn(
-      executable,
-      ['exec', 'vitest', 'run', helper, '--pool=forks', '--maxWorkers=1', '--no-file-parallelism'],
+      process.execPath,
+      [vitestExecutable, 'run', helper, '--pool=forks', '--maxWorkers=1', '--no-file-parallelism'],
       {
         cwd: join(import.meta.dirname, '../../..'),
         env: { ...process.env, ...environment },
