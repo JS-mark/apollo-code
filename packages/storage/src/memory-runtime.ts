@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { open, mkdir, readFile, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { detectSecret } from '@apollo-code/shared'
+
 export const MEMORY_RECORD_SCHEMA_VERSION = 1 as const
 const SNAPSHOT_SCHEMA_VERSION = 1 as const
 
@@ -189,8 +191,6 @@ function validateScope(scope: MemoryRecordScope): void {
 }
 
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
-const secretPattern =
-  /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*\S+)/i
 const MAX_MEMORY_CONTENT_BYTES = 64 * 1024
 
 function validIdentifier(value: string): boolean {
@@ -218,7 +218,7 @@ function builtinPreWrite(context: MemoryPreWriteContext): void {
     throw new MemoryError('memory_validation', 'Memory content contains invalid Unicode')
   if (Buffer.byteLength(context.content, 'utf8') > MAX_MEMORY_CONTENT_BYTES)
     throw new MemoryError('memory_validation', 'Memory content exceeds 64 KiB')
-  if (secretPattern.test(context.content))
+  if (detectSecret(context.content))
     throw new MemoryError('memory_validation', 'Memory content appears to contain a secret')
 }
 

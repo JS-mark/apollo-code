@@ -192,7 +192,8 @@ describe('MemoryTransferService', () => {
     }
     duplicate.records = [record, record]
     expect(() => transfer.parse(JSON.stringify(duplicate))).toThrow('invalid record')
-    const secret = { ...record, id: 'secret', content: 'api_key=sk-malicious' }
+    const fakeProviderSecret = `ghp_${'FAKE'.repeat(8)}`
+    const secret = { ...record, id: 'secret', content: fakeProviderSecret, pinned: true }
     await expect(
       transfer.import(
         JSON.stringify({
@@ -207,5 +208,9 @@ describe('MemoryTransferService', () => {
     await expect(readFile(join(root, 'import-journal.json'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
     })
+    expect(await memory.get(project, 'secret')).toBeUndefined()
+    await expect(readFile(join(root, 'records.json'), 'utf8')).resolves.not.toContain(
+      fakeProviderSecret,
+    )
   })
 })

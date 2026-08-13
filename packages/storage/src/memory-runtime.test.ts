@@ -170,6 +170,34 @@ describe('DefaultMemoryService', () => {
     expect(await service.list(project)).toMatchObject([{ id: 'valid-unicode' }])
   })
 
+  it('rejects provider credentials on create and update without changing facts', async () => {
+    const file = await snapshotPath()
+    const service = new DefaultMemoryService(new LocalMemoryRepository(file))
+    const before = await service.create({ ...input(project, 'safe original'), id: 'original' })
+    const corpus = [
+      `sk-proj-${'FAKE'.repeat(6)}`,
+      `ghp_${'FAKE'.repeat(8)}`,
+      `AKIA${'FAKE'.repeat(4)}`,
+      `eyJ${'F'.repeat(8)}.${'A'.repeat(12)}.${'K'.repeat(12)}`,
+      `Authorization: Bearer ${'FAKE'.repeat(4)}`,
+      `redis://apollo:${'FAKE'.repeat(3)}@cache.example.test/0`,
+    ]
+
+    for (const [index, content] of corpus.entries()) {
+      await expect(
+        service.create({ ...input(project, content), id: `rejected-${index}` }),
+      ).rejects.toMatchObject({ code: 'memory_validation' })
+      await expect(service.update(project, 'original', { content })).rejects.toMatchObject({
+        code: 'memory_validation',
+      })
+    }
+
+    expect(await service.get(project, 'original')).toEqual(before)
+    expect((await service.list(project)).map(({ id }) => id)).toEqual(['original'])
+    const persisted = await readFile(file, 'utf8')
+    for (const content of corpus) expect(persisted).not.toContain(content)
+  })
+
   it('tracks attachment invalidation and deletion as tombstones without embedding bytes', async () => {
     const service = new DefaultMemoryService(new LocalMemoryRepository(await snapshotPath()))
     const attachment = {

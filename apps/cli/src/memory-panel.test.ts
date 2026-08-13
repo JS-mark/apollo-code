@@ -98,7 +98,7 @@ describe('createMemoryPanelController', () => {
     await expect(
       controller.update(
         'newer-note',
-        { content: 'api_key=sk-secret', tags: ['architecture'] },
+        { content: `ghp_${'FAKE'.repeat(8)}`, tags: ['architecture'] },
         before!.updatedAt,
       ),
     ).rejects.toMatchObject({ code: 'memory_validation' })
