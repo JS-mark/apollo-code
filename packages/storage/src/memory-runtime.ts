@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { open, mkdir, readFile, rename, rm } from 'node:fs/promises'
+import { open, mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 
 export const MEMORY_RECORD_SCHEMA_VERSION = 1 as const
 const SNAPSHOT_SCHEMA_VERSION = 1 as const
@@ -118,6 +119,20 @@ export interface MemoryRepository {
   load(): Promise<readonly MemoryRecord[]>
   save(records: readonly MemoryRecord[]): Promise<void>
   flush(): Promise<void>
+  /**
+   * Applies a read-modify-write operation while holding the repository's
+   * cross-process transaction lock. Implementations that omit this method are
+   * supported for in-memory and test adapters, but cannot coordinate writers
+   * outside the current service instance.
+   */
+  transaction?<T>(
+    operation: (records: readonly MemoryRecord[]) => Promise<MemoryRepositoryCommit<T>>,
+  ): Promise<MemoryRepositoryCommit<T>>
+}
+
+export interface MemoryRepositoryCommit<T> {
+  readonly records: readonly MemoryRecord[]
+  readonly result: T
 }
 
 export interface MemoryPolicy {
@@ -451,7 +466,7 @@ export class DefaultMemoryService implements MemoryService {
         pinned,
         provenance,
         attachments,
-        updatedAt: this.now().toISOString(),
+        updatedAt: nextTimestamp(current.updatedAt, this.now()),
       }
       this.#records.set(id, record)
       return record
@@ -469,7 +484,7 @@ export class DefaultMemoryService implements MemoryService {
       const current = this.#require(scope, id)
       if (current.deletedAt) return current
       this.#checkVersion(current, options)
-      const now = this.now().toISOString()
+      const now = nextTimestamp(current.updatedAt, this.now())
       const record = { ...current, pinned: false, updatedAt: now, deletedAt: now }
       this.#records.set(id, record)
       return record
@@ -598,12 +613,26 @@ export class DefaultMemoryService implements MemoryService {
     const operation = this.#mutation.then(async () => {
       const before = new Map(this.#records)
       try {
+        if (this.repository.transaction) {
+          const committed = await this.repository.transaction(async (records) => {
+            this.#replaceRecords(records)
+            const result = await mutation()
+            return { records: [...this.#records.values()], result }
+          })
+          this.#replaceRecords(committed.records)
+          return committed.result
+        }
         const result = await mutation()
         await this.repository.save([...this.#records.values()])
         return result
       } catch (error) {
-        this.#records.clear()
-        for (const [id, record] of before) this.#records.set(id, record)
+        if (this.repository.transaction) {
+          try {
+            this.#replaceRecords(await this.repository.load())
+          } catch {
+            this.#replaceRecords(before.values())
+          }
+        } else this.#replaceRecords(before.values())
         if (error instanceof MemoryError) throw error
         throw new MemoryError('memory_io', 'Unable to persist memory', { cause: error })
       }
@@ -614,6 +643,11 @@ export class DefaultMemoryService implements MemoryService {
     )
     return operation
   }
+
+  #replaceRecords(records: Iterable<MemoryRecord>): void {
+    this.#records.clear()
+    for (const record of records) this.#records.set(record.id, record)
+  }
 }
 
 interface MemorySnapshotV1 {
@@ -623,16 +657,59 @@ interface MemorySnapshotV1 {
 
 export interface LocalMemoryRepositoryOptions {
   beforeRename?: (temporaryPath: string, destinationPath: string) => void | Promise<void>
+  /** Maximum time a writer or consistent reader waits for another process. */
+  lockTimeoutMs?: number
+  /** Delay between lock attempts. Kept configurable to make contention tests deterministic. */
+  lockRetryMs?: number
 }
 
 /** Atomic snapshot adapter. A previous .bak is retained until the new snapshot is durable. */
 export class LocalMemoryRepository implements MemoryRepository {
+  readonly #lockPath: string
+
   constructor(
     readonly path: string,
     readonly options: LocalMemoryRepositoryOptions = {},
-  ) {}
+  ) {
+    this.#lockPath = `${path}.lock`
+  }
 
   async load(): Promise<readonly MemoryRecord[]> {
+    const release = await this.#acquireLock()
+    try {
+      return await this.#loadUnlocked()
+    } finally {
+      await release()
+    }
+  }
+
+  async save(records: readonly MemoryRecord[]): Promise<void> {
+    const release = await this.#acquireLock()
+    try {
+      await this.#saveUnlocked(records)
+    } finally {
+      await release()
+    }
+  }
+
+  async transaction<T>(
+    operation: (records: readonly MemoryRecord[]) => Promise<MemoryRepositoryCommit<T>>,
+  ): Promise<MemoryRepositoryCommit<T>> {
+    const release = await this.#acquireLock()
+    try {
+      const commit = await operation(await this.#loadUnlocked())
+      await this.#saveUnlocked(commit.records)
+      return commit
+    } finally {
+      await release()
+    }
+  }
+
+  async flush(): Promise<void> {
+    // save() fsyncs the file and, where supported, its containing directory.
+  }
+
+  async #loadUnlocked(): Promise<readonly MemoryRecord[]> {
     const primary = await this.#read(this.path)
     if (primary.ok) return primary.records
     const backup = await this.#read(`${this.path}.bak`)
@@ -643,7 +720,7 @@ export class LocalMemoryRepository implements MemoryRepository {
     })
   }
 
-  async save(records: readonly MemoryRecord[]): Promise<void> {
+  async #saveUnlocked(records: readonly MemoryRecord[]): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
     const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`
     const file = await open(temporary, 'wx', 0o600)
@@ -680,8 +757,50 @@ export class LocalMemoryRepository implements MemoryRepository {
     }
   }
 
-  async flush(): Promise<void> {
-    // save() fsyncs the file and, where supported, its containing directory.
+  async #acquireLock(): Promise<() => Promise<void>> {
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
+    const token = randomUUID()
+    const timeoutMs = this.options.lockTimeoutMs ?? 10_000
+    const retryMs = this.options.lockRetryMs ?? 10
+    const deadline = Date.now() + timeoutMs
+
+    for (;;) {
+      try {
+        const file = await open(this.#lockPath, 'wx', 0o600)
+        try {
+          await file.writeFile(
+            JSON.stringify({ pid: process.pid, token, at: new Date().toISOString() }),
+          )
+          await file.sync()
+        } catch (error) {
+          await file.close().catch(() => undefined)
+          await rm(this.#lockPath, { force: true }).catch(() => undefined)
+          throw error
+        }
+        await file.close()
+        return async () => {
+          try {
+            const owner = JSON.parse(await readFile(this.#lockPath, 'utf8')) as {
+              token?: unknown
+            }
+            if (owner.token === token) await rm(this.#lockPath, { force: true })
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        if (!(await lockOwnerAlive(this.#lockPath))) {
+          await rm(this.#lockPath, { force: true }).catch((removeError: NodeJS.ErrnoException) => {
+            if (removeError.code !== 'ENOENT') throw removeError
+          })
+          continue
+        }
+        if (Date.now() >= deadline)
+          throw new MemoryError('memory_io', 'Timed out waiting for the memory transaction lock')
+        await delay(retryMs)
+      }
+    }
   }
 
   async #read(
@@ -697,6 +816,36 @@ export class LocalMemoryRepository implements MemoryRepository {
       return { ok: false, missing: (error as NodeJS.ErrnoException).code === 'ENOENT', error }
     }
   }
+}
+
+async function lockOwnerAlive(path: string): Promise<boolean> {
+  try {
+    const value = JSON.parse(await readFile(path, 'utf8')) as { pid?: unknown }
+    if (!Number.isSafeInteger(value.pid) || Number(value.pid) < 1) {
+      // A competing process can observe the file between exclusive creation and
+      // metadata fsync. Give that live acquisition a short grace period.
+      return Date.now() - (await stat(path)).mtimeMs < 1_000
+    }
+    try {
+      process.kill(Number(value.pid), 0)
+      return true
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    try {
+      return Date.now() - (await stat(path)).mtimeMs < 1_000
+    } catch {
+      return false
+    }
+  }
+}
+
+function nextTimestamp(previous: string, now: Date): string {
+  const previousMilliseconds = Date.parse(previous)
+  const nextMilliseconds = now.getTime()
+  return new Date(Math.max(nextMilliseconds, previousMilliseconds + 1)).toISOString()
 }
 
 function migrateSnapshot(value: unknown): readonly MemoryRecord[] {

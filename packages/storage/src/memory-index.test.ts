@@ -137,6 +137,30 @@ describe('local keyword memory index', () => {
     ).toBe(true)
   })
 
+  it('reports a stale index after independently coordinated fact writers and rebuilds it', async () => {
+    const { index, maintenance, repository } = await fixture()
+    await index.reindex([])
+    const first = new DefaultMemoryService(repository)
+    const second = new DefaultMemoryService(new LocalMemoryRepository(repository.path))
+    await Promise.all([first.start(), second.start()])
+    await Promise.all([
+      first.create(input('first', 'first concurrent fact')),
+      second.create(input('second', 'second concurrent fact')),
+    ])
+
+    expect(await maintenance.doctor()).toMatchObject({
+      healthy: false,
+      facts: { healthy: true, records: 2 },
+      index: { status: 'stale', sourceRecords: 2 },
+    })
+    await maintenance.reindex()
+    expect(await maintenance.doctor()).toMatchObject({
+      healthy: true,
+      facts: { healthy: true, records: 2 },
+      index: { status: 'healthy', indexedRecords: 2 },
+    })
+  })
+
   it('detects corruption without touching facts and rebuilds a healthy generation', async () => {
     const { maintenance, memory, root } = await fixture()
     await memory.create(input('durable', 'survives corruption'))
