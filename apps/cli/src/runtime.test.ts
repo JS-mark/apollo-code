@@ -7,8 +7,10 @@ import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storag
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { projectMemoryScope } from './memory-scope'
+import { createMemoryTools } from './memory-tools'
 import {
   buildStatusViewModel,
+  createPluginMemoryHost,
   createProductionPorts,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
@@ -420,6 +422,68 @@ describe('status configuration adapter', () => {
     expect(await target.memory?.get({ kind: 'workspace', workspaceId: 'local' }, 'portable')).toBe(
       undefined,
     )
+  })
+
+  it('keeps plugin and model secret rejections out of every production memory artifact', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.memory-secret-composition-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({
+      apolloHome: root,
+      identity: { version: '1.2.3-test' },
+    })
+    const memory = ports.memory!
+    const scope = projectMemoryScope(root)
+    const context = {
+      abortSignal: new AbortController().signal,
+      session: { id: 'session-1', cwd: root, turnId: 'turn-1' },
+      native: { execute: async () => undefined },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      ui: { requestInput: async () => '' },
+    }
+    const tools = new Map(createMemoryTools(memory).map((tool) => [tool.name, tool]))
+    await tools
+      .get('Memory.create')!
+      .invoke({ scope: 'project', id: 'original', content: 'safe original' }, context as never)
+    const original = await memory.get(scope, 'original')
+    const modelSecret = `sk-proj-${'FAKE'.repeat(6)}`
+    await expect(
+      tools
+        .get('Memory.update')!
+        .invoke({ scope: 'project', id: 'original', content: modelSecret }, context as never),
+    ).rejects.toMatchObject({ code: 'memory_validation' })
+
+    const pluginSecret = `ghp_${'FAKE'.repeat(8)}`
+    const pluginMemory = createPluginMemoryHost({
+      home: root,
+      cwd: root,
+      memory,
+      memoryRecall: ports.memoryRecall!,
+      memoryTransfer: ports.memoryTransfer!,
+    })
+    await expect(
+      pluginMemory('fixture-plugin', 'create', {
+        scope: 'project',
+        id: 'plugin-secret',
+        content: pluginSecret,
+      }),
+    ).rejects.toMatchObject({ code: 'memory_validation' })
+    await memory.flush()
+
+    expect(await memory.get(scope, 'original')).toEqual(original)
+    expect(await memory.get(scope, 'plugin-secret')).toBeUndefined()
+    for (const path of [
+      join(root, 'memory', 'records.json'),
+      join(root, 'memory', 'index.json'),
+      join(root, 'memory', 'audit.jsonl'),
+      join(root, 'telemetry', 'events.jsonl'),
+    ]) {
+      const contents = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return ''
+        throw error
+      })
+      expect(contents).not.toContain(modelSecret)
+      expect(contents).not.toContain(pluginSecret)
+    }
   })
 
   it('persists whitelisted preferences atomically and rejects readonly state', async () => {

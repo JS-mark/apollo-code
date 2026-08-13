@@ -239,6 +239,16 @@ describe('apollo memory', () => {
         )
       ).exitCode,
     ).toBe(13)
+
+    const fakeProviderSecret = `AKIA${'FAKE'.repeat(4)}`
+    const rejected = await runCli(
+      ['memory', 'add', '--id', 'secret', '--content', fakeProviderSecret, '--json'],
+      ports,
+      nonInteractive,
+    )
+    expect(rejected.exitCode).toBe(2)
+    expect(rejected.stdout).not.toContain(fakeProviderSecret)
+    expect(await memory.get(projectMemoryScope(process.cwd()), 'secret')).toBeUndefined()
   })
 
   it('renders command-specific help without starting runtime work', async () => {
