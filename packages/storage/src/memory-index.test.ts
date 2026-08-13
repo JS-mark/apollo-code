@@ -14,6 +14,7 @@ import {
   DefaultMemoryService,
   HierarchicalMemoryPolicy,
   LocalMemoryRepository,
+  MemoryError,
   type MemoryRecord,
   type MemoryRecordScope,
 } from './memory-runtime'
@@ -72,6 +73,77 @@ describe('local keyword memory index', () => {
     subscription.dispose()
     await memory.update(projectScope, 'observed', { content: 'second value' })
     expect(changes).toBe(1)
+  })
+
+  it('runs lifecycle policy before index side effects and emits post/delete after commit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-memory-hooks-'))
+    roots.push(root)
+    const repository = new LocalMemoryRepository(join(root, 'records.json'))
+    const index = new LocalKeywordMemoryIndex(join(root, 'index.json'))
+    const events: string[] = []
+    const memory = new IndexingMemoryService(
+      new DefaultMemoryService(repository),
+      repository,
+      index,
+      {
+        preWrite(context) {
+          events.push(`pre:${context.phase}:${context.operation}:${context.content ?? '-'}`)
+          if (context.content === 'blocked')
+            throw new MemoryError('memory_hook_veto', 'fixture policy')
+        },
+        postWrite(context) {
+          events.push(`post:${context.operation}`)
+        },
+        deleted(context) {
+          events.push(`deleted:${context.operation}`)
+        },
+      },
+    )
+
+    await expect(memory.create(input('blocked', 'blocked'))).rejects.toMatchObject({
+      code: 'memory_hook_veto',
+    })
+    expect(await repository.load()).toEqual([])
+    expect(await index.health()).toMatchObject({ status: 'missing', indexedRecords: 0 })
+
+    const beforeSecret = events.length
+    await expect(memory.create(input('secret', 'api_key=FAKE-secret-value'))).rejects.toMatchObject(
+      {
+        code: 'memory_validation',
+      },
+    )
+    expect(events).toHaveLength(beforeSecret)
+
+    const attachment = {
+      schemaVersion: 1 as const,
+      id: 'diagram',
+      handle: `${'a'.repeat(64)}.png`,
+      mime: 'image/png',
+      size: 42,
+      digest: 'a'.repeat(64),
+      state: 'active' as const,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      invalidatedAt: null,
+      deletedAt: null,
+    }
+    await memory.create({ ...input('allowed', 'safe'), attachments: [attachment] })
+    await memory.update(projectScope, 'allowed', { tags: ['updated'] })
+    await memory.pin(projectScope, 'allowed')
+    await memory.unpin(projectScope, 'allowed')
+    await memory.invalidateAttachment(projectScope, 'allowed', 'diagram')
+    await memory.deleteAttachment(projectScope, 'allowed', 'diagram')
+    await memory.delete(projectScope, 'allowed')
+
+    expect(events.filter((event) => event.startsWith('post:'))).toEqual([
+      'post:create',
+      'post:update',
+      'post:pin',
+      'post:unpin',
+      'post:invalidateAttachment',
+      'post:deleteAttachment',
+      'post:delete',
+    ])
+    expect(events.at(-1)).toBe('deleted:delete')
   })
 
   it('incrementally removes old terms and deleted facts', async () => {

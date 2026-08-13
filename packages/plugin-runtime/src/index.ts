@@ -10,6 +10,8 @@ import type {
   HookEvent,
   HookHandler,
   HookResult,
+  PluginMemoryHookPayload,
+  PluginMemoryScope,
   PluginManifest,
   PluginRegistryMetadata,
   PluginRegistrySignedPayload,
@@ -251,7 +253,7 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
     memory &&
     ((memory.read !== undefined &&
       (!Array.isArray(memory.read) ||
-        memory.read.some((scope) => !['workspace', 'project'].includes(scope)))) ||
+        memory.read.some((scope) => !['workspace', 'project', 'session'].includes(scope)))) ||
       (memory.write !== undefined && typeof memory.write !== 'boolean') ||
       (memory.search !== undefined && typeof memory.search !== 'boolean') ||
       (memory.export !== undefined && typeof memory.export !== 'boolean'))
@@ -495,6 +497,30 @@ const RPC_METHODS = new Set([
   'log.error',
   'call',
 ])
+const RPC_MULTI_ARG_METHODS = new Set([
+  'hooks.on',
+  'hooks.off',
+  'hooks.kv.set',
+  'session.on',
+  'fs.readFile',
+  'fs.writeFile',
+  'exec',
+  'http.fetch',
+  'ui.prompt',
+  'ui.pick',
+  'ui.notify',
+  'storage.set',
+  'memory.get',
+  'memory.list',
+  'memory.search',
+  'memory.update',
+  'memory.delete',
+  'log.debug',
+  'log.info',
+  'log.warn',
+  'log.error',
+  'call',
+])
 
 export type BridgeCapabilityStatus = 'supported' | 'unsupported'
 export interface BridgeCapability {
@@ -569,8 +595,14 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
   })),
 ])
 
-const safeRpcError = (error: unknown) =>
-  error instanceof PluginError ? error.code : 'plugin_internal_error'
+const safeRpcError = (error: unknown) => {
+  if (error instanceof PluginError) return error.code
+  const code =
+    error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : undefined
+  return code?.match(/^(?:memory|plugin)_[a-z0-9_]+$/) ? code : 'plugin_internal_error'
+}
 
 class PluginConnection {
   #buffer = ''
@@ -718,7 +750,11 @@ class PluginConnection {
     let target: unknown = this.bridge
     for (const part of path) target = (target as Record<string, unknown>)?.[part]
     if (typeof target !== 'function') throw new PluginError('plugin_rpc_method_denied', method)
-    const result = await (target as (value: unknown) => unknown)(params)
+    const result = await Reflect.apply(
+      target,
+      undefined,
+      RPC_MULTI_ARG_METHODS.has(rpcPath) && Array.isArray(params) ? params : [params],
+    )
     return result && typeof result === 'object' && 'dispose' in result ? {} : result
   }
   private async write(frame: RpcFrame) {
@@ -1078,6 +1114,7 @@ type HookRecord = {
   handler: HookHandler
   priority: number
   order: number
+  memoryScopes: readonly PluginMemoryScope[]
 }
 const clone = <T>(value: T): T => structuredClone(value)
 const isWithin = (root: string, candidate: string) => {
@@ -1187,12 +1224,18 @@ export class BridgeRuntime {
       hooks: {
         on: (event, handler, options) => {
           check('hooks.on')
+          if (event.startsWith('memory.') && !manifest.permissions.memory?.read?.length)
+            throw new PluginError('plugin_memory_hook_scope_required', event)
+          const priority = options?.priority ?? 0
+          if (!Number.isSafeInteger(priority) || priority < -100 || priority > 100)
+            throw new PluginError('plugin_hook_priority_invalid', event)
           const record = {
             plugin: manifest.name,
             event,
             handler,
-            priority: options?.priority ?? 0,
+            priority,
             order: this.#order++,
+            memoryScopes: manifest.permissions.memory?.read ?? [],
           }
           this.#hooks.push(record)
           return track({ dispose: () => this.removeHook(record) })
@@ -1376,7 +1419,7 @@ export class BridgeRuntime {
       params && typeof params === 'object' && 'scope' in params
         ? (params as { scope?: unknown }).scope
         : undefined
-    if (scope !== 'workspace' && scope !== 'project')
+    if (scope !== 'workspace' && scope !== 'project' && scope !== 'session')
       throw new PluginError('plugin_memory_scope_denied', String(scope))
     const permission = manifest.permissions.memory
     const readable = permission?.read?.includes(scope)
@@ -1399,8 +1442,29 @@ export class BridgeRuntime {
     payload: unknown,
     options: { signal?: AbortSignal; toolUseId?: string } = {},
   ): Promise<HookResult | undefined> {
+    if (event.startsWith('memory.'))
+      throw new PluginError('plugin_memory_hook_dispatch_required', event)
+    return (await this.#runHooks(event, payload, options))?.result
+  }
+
+  async runMemoryHooks(
+    event: Extract<HookEvent, `memory.${string}`>,
+    payload: PluginMemoryHookPayload,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ plugin: string; result: HookResult } | undefined> {
+    return this.#runHooks(event, payload, options, (hook) =>
+      hook.memoryScopes.includes(payload.scope),
+    )
+  }
+
+  async #runHooks(
+    event: HookEvent,
+    payload: unknown,
+    options: { signal?: AbortSignal; toolUseId?: string },
+    include: (hook: HookRecord) => boolean = () => true,
+  ): Promise<{ plugin: string; result: HookResult } | undefined> {
     const handlers = this.#hooks
-      .filter((hook) => hook.event === event)
+      .filter((hook) => hook.event === event && include(hook))
       .sort((a, b) => b.priority - a.priority || a.order - b.order)
     for (const hook of handlers) {
       if (options.signal?.aborted) throw options.signal.reason
@@ -1409,17 +1473,18 @@ export class BridgeRuntime {
       const aborted = new Promise<never>((_, reject) =>
         controller.signal.addEventListener(
           'abort',
-          () => reject(new PluginError('plugin_hook_timeout', event)),
+          () => reject(new PluginError('plugin_hook_timeout', `${hook.plugin}:${event}`)),
           { once: true },
         ),
       )
       try {
         const result = await Promise.race([Promise.resolve(hook.handler(clone(payload))), aborted])
-        if (result?.veto) return clone(result)
+        if (result?.veto) return { plugin: hook.plugin, result: clone(result) }
       } finally {
         clearTimeout(timeout)
       }
     }
+    return undefined
   }
   async deactivate(plugin: string) {
     for (const item of [...(this.#disposables.get(plugin) ?? [])].reverse()) await item.dispose()
