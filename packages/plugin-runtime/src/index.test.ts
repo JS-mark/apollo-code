@@ -650,9 +650,98 @@ describe('plugin runtime', () => {
     bridge.hooks.kv.set('a', 1)
     expect(bridge.hooks.kv.get('a')).toBe(1)
     expect(() => bridge.hooks.kv.set('large', 'x'.repeat(100))).toThrow('quota')
+    expect(() => bridge.hooks.on('preToolUse', () => undefined, { priority: 101 })).toThrow(
+      'plugin_hook_priority_invalid',
+    )
     const slow = runtime.create(hookManifest, cwd, 'tool-2')
     slow.hooks.on('postToolUse', () => new Promise(() => {}))
     await expect(runtime.runHooks('postToolUse', {})).rejects.toThrow('timeout')
+  })
+
+  it('dispatches memory hooks only to plugins authorized for the exact scope', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'apollo-memory-hooks-')),
+      seen: Array<{ plugin: string; payload: unknown }> = []
+    const runtime = new BridgeRuntime({
+      session: { id: 's', cwd, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+      register: () => ({ dispose() {} }),
+      fs: {
+        readFile: async () => '',
+        writeFile: async () => {},
+        exists: async () => false,
+        glob: async () => [],
+        stat: async () => ({}),
+      },
+      exec: async () => ({}),
+      fetch: async () => ({}),
+      ui: () => undefined,
+      storage: async () => undefined,
+      config: () => undefined,
+      log: () => undefined,
+    })
+    const project = runtime.create(
+      {
+        ...manifest,
+        permissions: { apollo: ['hooks.on'], memory: { read: ['project'] } },
+      },
+      cwd,
+    )
+    const session = runtime.create(
+      {
+        ...manifest,
+        name: 'apollo-plugin-session-policy',
+        permissions: { apollo: ['hooks.on'], memory: { read: ['session'] } },
+      },
+      cwd,
+    )
+    project.hooks.on('memory.preWrite', (payload) => {
+      seen.push({ plugin: 'project', payload })
+      return { veto: true, reason: 'project policy' }
+    })
+    session.hooks.on('memory.preWrite', (payload) => {
+      seen.push({ plugin: 'session', payload })
+    })
+
+    await expect(
+      runtime.runMemoryHooks('memory.preWrite', {
+        schemaVersion: 1,
+        operation: 'create',
+        phase: 'commit',
+        scope: 'project',
+        id: 'one',
+        content: 'safe candidate',
+      }),
+    ).resolves.toEqual({
+      plugin: manifest.name,
+      result: { veto: true, reason: 'project policy' },
+    })
+    await runtime.runMemoryHooks('memory.preWrite', {
+      schemaVersion: 1,
+      operation: 'create',
+      phase: 'commit',
+      scope: 'session',
+      id: 'two',
+      content: 'safe session candidate',
+    })
+    expect(seen).toEqual([
+      {
+        plugin: 'project',
+        payload: expect.objectContaining({ scope: 'project', id: 'one' }),
+      },
+      {
+        plugin: 'session',
+        payload: expect.objectContaining({ scope: 'session', id: 'two' }),
+      },
+    ])
+    const unscoped = runtime.create(
+      { ...manifest, name: 'apollo-plugin-unscoped', permissions: { apollo: ['hooks.on'] } },
+      cwd,
+    )
+    expect(() => unscoped.hooks.on('memory.preWrite', () => undefined)).toThrow(
+      'plugin_memory_hook_scope_required',
+    )
+    await expect(runtime.runHooks('memory.preWrite', {})).rejects.toThrow(
+      'plugin_memory_hook_dispatch_required',
+    )
   })
 
   it('rejects symlink escapes and stops after 500 calls per turn', async () => {

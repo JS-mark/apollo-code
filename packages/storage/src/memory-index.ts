@@ -5,6 +5,8 @@ import { dirname } from 'node:path'
 import {
   MemoryError,
   type MemoryListOptions,
+  type MemoryMutationHookContext,
+  type MemoryMutationHooks,
   type MemoryMutationOptions,
   type MemoryPage,
   type MemoryRecord,
@@ -12,6 +14,7 @@ import {
   type MemoryRepository,
   type MemoryService,
   type NewMemoryRecord,
+  noMemoryMutationHooks,
 } from './memory-runtime'
 
 export const MEMORY_INDEX_SCHEMA_VERSION = 1 as const
@@ -453,6 +456,7 @@ export class IndexingMemoryService implements MemoryService {
     readonly facts: MemoryService,
     readonly source: MemoryRepository,
     readonly index: MemoryIndex & MemoryIndexMaintenance,
+    readonly hooks: MemoryMutationHooks = noMemoryMutationHooks,
   ) {}
 
   async start(): Promise<void> {
@@ -472,15 +476,36 @@ export class IndexingMemoryService implements MemoryService {
     input: NewMemoryRecord,
     operation: 'create' | 'update' = 'create',
   ): Promise<void> {
-    if (this.facts.validateWrite) await this.facts.validateWrite(input, operation)
+    const candidate = { ...input, id: input.id ?? randomUUID() }
+    if (this.facts.validateWrite) await this.facts.validateWrite(candidate, operation)
+    await this.hooks.preWrite({
+      schemaVersion: 1,
+      operation,
+      phase: 'validation',
+      scope: candidate.scope,
+      id: candidate.id,
+      content: candidate.content,
+    })
   }
 
   async create(input: NewMemoryRecord): Promise<MemoryRecord> {
-    return this.#mutate('create', () => this.facts.create(input))
+    const candidate = { ...input, id: input.id ?? randomUUID() }
+    if (this.facts.validateWrite) await this.facts.validateWrite(candidate, 'create')
+    return this.#commit(
+      {
+        schemaVersion: 1,
+        operation: 'create',
+        phase: 'commit',
+        scope: candidate.scope,
+        id: candidate.id,
+        content: candidate.content,
+      },
+      () => this.facts.create(candidate),
+    )
   }
 
   async get(scope: MemoryRecordScope, id: string): Promise<MemoryRecord | undefined> {
-    await this.start()
+    await this.facts.start()
     return this.facts.get(scope, id)
   }
 
@@ -488,12 +513,12 @@ export class IndexingMemoryService implements MemoryService {
     scope: MemoryRecordScope,
     options?: Omit<MemoryListOptions, 'cursor'>,
   ): Promise<MemoryRecord[]> {
-    await this.start()
+    await this.facts.start()
     return this.facts.list(scope, options)
   }
 
   async listPage(scope: MemoryRecordScope, options?: MemoryListOptions): Promise<MemoryPage> {
-    await this.start()
+    await this.facts.start()
     return this.facts.listPage(scope, options)
   }
 
@@ -505,7 +530,28 @@ export class IndexingMemoryService implements MemoryService {
     >,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
-    return this.#mutate('update', () => this.facts.update(scope, id, patch, options))
+    const current = await this.#current(scope, id)
+    const candidate: NewMemoryRecord = {
+      id,
+      scope,
+      content: patch.content ?? current.content,
+      provenance: patch.provenance ?? current.provenance,
+      tags: patch.tags ?? current.tags,
+      pinned: patch.pinned ?? current.pinned,
+      attachments: patch.attachments ?? current.attachments,
+    }
+    if (this.facts.validateWrite) await this.facts.validateWrite(candidate, 'update')
+    return this.#commit(
+      {
+        schemaVersion: 1,
+        operation: 'update',
+        phase: 'commit',
+        scope,
+        id,
+        ...(patch.content === undefined ? {} : { content: patch.content }),
+      },
+      () => this.facts.update(scope, id, patch, options),
+    )
   }
 
   async delete(
@@ -513,7 +559,13 @@ export class IndexingMemoryService implements MemoryService {
     id: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
-    return this.#mutate('delete', () => this.facts.delete(scope, id, options))
+    const current = await this.#current(scope, id, true)
+    if (current.deletedAt) return current
+    return this.#commit(
+      { schemaVersion: 1, operation: 'delete', phase: 'commit', scope, id },
+      () => this.facts.delete(scope, id, options),
+      true,
+    )
   }
 
   async pin(
@@ -521,7 +573,20 @@ export class IndexingMemoryService implements MemoryService {
     id: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
-    return this.#mutate('pin', () => this.facts.pin(scope, id, options))
+    const current = await this.#current(scope, id)
+    if (this.facts.validateWrite)
+      await this.facts.validateWrite({ ...current, pinned: true }, 'update')
+    return this.#commit(
+      {
+        schemaVersion: 1,
+        operation: 'pin',
+        phase: 'commit',
+        scope,
+        id,
+        content: current.content,
+      },
+      () => this.facts.pin(scope, id, options),
+    )
   }
 
   async unpin(
@@ -529,7 +594,10 @@ export class IndexingMemoryService implements MemoryService {
     id: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
-    return this.#mutate('unpin', () => this.facts.unpin(scope, id, options))
+    await this.#current(scope, id)
+    return this.#commit({ schemaVersion: 1, operation: 'unpin', phase: 'commit', scope, id }, () =>
+      this.facts.unpin(scope, id, options),
+    )
   }
 
   async invalidateAttachment(
@@ -538,8 +606,16 @@ export class IndexingMemoryService implements MemoryService {
     attachmentId: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
-    return this.#mutate('invalidate-attachment', () =>
-      this.facts.invalidateAttachment(scope, id, attachmentId, options),
+    await this.#current(scope, id)
+    return this.#commit(
+      {
+        schemaVersion: 1,
+        operation: 'invalidateAttachment',
+        phase: 'commit',
+        scope,
+        id,
+      },
+      () => this.facts.invalidateAttachment(scope, id, attachmentId, options),
     )
   }
 
@@ -549,8 +625,16 @@ export class IndexingMemoryService implements MemoryService {
     attachmentId: string,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord> {
-    return this.#mutate('delete-attachment', () =>
-      this.facts.deleteAttachment(scope, id, attachmentId, options),
+    await this.#current(scope, id)
+    return this.#commit(
+      {
+        schemaVersion: 1,
+        operation: 'deleteAttachment',
+        phase: 'commit',
+        scope,
+        id,
+      },
+      () => this.facts.deleteAttachment(scope, id, attachmentId, options),
     )
   }
 
@@ -561,6 +645,41 @@ export class IndexingMemoryService implements MemoryService {
   async flush(): Promise<void> {
     await this.#mutation
     await this.facts.flush()
+  }
+
+  async #current(
+    scope: MemoryRecordScope,
+    id: string,
+    includeDeleted = false,
+  ): Promise<MemoryRecord> {
+    const current = await this.facts.get(scope, id)
+    if (!current || (!includeDeleted && current.deletedAt))
+      throw new MemoryError('memory_not_found', `Memory ${id} was not found`)
+    return current
+  }
+
+  async #commit(
+    context: MemoryMutationHookContext,
+    mutation: () => Promise<MemoryRecord>,
+    emitDeleted = false,
+  ): Promise<MemoryRecord> {
+    // Policy runs outside the mutation queue so a hook attempting a nested write can
+    // fail immediately instead of deadlocking behind the write it is evaluating.
+    await this.hooks.preWrite(context)
+    const record = await this.#mutate(context.operation, mutation)
+    try {
+      await this.hooks.postWrite(context, record)
+    } catch {
+      // A committed durable write cannot be rolled back because an observer failed.
+    }
+    if (emitDeleted) {
+      try {
+        await this.hooks.deleted(context, record)
+      } catch {
+        // Deletion observers have the same best-effort, post-commit semantics.
+      }
+    }
+    return record
   }
 
   async #mutate(operation: string, mutation: () => Promise<MemoryRecord>): Promise<MemoryRecord> {

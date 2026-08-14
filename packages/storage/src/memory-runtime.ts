@@ -95,9 +95,44 @@ export interface MemoryPreWriteContext {
 
 export type MemoryPreWrite = (context: MemoryPreWriteContext) => void | Promise<void>
 
+export type MemoryMutationOperation =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'pin'
+  | 'unpin'
+  | 'invalidateAttachment'
+  | 'deleteAttachment'
+
+/** Metadata passed across the production plugin-policy boundary. */
+export interface MemoryMutationHookContext {
+  readonly schemaVersion: 1
+  readonly operation: MemoryMutationOperation
+  readonly phase: 'validation' | 'commit'
+  readonly scope: MemoryRecordScope
+  readonly id: string
+  /** Present only for candidate content after the built-in secret guard accepts it. */
+  readonly content?: string
+}
+
+export interface MemoryMutationHooks {
+  preWrite(context: MemoryMutationHookContext): void | Promise<void>
+  postWrite(context: MemoryMutationHookContext, record: MemoryRecord): void | Promise<void>
+  deleted(context: MemoryMutationHookContext, record: MemoryRecord): void | Promise<void>
+}
+
+export const noMemoryMutationHooks: MemoryMutationHooks = Object.freeze({
+  preWrite() {},
+  postWrite() {},
+  deleted() {},
+})
+
 export type MemoryErrorCode =
   | 'memory_conflict'
   | 'memory_corrupt'
+  | 'memory_hook_failed'
+  | 'memory_hook_reentrant'
+  | 'memory_hook_veto'
   | 'memory_index_busy'
   | 'memory_index_corrupt'
   | 'memory_index_unavailable'

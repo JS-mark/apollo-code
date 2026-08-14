@@ -1,11 +1,16 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Duplex, PassThrough } from 'node:stream'
 
 import { createSession, DefaultPromptComposer, updateSession } from '@apollo-code/core'
 import type { EventBus, Runner, SessionState } from '@apollo-code/core'
-import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storage'
+import type { PluginHost } from '@apollo-code/native-bridge'
+import { DefaultMemoryService, LocalMemoryRepository, MemoryError } from '@apollo-code/storage'
+import type { ToolContext } from '@apollo-code/tool-kit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { runCli } from './cli'
+import { createMemoryPanelController } from './memory-panel'
 import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import {
@@ -56,6 +61,130 @@ function fakeFactory(
     observe(state, events)
     return fake
   }
+}
+
+type RpcFrame = {
+  jsonrpc: '2.0'
+  bridgeVersion: 1
+  id?: number
+  method?: string
+  params?: unknown
+  result?: unknown
+  error?: { message: string }
+}
+
+function memoryPolicyPluginHost(events: Array<{ event: string; payload: any }>) {
+  const clients: Array<{ request(method: string, params: unknown): Promise<unknown> }> = []
+  const start = async (): Promise<PluginHost> => {
+    const childToParent = new PassThrough()
+    const parentToChild = new PassThrough()
+    const transport = new Duplex({
+      read() {},
+      write(chunk, _encoding, callback) {
+        parentToChild.write(chunk, callback)
+      },
+      final(callback) {
+        parentToChild.end(callback)
+      },
+    })
+    childToParent.on('data', (chunk) => transport.push(chunk))
+    childToParent.on('end', () => transport.push(null))
+    parentToChild.setEncoding('utf8')
+    let buffer = ''
+    let nextId = 100
+    const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>()
+    const send = (frame: RpcFrame) => childToParent.write(`${JSON.stringify(frame)}\n`)
+    const request = (method: string, params: unknown) => {
+      const id = nextId++
+      const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject }))
+      send({ jsonrpc: '2.0', bridgeVersion: 1, id, method, params })
+      return result
+    }
+    clients.push({ request })
+    parentToChild.on('data', (chunk: string) => {
+      buffer += chunk
+      for (;;) {
+        const newline = buffer.indexOf('\n')
+        if (newline < 0) break
+        const frame = JSON.parse(buffer.slice(0, newline)) as RpcFrame
+        buffer = buffer.slice(newline + 1)
+        if (frame.method === 'callback.invoke' && frame.id !== undefined) {
+          const params = frame.params as { callbackId: string; args: any[] }
+          const payload = params.args[0]
+          const responseId = frame.id
+          events.push({ event: params.callbackId, payload })
+          if (params.callbackId === 'memory-pre-write' && payload?.id === 'recursive-policy') {
+            void request('apollo.memory.create', {
+              scope: payload.scope,
+              id: 'recursive-child',
+              content: 'safe nested write',
+            }).then(
+              () => send({ jsonrpc: '2.0', bridgeVersion: 1, id: responseId, result: undefined }),
+              (error: Error) =>
+                send({
+                  jsonrpc: '2.0',
+                  bridgeVersion: 1,
+                  id: responseId,
+                  error: { message: error.message },
+                }),
+            )
+            continue
+          }
+          const veto =
+            params.callbackId === 'memory-pre-write' &&
+            (String(payload?.id).startsWith('blocked-') || payload?.content === 'blocked')
+          send({
+            jsonrpc: '2.0',
+            bridgeVersion: 1,
+            id: frame.id,
+            result: veto ? { veto: true, reason: 'fixture policy veto' } : undefined,
+          })
+          continue
+        }
+        if (frame.id === undefined) continue
+        const waiter = pending.get(frame.id)
+        if (!waiter) continue
+        pending.delete(frame.id)
+        if (frame.error) waiter.reject(new Error(frame.error.message))
+        else waiter.resolve(frame.result)
+      }
+    })
+    queueMicrotask(() => {
+      send({
+        jsonrpc: '2.0',
+        bridgeVersion: 1,
+        id: 1,
+        method: 'apollo.hooks.on',
+        params: ['memory.preWrite', { $callback: 'memory-pre-write' }, { priority: 50 }],
+      })
+      send({
+        jsonrpc: '2.0',
+        bridgeVersion: 1,
+        id: 2,
+        method: 'apollo.hooks.on',
+        params: ['memory.postWrite', { $callback: 'memory-post-write' }],
+      })
+      send({
+        jsonrpc: '2.0',
+        bridgeVersion: 1,
+        id: 3,
+        method: 'apollo.hooks.on',
+        params: ['memory.deleted', { $callback: 'memory-deleted' }],
+      })
+      send({ jsonrpc: '2.0', bridgeVersion: 1, method: 'host.activated', params: {} })
+    })
+    return {
+      pid: clients.length,
+      bridge: transport,
+      terminate: () => {
+        transport.destroy()
+        childToParent.destroy()
+        parentToChild.destroy()
+      },
+      exited: new Promise(() => {}),
+    }
+  }
+  return { clients, start }
 }
 
 describe('RuntimeSessionPort', () => {
@@ -501,6 +630,196 @@ describe('status configuration adapter', () => {
       'read-only',
     )
     expect(JSON.stringify(updated)).not.toContain('sk-secret-value')
+  })
+})
+
+describe('production memory plugin policy composition', () => {
+  it('applies one veto policy to CLI, TUI, model, import, and Plugin writes', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.memory-policy-composition-'))
+    fixtures.push(root)
+    const source = join(root, 'plugin-source')
+    await mkdir(source)
+    await writeFile(
+      join(source, 'manifest.json'),
+      JSON.stringify({
+        name: 'apollo-plugin-memory-policy-test',
+        version: '1.2.3',
+        type: 'module',
+        main: 'index.js',
+        engines: { apollo: '^1.2.3' },
+        permissions: {
+          apollo: ['hooks.on', 'memory.write'],
+          memory: { read: ['workspace', 'project', 'session'], write: true },
+        },
+      }),
+    )
+    await writeFile(join(source, 'index.js'), 'export async function activate() {}\n')
+    const hookEvents: Array<{ event: string; payload: any }> = []
+    const host = memoryPolicyPluginHost(hookEvents)
+    const home = join(root, 'home')
+    const ports = createProductionPorts({
+      apolloHome: home,
+      identity: { version: '1.2.3' },
+      pluginApproval: async () => true,
+      pluginHostStart: host.start,
+    })
+    await ports.plugin!.install(source)
+    expect(host.clients).toHaveLength(1)
+    const project = projectMemoryScope(root)
+
+    const cli = await runCli(
+      [
+        'memory',
+        'add',
+        '--scope',
+        'project',
+        '--id',
+        'blocked-cli',
+        '--content',
+        'blocked',
+        '--cwd',
+        root,
+        '--json',
+      ],
+      ports,
+      { readStdin: async () => '', isInteractiveTerminal: () => false },
+    )
+    expect(cli.exitCode).toBe(2)
+    expect(JSON.parse(cli.stdout).error.code).toBe('memory_hook_veto')
+    expect(JSON.parse(cli.stdout).error.message).toBe('fixture policy veto')
+    expect(await ports.memory!.get(project, 'blocked-cli')).toBeUndefined()
+
+    const target = await ports.memory!.create({
+      id: 'tui-target',
+      scope: project,
+      content: 'safe',
+      provenance: { source: 'user' },
+    })
+    const panel = createMemoryPanelController(ports.memory!, ports.memoryRecall, project)
+    await expect(
+      panel.update('tui-target', { content: 'blocked', tags: [] }, target.updatedAt),
+    ).rejects.toBeInstanceOf(MemoryError)
+    expect(await ports.memory!.get(project, 'tui-target')).toMatchObject({ content: 'safe' })
+
+    const tools = new Map(createMemoryTools(ports.memory!).map((tool) => [tool.name, tool]))
+    const toolContext = {
+      abortSignal: new AbortController().signal,
+      session: { id: 'model-session', cwd: root, turnId: 'turn-1' },
+      native: { execute: async () => undefined },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      ui: { requestInput: async () => '' },
+    } as ToolContext
+    await expect(
+      tools
+        .get('Memory.create')!
+        .invoke({ scope: 'session', id: 'blocked-model', content: 'blocked' }, toolContext),
+    ).rejects.toMatchObject({ code: 'memory_hook_veto' })
+
+    const archive = JSON.stringify({
+      schemaVersion: 'apollo.memory.export.v1',
+      exportedAt: '2026-08-13T00:00:00.000Z',
+      records: [
+        {
+          schemaVersion: 1,
+          id: 'blocked-import',
+          scope: project,
+          content: 'blocked',
+          provenance: { source: 'user' },
+          attachments: [],
+          tags: [],
+          pinned: false,
+          createdAt: '2026-08-13T00:00:00.000Z',
+          updatedAt: '2026-08-13T00:00:00.000Z',
+          deletedAt: null,
+        },
+      ],
+    })
+    const factsBeforeImport = await readFile(join(home, 'memory', 'records.json'), 'utf8')
+    const indexBeforeImport = await readFile(join(home, 'memory', 'index.json'), 'utf8')
+    await expect(ports.memoryTransfer!.import(archive, project)).rejects.toMatchObject({
+      code: 'memory_hook_veto',
+    })
+    expect(await readFile(join(home, 'memory', 'records.json'), 'utf8')).toBe(factsBeforeImport)
+    expect(await readFile(join(home, 'memory', 'index.json'), 'utf8')).toBe(indexBeforeImport)
+    await expect(stat(join(home, 'memory', 'import-journal.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+
+    const interactive = await ports.session.startInteractive!({ cwd: root })
+    expect(host.clients).toHaveLength(2)
+    const sessionPlugin = host.clients[1]!
+    await expect(
+      sessionPlugin.request('apollo.memory.create', {
+        scope: 'project',
+        id: 'blocked-plugin',
+        content: 'blocked',
+      }),
+    ).rejects.toThrow('memory_hook_veto')
+    await expect(
+      sessionPlugin.request('apollo.memory.get', ['project', 'tui-target']),
+    ).rejects.toThrow('plugin_rpc_method_denied')
+    await expect(
+      sessionPlugin.request('apollo.memory.search', ['project', 'safe']),
+    ).rejects.toThrow('plugin_rpc_method_denied')
+
+    const beforeSecret = hookEvents.length
+    await expect(
+      ports.memory!.create({
+        id: 'secret-candidate',
+        scope: project,
+        content: 'api_key=FAKE-policy-secret-value',
+        provenance: { source: 'user' },
+      }),
+    ).rejects.toMatchObject({ code: 'memory_validation' })
+    expect(hookEvents).toHaveLength(beforeSecret)
+
+    await expect(
+      ports.memory!.create({
+        id: 'recursive-policy',
+        scope: project,
+        content: 'safe parent write',
+        provenance: { source: 'user' },
+      }),
+    ).rejects.toMatchObject({ code: 'memory_hook_failed' })
+    expect(await ports.memory!.get(project, 'recursive-policy')).toBeUndefined()
+    expect(await ports.memory!.get(project, 'recursive-child')).toBeUndefined()
+
+    await ports.memory!.create({
+      id: 'allowed-lifecycle',
+      scope: project,
+      content: 'safe lifecycle',
+      provenance: { source: 'user' },
+    })
+    await ports.memory!.delete(project, 'allowed-lifecycle')
+    const lifecycle = hookEvents.filter(({ payload }) => payload?.id === 'allowed-lifecycle')
+    expect(lifecycle.map(({ event }) => event)).toEqual([
+      'memory-pre-write',
+      'memory-post-write',
+      'memory-pre-write',
+      'memory-post-write',
+      'memory-deleted',
+    ])
+    expect(lifecycle[0]?.payload).toMatchObject({ content: 'safe lifecycle', scope: 'project' })
+    expect(lifecycle[1]?.payload).not.toHaveProperty('content')
+    expect(lifecycle.at(-1)?.payload).not.toHaveProperty('content')
+
+    const auditPath = join(home, 'memory', 'hook-audit.jsonl')
+    const audit = await readFile(auditPath, 'utf8')
+    expect(audit).toContain('memory.preWrite')
+    expect(audit).toContain('"result":"veto"')
+    expect(audit).not.toContain('FAKE-policy-secret-value')
+    if (process.platform !== 'win32') expect((await stat(auditPath)).mode & 0o777).toBe(0o600)
+
+    await ports.plugin!.setEnabled('apollo-plugin-memory-policy-test', false)
+    await expect(
+      ports.memory!.create({
+        id: 'blocked-disabled-plugin',
+        scope: project,
+        content: 'blocked',
+        provenance: { source: 'user' },
+      }),
+    ).resolves.toMatchObject({ id: 'blocked-disabled-plugin' })
+    await interactive.end()
   })
 })
 

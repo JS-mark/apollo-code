@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
   access,
   appendFile,
+  chmod,
   glob,
   mkdir,
   readFile,
@@ -33,7 +35,14 @@ import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-br
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
 import { BridgeRuntime, PluginManager, PluginRuntime } from '@apollo-code/plugin-runtime'
-import type { CommandSpec, PluginManifest, ToolSpec } from '@apollo-code/plugin-sdk'
+import type { PluginRuntimeOptions } from '@apollo-code/plugin-runtime'
+import type {
+  CommandSpec,
+  PluginManifest,
+  PluginMemoryHookPayload,
+  PluginMemoryScope,
+  ToolSpec,
+} from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
@@ -51,12 +60,20 @@ import {
   IndexingMemoryService,
   LocalKeywordMemoryIndex,
   LocalMemoryRepository,
+  MemoryError,
   MemoryPromptProvider,
   MemoryTransferService,
   PromptLoader,
   SessionStore,
 } from '@apollo-code/storage'
-import type { MemoryRecallService, MemoryService } from '@apollo-code/storage'
+import type {
+  MemoryMutationHookContext,
+  MemoryMutationHooks,
+  MemoryRecallService,
+  MemoryRecord,
+  MemoryRecordScope,
+  MemoryService,
+} from '@apollo-code/storage'
 import { SubagentDispatcher } from '@apollo-code/subagent'
 import {
   LocalTelemetrySink,
@@ -676,6 +693,8 @@ export interface ProductionOptions {
   apolloHome?: string
   identity: Readonly<AppIdentity>
   model?: string
+  /** Test seam for the native plugin transport; production uses startPluginHost. */
+  pluginHostStart?: PluginRuntimeOptions['start']
   /** Diagnostics hook fired only after a contribution reaches its production registry. */
   onPluginContribution?: (
     value: Readonly<{
@@ -701,9 +720,174 @@ export function registerRuntimeMemoryPrompts(
   }).register(composer)
 }
 
+class ProductionMemoryPluginHooks implements MemoryMutationHooks {
+  readonly #active = new AsyncLocalStorage<MemoryMutationHookContext>()
+  #auditQueue = Promise.resolve()
+  #dispatchQueue = Promise.resolve()
+  #dispatchContext: MemoryMutationHookContext | undefined
+
+  constructor(
+    readonly bridge: BridgeRuntime,
+    readonly ready: () => Promise<void>,
+    readonly auditPath: string,
+  ) {}
+
+  current(): MemoryMutationHookContext | undefined {
+    return this.#dispatchContext ?? this.#active.getStore()
+  }
+
+  async preWrite(context: MemoryMutationHookContext): Promise<void> {
+    if (this.#active.getStore())
+      throw new MemoryError(
+        'memory_hook_reentrant',
+        'Memory hooks cannot perform recursive memory writes',
+      )
+    try {
+      await this.ready()
+      await this.#audit('attempt', 'memory.preWrite', context)
+      await this.#dispatch(context, async () => {
+        const veto = await this.bridge.runMemoryHooks(
+          'memory.preWrite',
+          this.#payload(context, true),
+        )
+        if (!veto) {
+          await this.#audit('accepted', 'memory.preWrite', context)
+          return
+        }
+        const reason = this.#safeReason(veto.result.reason)
+        await this.#audit('veto', 'memory.preWrite', context, {
+          plugin: veto.plugin,
+          reasonProvided: Boolean(reason),
+        })
+        throw new MemoryError('memory_hook_veto', reason || `Memory write vetoed by ${veto.plugin}`)
+      })
+    } catch (error) {
+      if (error instanceof MemoryError) throw error
+      await this.#audit('error', 'memory.preWrite', context, {
+        code:
+          error && typeof error === 'object' && 'code' in error
+            ? String(error.code)
+            : 'memory_hook_failed',
+      }).catch(() => undefined)
+      throw new MemoryError('memory_hook_failed', 'Memory policy hook failed closed', {
+        cause: error,
+      })
+    }
+  }
+
+  async postWrite(context: MemoryMutationHookContext, _record: MemoryRecord): Promise<void> {
+    await this.#observe('memory.postWrite', context)
+  }
+
+  async deleted(context: MemoryMutationHookContext, _record: MemoryRecord): Promise<void> {
+    await this.#observe('memory.deleted', context)
+  }
+
+  async #observe(
+    event: 'memory.postWrite' | 'memory.deleted',
+    context: MemoryMutationHookContext,
+  ): Promise<void> {
+    try {
+      await this.ready()
+      await this.#dispatch(context, async () => {
+        await this.bridge.runMemoryHooks(event, this.#payload(context, false))
+      })
+      await this.#audit('observed', event, context)
+    } catch (error) {
+      await this.#audit('observer_error', event, context, {
+        code:
+          error && typeof error === 'object' && 'code' in error
+            ? String(error.code)
+            : 'memory_hook_failed',
+      }).catch(() => undefined)
+    }
+  }
+
+  #payload(context: MemoryMutationHookContext, includeContent: boolean): PluginMemoryHookPayload {
+    return {
+      schemaVersion: 1,
+      operation: context.operation,
+      phase: context.phase,
+      scope: context.scope.kind,
+      id: context.id,
+      ...(includeContent && context.content !== undefined ? { content: context.content } : {}),
+    }
+  }
+
+  #safeReason(value: string | undefined): string {
+    return value ? String(sanitize(value)).replace(/\s+/g, ' ').trim().slice(0, 240) : ''
+  }
+
+  async #dispatch<T>(context: MemoryMutationHookContext, task: () => Promise<T>): Promise<T> {
+    const queued = this.#dispatchQueue.then(() =>
+      this.#active.run(context, async () => {
+        this.#dispatchContext = context
+        try {
+          return await task()
+        } finally {
+          this.#dispatchContext = undefined
+        }
+      }),
+    )
+    this.#dispatchQueue = queued.then(
+      () => undefined,
+      () => undefined,
+    )
+    return queued
+  }
+
+  async #audit(
+    result: string,
+    event: 'memory.preWrite' | 'memory.postWrite' | 'memory.deleted',
+    context: MemoryMutationHookContext,
+    extra: Readonly<Record<string, unknown>> = {},
+  ): Promise<void> {
+    const line = `${JSON.stringify({
+      schemaVersion: 1,
+      at: new Date().toISOString(),
+      event,
+      result,
+      operation: context.operation,
+      phase: context.phase,
+      scope: context.scope.kind,
+      id: sanitize(context.id),
+      ...extra,
+    })}\n`
+    const write = this.#auditQueue.then(async () => {
+      await mkdir(dirname(this.auditPath), { recursive: true, mode: 0o700 })
+      await appendFile(this.auditPath, line, { encoding: 'utf8', mode: 0o600 })
+      await chmod(this.auditPath, 0o600)
+    })
+    this.#auditQueue = write.catch(() => undefined)
+    return write
+  }
+}
+
+function memoryScopeForPolicyHook(
+  requested: PluginMemoryScope,
+  context: MemoryMutationHookContext | undefined,
+): MemoryRecordScope {
+  if (!context)
+    throw new MemoryError(
+      'memory_scope_denied',
+      'Policy hook memory access requires an active memory event',
+    )
+  if (requested === 'workspace')
+    return { kind: 'workspace', workspaceId: context.scope.workspaceId }
+  if (requested === 'project' && context.scope.kind !== 'workspace')
+    return {
+      kind: 'project',
+      workspaceId: context.scope.workspaceId,
+      projectId: context.scope.projectId,
+    }
+  if (requested === 'session' && context.scope.kind === 'session') return context.scope
+  throw new MemoryError('memory_scope_denied', `Policy hook cannot widen to ${requested} scope`)
+}
+
 export interface PluginMemoryHostOptions {
   readonly home: string
   readonly cwd: string
+  readonly sessionId?: string
   readonly memory: MemoryService
   readonly memoryRecall: MemoryRecallService
   readonly memoryTransfer: MemoryTransferService
@@ -719,7 +903,7 @@ export type PluginMemoryHost = (
 export function createPluginMemoryHost(options: PluginMemoryHostOptions): PluginMemoryHost {
   return async (plugin: string, operation: string, rawParams: unknown): Promise<unknown> => {
     const params = rawParams as {
-      scope: 'workspace' | 'project'
+      scope: PluginMemoryScope
       id?: string
       query?: string
       options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
@@ -729,7 +913,18 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
       patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
     }
     const scope =
-      params.scope === 'workspace' ? workspaceMemoryScope() : projectMemoryScope(options.cwd)
+      params.scope === 'workspace'
+        ? workspaceMemoryScope()
+        : params.scope === 'project'
+          ? projectMemoryScope(options.cwd)
+          : options.sessionId
+            ? sessionMemoryScope(options.cwd, options.sessionId)
+            : (() => {
+                throw new MemoryError(
+                  'memory_scope_denied',
+                  'Session memory requires an active session',
+                )
+              })()
     const auditPath = join(options.home, 'memory', 'audit.jsonl')
     const writeOperation = ['create', 'update', 'delete'].includes(operation)
     if (writeOperation) {
@@ -790,16 +985,6 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
   const memoryIndex = new LocalKeywordMemoryIndex(join(home, 'memory', 'index.json'))
-  const memory = new IndexingMemoryService(
-    new DefaultMemoryService(memoryRepository),
-    memoryRepository,
-    memoryIndex,
-  )
-  const memoryRecall = new DefaultMemoryRecallService(memory, memoryIndex)
-  const memoryMaintenance = new DefaultMemoryMaintenanceService(memoryRepository, memoryIndex)
-  const memoryTransfer = new MemoryTransferService(memory, {
-    journalPath: join(home, 'memory', 'import-journal.json'),
-  })
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
@@ -821,6 +1006,150 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   )
   const pluginsReady = plugins.init()
   const pluginRuntimes = new Set<PluginRuntime>()
+  const memoryPolicyFailures = new Map<string, Error>()
+  const policyStorage = new Map<string, unknown>()
+  let memory: MemoryService
+  let memoryRecall: DefaultMemoryRecallService
+  let memoryTransfer: MemoryTransferService
+  let memoryHooks: ProductionMemoryPluginHooks
+  const memoryPolicyBridge = new BridgeRuntime(
+    {
+      session: {
+        id: 'memory-policy',
+        cwd: process.cwd(),
+        messages: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
+      },
+      register: () => ({ dispose() {} }),
+      fs: {
+        readFile: (path, encoding) => readFile(path, encoding === 'binary' ? undefined : 'utf8'),
+        writeFile,
+        exists: async (path) =>
+          access(path).then(
+            () => true,
+            () => false,
+          ),
+        glob: async (pattern, cwd) => Array.fromAsync(glob(pattern, { cwd })),
+        stat: async (path) => {
+          const value = await stat(path)
+          return {
+            size: value.size,
+            type: value.isFile() ? 'file' : value.isDirectory() ? 'directory' : 'other',
+            modifiedAt: value.mtimeMs,
+          }
+        },
+      },
+      exec: async (command, rawOptions, signal) => {
+        const execOptions = (rawOptions ?? {}) as { cwd?: string; timeoutMs?: number }
+        const result = await execSandbox(
+          {
+            command,
+            cwd: execOptions.cwd ?? process.cwd(),
+            ...(execOptions.timeoutMs === undefined ? {} : { timeout_ms: execOptions.timeoutMs }),
+            permissions: {
+              fs: { read: [process.cwd()], write: [process.cwd()] },
+              net: false,
+              env: { read: [] },
+            },
+          },
+          signal,
+        )
+        return { stdout: result.stdout, stderr: result.stderr, code: result.exit_code }
+      },
+      fetch: async () => {
+        throw new Error('plugin_http_not_connected')
+      },
+      ui: () => {
+        throw new Error('plugin_ui_not_connected')
+      },
+      storage: async (plugin, operation, key, value) => {
+        const isolated = `${plugin}:${key}`
+        if (operation === 'set') policyStorage.set(isolated, value)
+        if (operation === 'delete') policyStorage.delete(isolated)
+        return policyStorage.get(isolated)
+      },
+      memory: async (plugin, operation, rawParams) => {
+        const params = rawParams as {
+          scope: PluginMemoryScope
+          id?: string
+          query?: string
+          options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
+          content?: string
+          tags?: readonly string[]
+          pinned?: boolean
+          patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
+        }
+        const scope = memoryScopeForPolicyHook(params.scope, memoryHooks.current())
+        if (operation === 'create' || operation === 'update' || operation === 'delete')
+          throw new MemoryError(
+            'memory_hook_reentrant',
+            'Memory hooks cannot perform recursive memory writes',
+          )
+        if (operation === 'get') return (await memory.get(scope, String(params.id))) ?? null
+        if (operation === 'list') return memory.list(scope, params.options)
+        if (operation === 'search')
+          return memoryRecall.recall(scope, String(params.query ?? ''), params.options)
+        return memoryTransfer.export([scope])
+      },
+      config: () => undefined,
+      log: (level, message) => {
+        if (level === 'error') logger.error(message)
+        else if (level === 'warn') logger.warn(message)
+        else if (level === 'debug') logger.debug(message)
+        else logger.info(message)
+      },
+    },
+    { timeoutMs: 10_000 },
+  )
+  const memoryPolicyRuntime = new PluginRuntime(plugins, memoryPolicyBridge, {
+    dataRoot: join(home, 'plugin-data', 'memory-policy'),
+    ...(options.pluginHostStart ? { start: options.pluginHostStart } : {}),
+  })
+  const usesMemoryPolicyHooks = async (name: string) => {
+    const manifest = await plugins.inspect(join(pluginRoot, name))
+    return (
+      manifest.permissions.apollo.includes('hooks.on') &&
+      Boolean(manifest.permissions.memory?.read?.length)
+    )
+  }
+  let memoryPolicyStarted: Promise<void> | undefined
+  const startMemoryPolicy = () =>
+    (memoryPolicyStarted ??= pluginsReady.then(async () => {
+      for (const [name, approval] of Object.entries(plugins.list())) {
+        if (!approval.enabled || !(await usesMemoryPolicyHooks(name))) continue
+        try {
+          await memoryPolicyRuntime.load(name)
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error(String(error))
+          memoryPolicyFailures.set(name, failure)
+          logger.warn(`Memory policy plugin activation failed: ${name}`)
+        }
+      }
+    }))
+  const ensureMemoryPolicy = async () => {
+    await startMemoryPolicy()
+    const failure = memoryPolicyFailures.entries().next().value as [string, Error] | undefined
+    if (failure)
+      throw new Error(`Memory policy plugin is unavailable: ${failure[0]}`, {
+        cause: failure[1],
+      })
+  }
+  memoryHooks = new ProductionMemoryPluginHooks(
+    memoryPolicyBridge,
+    ensureMemoryPolicy,
+    join(home, 'memory', 'hook-audit.jsonl'),
+  )
+  memory = new IndexingMemoryService(
+    new DefaultMemoryService(memoryRepository),
+    memoryRepository,
+    memoryIndex,
+    memoryHooks,
+  )
+  memoryRecall = new DefaultMemoryRecallService(memory, memoryIndex)
+  const memoryMaintenance = new DefaultMemoryMaintenanceService(memoryRepository, memoryIndex)
+  memoryTransfer = new MemoryTransferService(memory, {
+    journalPath: join(home, 'memory', 'import-journal.json'),
+  })
   const slashCommands = new MutableSlashCommandRegistry()
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
@@ -1154,6 +1483,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         memory: createPluginMemoryHost({
           home,
           cwd: runner.state.cwd,
+          sessionId: runner.state.id,
           memory,
           memoryRecall,
           memoryTransfer,
@@ -1166,7 +1496,10 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           else logger.info(message)
         },
       }),
-      { dataRoot: join(home, 'plugin-data') },
+      {
+        dataRoot: join(home, 'plugin-data'),
+        ...(options.pluginHostStart ? { start: options.pluginHostStart } : {}),
+      },
     )
     for (const failure of await pluginRuntime.loadEnabled())
       logger.warn(`Plugin activation failed: ${failure.name}`)
@@ -1248,14 +1581,33 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     memoryTransfer,
     plugin: {
       async install(source) {
-        await pluginsReady
+        await startMemoryPolicy()
         const manifest = await plugins.install(source)
+        if (
+          manifest.permissions.apollo.includes('hooks.on') &&
+          manifest.permissions.memory?.read?.length
+        ) {
+          try {
+            await memoryPolicyRuntime.load(manifest.name)
+            memoryPolicyFailures.delete(manifest.name)
+          } catch (error) {
+            memoryPolicyFailures.set(
+              manifest.name,
+              error instanceof Error ? error : new Error(String(error)),
+            )
+            throw error
+          }
+        }
         await Promise.all([...pluginRuntimes].map((runtime) => runtime.load(manifest.name)))
         return manifest
       },
       async uninstall(name) {
-        await pluginsReady
-        await Promise.all([...pluginRuntimes].map((runtime) => runtime.deactivate(name)))
+        await startMemoryPolicy()
+        await Promise.all([
+          memoryPolicyRuntime.deactivate(name),
+          ...[...pluginRuntimes].map((runtime) => runtime.deactivate(name)),
+        ])
+        memoryPolicyFailures.delete(name)
         await plugins.uninstall(name)
       },
       async list() {
@@ -1263,10 +1615,29 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         return plugins.list()
       },
       async setEnabled(name, enabled) {
-        await pluginsReady
+        await startMemoryPolicy()
         await plugins.setEnabled(name, enabled)
-        if (enabled) await Promise.all([...pluginRuntimes].map((runtime) => runtime.load(name)))
-        else await Promise.all([...pluginRuntimes].map((runtime) => runtime.deactivate(name)))
+        if (enabled) {
+          if (await usesMemoryPolicyHooks(name)) {
+            try {
+              await memoryPolicyRuntime.load(name)
+              memoryPolicyFailures.delete(name)
+            } catch (error) {
+              memoryPolicyFailures.set(
+                name,
+                error instanceof Error ? error : new Error(String(error)),
+              )
+              throw error
+            }
+          }
+          await Promise.all([...pluginRuntimes].map((runtime) => runtime.load(name)))
+        } else {
+          await Promise.all([
+            memoryPolicyRuntime.deactivate(name),
+            ...[...pluginRuntimes].map((runtime) => runtime.deactivate(name)),
+          ])
+          memoryPolicyFailures.delete(name)
+        }
       },
       async doctor(name) {
         await pluginsReady

@@ -26,6 +26,25 @@ export interface HookResult {
 }
 export type HookHandler = (payload: unknown) => void | HookResult | Promise<void | HookResult>
 
+export type PluginMemoryScope = 'workspace' | 'project' | 'session'
+export type PluginMemoryMutationOperation =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'pin'
+  | 'unpin'
+  | 'invalidateAttachment'
+  | 'deleteAttachment'
+export interface PluginMemoryHookPayload {
+  readonly schemaVersion: 1
+  readonly operation: PluginMemoryMutationOperation
+  readonly phase: 'validation' | 'commit'
+  readonly scope: PluginMemoryScope
+  readonly id: string
+  /** Candidate content is present only after the built-in secret guard accepts it. */
+  readonly content?: string
+}
+
 export interface ToolSpec {
   name: string
   description: string
@@ -104,7 +123,7 @@ export interface PluginManifest {
     net?: false | { allowlist: readonly string[] }
     apollo: readonly string[]
     memory?: {
-      read?: readonly ('workspace' | 'project')[]
+      read?: readonly PluginMemoryScope[]
       write?: boolean
       search?: boolean
       export?: boolean
@@ -113,7 +132,6 @@ export interface PluginManifest {
   config?: Readonly<Record<string, unknown>>
 }
 
-export type PluginMemoryScope = 'workspace' | 'project'
 export interface PluginMemoryRecord {
   readonly schemaVersion: 1
   readonly id: string
