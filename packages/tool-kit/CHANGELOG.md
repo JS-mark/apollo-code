@@ -1,0 +1,27 @@
+# @apollo-code/tool-kit
+
+## 0.1.0
+
+### Minor Changes
+
+- 976eb21: Add the L1 tool, permission, context, prompt, session, configuration, credential, and local telemetry runtime.
+- 344f874: Establish the L1 monorepo foundation, neutral provider and tool contracts, immutable session state, and the typed 17-event core bus.
+
+### Patch Changes
+
+- c16ea41: Add independently runnable compile-time and runtime tests for the L1 provider and tool contracts.
+- Updated dependencies [340adfc]
+- Updated dependencies [e6f71f1]
+- Updated dependencies [976eb21]
+- Updated dependencies [3780728]
+- Updated dependencies [c16ea41]
+- Updated dependencies [99c77bf]
+- Updated dependencies [344f874]
+- Updated dependencies [568cb92]
+- Updated dependencies [8521920]
+- Updated dependencies [02ebe86]
+- Updated dependencies [3816925]
+- Updated dependencies [01ffdbd]
+  - @apollo-code/shared@0.1.0
+  - @apollo-code/provider-kit@0.1.0
+  - @apollo-code/permission@0.1.0
