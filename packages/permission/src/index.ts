@@ -2,6 +2,17 @@ import { isAbsolute, relative, resolve } from 'node:path'
 
 import type { Logger } from '@apollo-code/shared'
 
+import { normalizeOrigin } from './net-origin'
+
+export {
+  canonicalizePath,
+  canonicalizePattern,
+  matchPath,
+  PathPatternError,
+  type PathPatternOptions,
+} from './path-pattern'
+export { InvalidNetUrlError, normalizeOrigin } from './net-origin'
+
 export interface PermissionSpec {
   fs?: { read?: string[]; write?: string[] }
   bash?: { command: string }
@@ -34,7 +45,8 @@ function inCwd(path: string, cwd: string): boolean {
 }
 function keyOf(request: PermissionRequest): string {
   if (request.spec.net) {
-    const origin = new URL(request.spec.net.url).origin
+    // net 粒度 = origin（r13-D1）：scheme://host[:port] 归一，同域不同路径共享 allow-session
+    const origin = normalizeOrigin(request.spec.net.url)
     return JSON.stringify([request.toolName, { net: { ...request.spec.net, url: origin } }])
   }
   return JSON.stringify([request.toolName, request.spec])

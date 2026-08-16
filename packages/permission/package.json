@@ -17,10 +17,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/shared": "workspace:*"
+    "@apollo-code/shared": "workspace:*",
+    "picomatch": "^4.0.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/picomatch": "^4.0.3",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
