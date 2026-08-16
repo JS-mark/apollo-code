@@ -47,13 +47,13 @@ apollo-code.dev/
 │  │  ├─ plugin-sdk               # TypeDoc 生成
 │  │  ├─ tools                    # 内置工具 API
 │  │  ├─ hooks                    # 10 hook 点
-│  │  ├─ events                   # 17 事件
+│  │  ├─ events                   # 19 事件（r13：+2 shell 后台事件；payload 字段表 = 附录 D）
 │  │  └─ permissions              # PermissionSpec 参考
 │  ├─ /cookbook/
-│  │  ├─ code-review-workflow     # 用 apollo 做 code review
+│  │  ├─ code-review-workflow     # 用 apollo 做 code review（r13：随 §17 功能落地，L2 起有真实支撑）
 │  │  ├─ writing-tests            # TDD 流程
 │  │  ├─ refactoring              # 大规模重构
-│  │  ├─ ci-integration           # 在 CI 里跑 apollo
+│  │  ├─ ci-integration           # 在 CI 里跑 apollo（r13：含 §17 review --severity-gate CI gate 模板，L4）
 │  │  └─ team-workflows
 │  └─ /troubleshooting/
 │     ├─ sandbox-issues
@@ -193,10 +193,11 @@ L1 发布时至少要有：
 ### 13.6 内容生成自动化
 
 - **CLI reference** 从 `apps/cli` 的 citty 定义 **代码生成 markdown**（`pnpm docs:gen:cli`）
-- **配置 schema reference** 从 zod schema 生成（`zod-to-doc`）
+- **配置 schema reference** 从 zod schema 生成（`zod-to-doc`；源头 = 附录 C）
 - **API reference** 从各 package 的 TypeDoc（`pnpm docs:gen:api`）
 - 手写内容与生成内容分开目录：`content/` vs `generated/`，避免误覆盖
 - CI 每次发版重跑生成，diff 大时提示 PR
+- ★ **r13-D1：手写 reference 与 CLI 定义的漂移检测（过渡期强制）**：在代码生成完全覆盖前，CI 跑 `pnpm docs:verify:cli`——比对 `content/reference/cli.md` 手写的命令/flag 清单与 citty 实际定义的 diff；不一致 → CI fail 并列出漂移项（命令改名 / flag 增删）。防止 r11/r12 审计发现的"文档说有的命令实现没有"再次发生。生成覆盖完成后（`content/reference/cli.md` 改为纯生成）此脚本自然退化为空 diff。
 
 ### 13.7 SEO / 分析
 

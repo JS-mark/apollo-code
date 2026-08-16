@@ -43,6 +43,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 6a  | Skill / Plugin / MCP / Hooks — 核心插件架构（6.1–6.4） | [`06a-plugins-core.md`](./06a-plugins-core.md)                     | 372  |
 | 6b  | PromptComposer + 插件生命周期（6.5–6.11）              | [`06b-prompt-composer.md`](./06b-prompt-composer.md)               | 500  |
 | 6c  | Memory 系统（长期记忆，6.12）                          | [`06c-memory-system.md`](./06c-memory-system.md)                   | 292  |
+| 6d  | 测试基建 testkit（6.13，r13 新增）                     | [`06d-testkit.md`](./06d-testkit.md)                               | ~80  |
 | 7   | 终端 UI (Ink)                                          | [`07-terminal-ui.md`](./07-terminal-ui.md)                         | 182  |
 | 8   | 会话与配置存储                                         | [`08-session-config.md`](./08-session-config.md)                   | 291  |
 | 8b  | 上下文管理（ContextPolicy，r9 新增）                   | [`08b-context-policy.md`](./08b-context-policy.md)                 | ~280 |
@@ -54,6 +55,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 14  | 首次运行 UX / Onboarding                               | [`14-onboarding.md`](./14-onboarding.md)                           | 210  |
 | 15  | 自我进化框架（r10 新增）                               | [`15-self-evolution.md`](./15-self-evolution.md)                   | ~230 |
 | 16  | 能力追踪与验收基线                                     | [`16-capability-traceability.md`](./16-capability-traceability.md) | 动态 |
+| 17  | Code Review 功能（r13 新增）                           | [`17-code-review.md`](./17-code-review.md)                         | ~130 |
 
 ### 附属专题文档
 
@@ -70,6 +72,10 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 文档正确性审计 (REVIEW r12)                   | [`REVIEW-r12.md`](./REVIEW-r12.md)                     | r11 补全（剩余十卷 02/03/04/05/08/08b/09/12/13/14，审计闭环）：契约层真实、组装层系统性未接线；最高危 Bash 5s 强杀 / Write-Edit 不过沙箱 / hooks 全谱未派发 / config 信任门产品未接线；修正设计 REM-26~50 延续整改方案编号可直接合入 |
 | 功能设计完整评审 (REVIEW r13)                 | [`REVIEW-r13.md`](./REVIEW-r13.md)                     | **纯功能设计视角**（不涉实现一致性）：六维度评审——功能完备性 gap（code review 缺失/后台 Bash/自定义 agent）/ 可实现性（glob 方言/Edit 契约/聚合规则等 AI 实现必需契约）/ 旅程 / 性能预算 / 测试基建 / 供应链；D1 收编 20 条"实现被迫自定"的契约空白；附录 A 为 §16 Code Review 完整设计草案；修正任务清单 25 项按 spec 文件分组 |
 | L1 发版前可勾选清单 (r10.1 新增)              | [`RELEASE-CHECKLIST-L1.md`](./RELEASE-CHECKLIST-L1.md) | L1 MVP 发版闸门单一视图：把散落 §3-§14 各章的 L1 强制点 + DoD + §9.4 CI matrix（4 native + 4 escape）+ §10 完成闸门 8 项汇成可勾选清单；符合 §12.6b「spec 即 AI 可执行契约」                                                                      |
+| 附录 B · 错误码登记表 (r13 新增)               | [`APPENDIX-B-error-codes.md`](./APPENDIX-B-error-codes.md) | `error.raised` code 集中 registry（来源/触发/UI 期望/可否重试）+ shared const + ESLint 禁裸字符串 + CI 校验（I3）                                                                                                                              |
+| 附录 C · config 全量 schema (r13 新增)         | [`APPENDIX-C-config-schema.md`](./APPENDIX-C-config-schema.md) | config.toml 全 key 表（含 projectOverride 标注）+ 未知 key 策略 + 全量示例；zod schema 与文档的唯一真相源（I4）                                                                                                                               |
+| 附录 D · 事件 payload 字段表 (r13 新增)        | [`APPENDIX-D-event-payloads.md`](./APPENDIX-D-event-payloads.md) | 19 种事件 per-event payload 契约 + per-event zod schema + CI 强制（I8）                                                                                                                                                                       |
+| 附录 E · 契约空白登记表 (r13 新增)             | [`APPENDIX-E-contract-gap-registry.md`](./APPENDIX-E-contract-gap-registry.md) | r11/r12 审计暴露的 20 条"实现被迫自定"契约空白的收编登记（D1）                                                                                                                                                                                |
 
 > 各文件内保留原章节编号（如 `## §1`、`### 1.1`），可与 git 历史里的旧单文件版本一一对应。
 

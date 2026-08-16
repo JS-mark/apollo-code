@@ -1,4 +1,4 @@
-> ↩ [返回索引 (README)](./README.md) · ← [上一章: §6b PromptComposer + 生命周期 (6.5–6.11)](./06b-prompt-composer.md) · [下一章: §7 终端 UI (Ink)](./07-terminal-ui.md) →
+> ↩ [返回索引 (README)](./README.md) · ← [上一章: §6b PromptComposer + 生命周期 (6.5–6.11)](./06b-prompt-composer.md) · [下一章: §6d 测试基建 (6.13)](./06d-testkit.md) →
 
 ---
 

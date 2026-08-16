@@ -133,6 +133,16 @@ jobs:
       - cross target 走 QEMU user-mode 或 Alpine arm64 容器；结果标 partial-verified
       - 上报 sandbox.tier + escape.pass_ratio → CI artifact + release notes
 
+  e2e:                                   # ★ r13-T2：e2e smoke（L1 起，依赖 §6.13 testkit）
+    needs: [ts]
+    runs-on: ubuntu-24.04
+    steps:
+      - pnpm turbo run test --filter=e2e
+      # 用 testkit.MockProvider 脚本化完整交互（不走真 provider）：
+      #   user msg → 流式 + tool_use(Read) → tool_result → tool_use(Edit) → 落盘
+      # 断言：backup 生成 / JSONL 事件序符合 §2.3 期望序 / 权限弹窗快照 /
+      #       JSONL 可 replay 且 SessionState 等价
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [ts, license-check, native, sandbox-escape]
@@ -171,6 +181,14 @@ jobs:
 **兼容性**：
 - `plugin-sdk` major = apollo major；apollo 支持 sdk 最近 2 个 major（宽松兼容）
 - `mcp-client` 兼容 MCP protocol 版本
+
+**★ 供应链动作（r13-S1/S2）**：
+
+1. **L1 发版前注册 npm org**（`@apollo-code` scope 保护——无论最终走 npm 平台包还是 GitHub Release 分发（r12 REM-45 换轨认定），主包与 SDK 都必须在 scope 下，防抢注/仿冒）。
+2. **L2 起发布带 provenance**：GitHub Actions OIDC 免签溯源（npm provenance statement），与 bwrap digest 校验形成二进制供应链双保险。
+3. **NOTICE 补归属**：tiktoken-rs / BPE 数据（MIT）——native BPE 数据来源声明进 `NOTICE` 文件（L1 发版前）。
+
+> 注：分发模型本身（npm 平台包 vs GitHub Release）的换轨认定属 r12 REM-45（BDFL 决策）；上述三条无论哪个方向都成立。
 
 ### 9.6 apps/cli 打包与分发
 
@@ -219,11 +237,28 @@ jobs:
 
 > 每个 L 级别的**发版硬门**（r9 分层）：L1 = `ts` + `native` (4 组合) + `sandbox-escape` (4 组合) 全绿；L2+ 扩至 8+8 全绿；任一 target Tier 降级须显式在 release notes 声明。
 
+### 9.10 性能预算表（r13 新增，P2/P5/T4）
+
+> spec 此前几乎无量化性能预算——AI 实现会以"能跑"为标准，性能劣化无验收线。下表为**超标即性能 bug** 的预算（bug 报告 / 回滚依据），CI 采集基线（对应 §9.4 e2e job 附带计时采样）。
+
+| 指标                                        | 预算    | 测量方式                             | 里程碑 |
+|---------------------------------------------|---------|--------------------------------------|--------|
+| 冷启动（输入符可见，**不含** native 探测等待，§5.8 时序契约） | ≤ 500ms | CI 计时（e2e job）          | L1     |
+| 热启动（`resume tailTurns=20`，50MB JSONL fixture） | ≤ 2s | CI fixture（sessionFixture 变体） | L1     |
+| 主进程 RSS 基线（无插件 / 无 worker）         | ≤ 300MB | CI 采样                              | L1     |
+| 单 worker（search / fs）RSS（idle）          | ≤ 150MB | CI 采样（idle 回收兜底 §5.6.1）      | L1     |
+| `@` picker 首帧（10 万文件 fixture，§7.5.3）  | ≤ 150ms | ui 单测计时                          | L2     |
+| provider 首 token 框架开销（网络除外，MockProvider 计时） | ≤ 300ms | mock 计时                  | L1     |
+
+**配套（T4 性能回归）**：e2e job 把上表测量结果写 CI artifact（JSON），趋势劣化 > 20% 且破线 → 标 `perf-regression` label（不 block，周报 review）；破线本身 = 性能 bug 进 issue。基线首次测量落在 L1 完成时，此后每 tag 更新基线。
+
+
 ---
 
 ## 变更日志
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-08-16 | §9 r13.1 | r13 修正落地：§9.4 新增 `e2e` smoke job（T2，MockProvider 脚本化交互 + JSONL replay 断言）；§9.5 新增供应链三条——npm org 抢注防护（L1 前）/ provenance（L2 起）/ NOTICE tiktoken-rs 归属（S1/S2）；新增 §9.10 性能预算表 + CI 基线采集（P2/P5/T4）。 |
 | 2026-08-01 | §9 r10.1（一致性修复） | §9.9 L1 时间口径对齐 §10：删除"3-4 周（r9 单人口径）"，改"8-12 轮 AI 迭代（r10）"+ 加口径说明段，消除 §9 ↔ §10 的时间估算矛盾（复审 P1）。 |
 

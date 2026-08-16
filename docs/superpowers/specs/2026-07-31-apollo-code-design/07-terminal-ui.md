@@ -1,4 +1,4 @@
-> ↩ [返回索引 (README)](./README.md) · ← [上一章: §6c Memory 系统 (6.12)](./06c-memory-system.md) · [下一章: §8 会话与配置存储](./08-session-config.md) →
+> ↩ [返回索引 (README)](./README.md) · ← [上一章: §6d 测试基建 (6.13)](./06d-testkit.md) · [下一章: §8 会话与配置存储](./08-session-config.md) →
 
 ---
 
@@ -20,7 +20,7 @@
 
 ```
 <App>
-├─ <TopBar>                        # session id / cost / model / cwd
+├─ <TopBar>                        # session id / cost / model / cwd / 后台 shell 计数徽标（r13-G2）
 ├─ <ScrollableTranscript>           # 消息列表
 │   ├─ <MessageBlock role="user">
 │   ├─ <MessageBlock role="assistant">
@@ -166,6 +166,13 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 
 **model 模式细节**：完全复用 §3.9 现有语义，无变化。
 
+**★ 性能策略（r13-P3）**——monorepo 十万文件级仓库，每次键入 `@` 全量 walk 不可行：
+
+1. **候选源 = `git ls-files` 输出缓存**（非 git 目录 fallback：fast-glob 一次遍历，同样缓存）。
+2. **缓存失效**：60s TTL + picker 内 `R` 手动刷新 + 目录 mtime 抖动检测（顶层 mtime 变化才重新 walk）。
+3. **fuzzy 评分纯内存**（fzf 风格算法）≤ 10ms/次；**首帧先显示已就绪子集**（alias + 最近打开文件），文件候选后台补全后再刷列表。
+- 强制点：ui 单测（10 万文件名 fixture，过滤首帧 < 150ms，对齐 §9.10 预算）。
+
 #### 7.5.4 `#sess_<id>` 前缀：跨会话引用
 
 见 §8.5（新增）"跨会话上下文引用"。InputBox 侧行为：
@@ -182,6 +189,14 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
   - **chat/session 流式路径**：NDJSON（每行一个事件），用于 CI / MCP-style 集成
   - **普通查询类子命令**（如 `doctor --json` / `plugin list --json` / `mcp list --json`）：单个 JSON payload
   - 两类输出都禁止 ANSI / Ink 控制序列
+- ★ **r13-D1：`--json` 错误输出协议**（CI 消费者依赖稳定形状）：命令以错误告终时，stdout 追加两行收尾结构——
+
+  ```json
+  { "type": "error", "code": "<附录 B 错误码>", "category": "<分类>", "message": "<人读摘要>" }
+  { "type": "final", "exitCode": <n> }
+  ```
+
+  规则：`final` 行**必须**是最后一行（消费者读到即安全退出）；错误码登记于[附录 B](./APPENDIX-B-error-codes.md)；`--json` 模式的任何错误/警告**不得**走 stderr 混排进 stdout NDJSON（stderr 只留 crash 级兜底）。
 
 ### 7.7 边界与安全清单
 

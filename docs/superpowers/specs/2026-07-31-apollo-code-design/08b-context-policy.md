@@ -92,7 +92,7 @@ loop:
 | 2（fallback） | `gpt-tokenizer` npm 包（JS 实现，见 §5.7 fallback） | 接近（~98%） | native 不可用 / worker 崩溃 |
 | 3（兜底） | `text.length / 3.5` 字符近似 | 粗糙（±30%） | 上述都失败，仅 UI 展示用 |
 
-**缓存**：`estimateTokens(text, model)` 以 `hash(text) + model` 为 key 缓存（LRU 5000 条）。同一 turn 内多次调同一 message 不重复算。
+**缓存**：`estimateTokens(text, model)` 以 `hash(text) + model` 为 key 缓存（LRU 5000 条）。同一 turn 内多次调同一 message 不重复算。**★ r13-D1：缓存生命周期 = per-policy 实例**——缓存挂在 ContextPolicy 实例上，policy `dispose()` 即整体丢弃（不进程级共享）：换 model / provider 切换导致 BPE 变化时不会读到旧估算，也防长驻进程缓存无界存活。
 
 **注意**：
 - system prompt 的 token 由 PromptComposer 单独算（§6.5），不进 ContextPolicy 的 budget

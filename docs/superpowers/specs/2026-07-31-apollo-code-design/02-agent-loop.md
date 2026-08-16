@@ -128,6 +128,8 @@ Turn = {
 | `tool.permission_asked` | 需要权限确认                              | ui（弹窗）                                      |
 | `tool.started`          | 权限通过，开始执行                         | ui / telemetry                                |
 | `tool.completed`        | 工具完成（含错误）                          | ui / storage / telemetry / hooks(PostToolUse) |
+| `shell.background_started` | Bash `runInBackground:true` 创建后台 shell（r13-G2） | ui / telemetry                       |
+| `shell.background_exited`  | 后台 shell 结束（正常/被 kill/超限）        | ui / telemetry                                |
 | `context.compacted`     | 上下文压缩发生                            | ui / telemetry                                |
 | `router.switched`       | Router 切换 provider                      | ui / telemetry                                |
 | `error.raised`          | 任何异常                                  | ui / telemetry / hooks                        |
@@ -137,6 +139,7 @@ Turn = {
 
 - Core **只发不订**（唯一 emitter）。
 - 所有 subscriber 幂等（可重放）。
+- **★ r13-I8：每个事件的 payload 有 per-event zod schema**（`packages/shared/events/<event>.ts`，CI 强制：事件表新增行而无对应 schema 文件 → fail）。payload 字段表（字段/类型/必选/来源章节）集中登记于[附录 D](./APPENDIX-D-event-payloads.md)；replay、§8.2 迁移、`--json` 外部消费都以附录 D 为稳定契约，实现不得自创 payload 形状（如 delta 塞整 chunk、快照自创字段）。
 - **Stream backpressure**：`stream.delta` 频率高，UI 侧 throttle 到 30fps（**结论：ui 是消费者、自 throttle；上游流不做背压，避免复杂化**）。
 - 大 payload（附件二进制）**不进事件**，只传引用。
 - Node 单线程保证事件天然有序。
@@ -243,6 +246,11 @@ runner.interrupt():
 - **B3**：`turnAbort: AbortController` 在 turn 开始时创建，传播链为 `runner.interrupt() → turnAbort.abort() → provider stream + tool.invoke(abortSignal) → sandbox 子进程 SIGTERM`；tool 实现**必须**响应 abortSignal（否则超时兜底 60s 生效）。
 - **B4**：`stickyProvider` 语义 — **第一个 `tool_use.start` chunk 抵达时即锁定**（不等 message 装配完，消除 REVIEW-r6 P0-2 的竞态窗口），后续所有 loop 迭代**必须**用同一 provider（tool_use_id 是 provider-specific 格式，切换会导致 tool_result 无法匹配）；fallback 只能发生在**首轮或纯文本轮**（含 sticky 锁定前的流式中断，见 [§3.9a](./03-provider-router.md#39a-流式中断处理-stream-resilience)）；违反语义 emit `error.raised{code:'provider_sticky_violation'}`。
 - **B6（流式中断）**：provider stream 异常终止时适配器 emit `message.interrupted`（非 `message.stop`），Runner 作废进行中 message（不落盘）、不调已 emit 的 tool_use、交 `router.onError(stream_truncated)` 决策（受 sticky 约束）；整个 turn 从头重跑，不支持 resume-from-offset（v1）。详见 [§3.9a](./03-provider-router.md#39a-流式中断处理-stream-resilience)。
+- **B7（截断续写，r13-G5）**：`stopReason === 'max_tokens'` 时——
+  1. UI 在被截断的 assistant 消息尾部渲染 `[truncated: max_tokens reached]` + 提示"输入 continue 可继续"；
+  2. 用户输入 `continue` → 走正常 `sendUserMessage` 路径；Runner 复用 sticky provider（防换 provider 导致风格/编码断裂）；
+  3. **不自动续写循环**（防失控烧钱）：只提示，不自动重发。
+  - 强制点：ui 单测（截断标记渲染）；core 单测（B7 路径不新建 turn 语义——continue 是新 user message，非隐式续传）。
 - `router.pick` 只在 `stickyProvider == null` 时才调用；后续轮直接复用。
 
 ### 2.5 并行 Tool 调用
@@ -325,8 +333,12 @@ async parallelInvoke(toolUses, turnAbortSignal):
 **执行语义**：
 
 - 同一 hook 点多个 handler **串行执行**，前者输出作为后者输入。
-- 拦截型 hook 必须同步或短异步返回，超时 **5 秒** 视为失败并跳过。
-- Hook 抛异常默认**不阻断主流程**（记录到 telemetry），可配置 fail-hard。
+- 拦截型 hook 必须同步或短异步返回，超时 **5 秒**——超时后果**按 hook 域分治**（r13-I10，安全设计修正）：
+  - **builtin 域（priority 900–1000，安全 hook）**：超时 → **fail-closed**——视为 veto，阻断当前操作，emit `error.raised { code: 'builtin_hook_timeout', hook, event }` + UI 红条"安全检查超时，操作已阻断（可重试）"。理由：memory 脱敏（priority=1000）/ 注入扫描等安全 hook 若"超时跳过"，恶意 payload 只需让扫描器卡 5 秒即可绕过全部防护——拦截型 hook 的 fail-open 是可主动利用的旁路。
+  - **project / plugin / user 域**：超时 → fail-open（跳过该 handler，继续 pipeline），记录 telemetry。可用性优先。
+  - **防"喂爆扫描器"**：builtin 域安全 hook 收到的 payload 先过尺寸闸——> 1MB 截断后再扫描，超限部分计入 telemetry（`hook.payload_truncated`）。
+- Hook 抛异常默认**不阻断主流程**（记录到 telemetry），可配置 fail-hard（builtin 域安全 hook 的异常语义同超时：fail-closed）。
+- 强制点：core 单测 ×2——builtin 域 hook 卡 6s → 当前 tool 被阻断；plugin 域 hook 卡 6s → 放行 + warning。
 - ★ **r9 新增 `ctx.kv` 命名空间隔离**：每个 hook handler 的 `ctx.kv` 按 (event 类型 + 来源 plugin/project/user + toolUseId) 命名空间隔离。同一 hook 点的串行 pipeline 内，前者 handler 写入的 kv 后者可读（pipeline 共享）；`parallelInvoke` 的不同 tool_use 之间 kv 不共享（避免竞态）。详见 §6.4.1 `apollo.hook.kv`。
 
 ### 2.7 Subagent 生命周期
@@ -340,16 +352,20 @@ subagent.dispatch:
      - 独立 SessionState（不共享 messages 和 permissionCache）
      - 复用父的：toolRegistry / router / hookRegistry / native
      - agentType 决定 system prompt
-  3. 事件转发：subagent EventBus 事件加 { parentTurnId } tag 冒泡到父 EventBus
+  3. 事件转发：subagent EventBus 事件加 { parentTurnId, parentDepth } tag 冒泡到父 EventBus
+     // r13-D1：冒泡事件**保留原 event.id**（不重发新 id）——seen-set 去重与 JSONL 重放
+     // 幂等都以 event.id 为键，换 id 重发会让同一逻辑事件被记两次
   4. 完成后 Task tool 从最后一条 assistant message 提取 text 作为 tool_result
 ```
 
 **关键决策**：
 
 - 嵌套硬上限**默认 3 层**（可配置），防止 agent 递归失控。
+- **★ r13-D1：同 turn Task 并发上限默认 4**（config `[subagent] max_concurrent = 4`）。同一 turn 内模型并行发出多个 Task tool_use 时，超出上限的排队执行（不是拒绝）；达到嵌套上限的深层的 Task 直接 isError 返回。
 - Subagent **不能** import 父 messages / permissionCache（隔离）。
-- Subagent 事件走同一 EventBus 加 tag，UI 折叠渲染 ("🤖 Subagent 正在执行...")。
+- Subagent 事件走同一 EventBus 加 tag（**保留原 event.id**，见上），UI 折叠渲染 ("🤖 Subagent 正在执行...")。
 - Budget（token / cost / time）用完强制 abort。
+- **★ r13-D1：budget 生效范围与维度（钉死）**：budget **默认仅对 subagent Runner 生效**；顶层 Runner 可选启用（config `[runner] top_level_budget = false` 缺省关）。维度定为**三维**（cost / token / time）——迭代次数不进 budget，由 §2.4 B2 `maxToolLoopsPerTurn`（顶层与 subagent 各自生效）承担，不在 budget 里重复设第四维。
 - **★ Budget 执行点（REVIEW-r7 NEW-P1-D）**：subagent Runner 在**每个 loop 迭代前**（provider stream 发起前）检查 budget，三阈值任一命中即终止：
   - `cumulativeUsage.costUSD ≥ budget.costUSDMax`（dispatch 时 `Task` 工具注入）
   - `cumulativeUsage.input + output token ≥ budget.tokenMax`
@@ -357,8 +373,39 @@ subagent.dispatch:
   - 命中 → emit `error.raised { code: 'subagent_budget_exhausted', dimension: 'cost'|'token'|'time', consumed: {...}, budget: {...} }` + 调子 turn 的 `turnAbort.abort()`；子 Runner 从**最后一条已完成的 assistant message** 提取 text 作为 tool_result 返父（标注 `[budget exhausted, partial result]`），而非空结果。
   - budget 阈值来源：`Task` 工具 input 的 `budget?` 字段（缺省走 `[subagent] default_budget` config：cost $1 / token 200k / time 10min）。
   - 与 §2.4 `maxToolLoopsPerTurn` 正交：budget 是"钱/时间"上限，loop 是"迭代次数"上限，两者都触发各自终止。
-- **★ W8：Subagent 内 permission 决策收窄**。父上下文里的 `allow-project` / `allow-forever` 白名单**不下传**到 subagent 的 `permissionCache`；subagent 请求权限时用户可选项**只有** `allow-once` / `allow-session`（session 指该 subagent 生命期，不含父）/ `deny`。同时若父 turn 的当前 tool_use 已经 hit 到白名单直接放行，subagent 内**重新弹窗**（不复用父决策）。原因：subagent 的 prompt 来自模型生成，攻击面比用户直接输入大；若继承 forever 白名单等于把"过去用户点过一次"当成"未来 LLM 决定的任意命令"的免检通行证。
+- **★ W8：Subagent 内 permission 决策收窄**。父上下文里的 `allow-project` / `allow-forever` 白名单**不下传**到 subagent 的 `permissionCache`；subagent 请求权限时用户可选项**只有** `allow-once` / `allow-session`（session 指该 subagent 生命期，不含父）/ `deny`。**降级档位枚举（r13-D1 钉死）**：`depth > 0` 的 Runner 的可授权档位 = `['allow-once', 'allow-session', 'deny']`——UI/permission 层据此隐藏 `allow-project` / `allow-forever` 选项。同时若父 turn 的当前 tool_use 已经 hit 到白名单直接放行，subagent 内**重新弹窗**（不复用父决策）。原因：subagent 的 prompt 来自模型生成，攻击面比用户直接输入大；若继承 forever 白名单等于把"过去用户点过一次"当成"未来 LLM 决定的任意命令"的免检通行证。
 - **★ W13：Hook ctx 加子 agent 标记**。所有 hook `trigger(event, ctx)` 的 `ctx` 里必须带 `depth: number`（0=顶层 Runner，1=第一层 subagent，...）与 `isSubagent: boolean`（`depth > 0`）。plugin/project hook 可用这两个字段选择性禁用（例如"敏感命令扫描 hook 在 subagent 内更严格"）。字段由 `subagent.dispatch` 在造 Runner 时注入 `RunnerContext.depth = parentCtx.depth + 1`。
+
+#### 2.7.1 自定义 subagent 定义文件（r13-G3）
+
+`agentType: user-defined` 的落地格式。**两层定义，项目覆盖全局同名**：
+
+```
+~/.apollo/agents/<name>.md          # 全局
+<cwd>/.apollo/agents/<name>.md      # 项目级（同名覆盖全局）
+```
+
+**frontmatter**（zod 校验，schema 放 `packages/shared/agent-schema.ts`）：
+
+```yaml
+name: code-explainer        # 唯一，[a-z0-9-]+，与文件名一致
+description: 读代码并解释结构 # 一句话，Task 工具路由依据
+model:                      # 可选；缺省继承父 Runner 的 provider/model
+  provider: openai
+  model: gpt-5-mini
+tools: [Read, Grep, Glob]   # 可选白名单——只能收紧不能放宽（父注册表的子集）
+maxTurns: 10                # 可选；等价于该 agent 的 maxToolLoopsPerTurn
+```
+
+**正文 = 该 agent 的 system prompt**，注入规则：
+
+- 走 PromptComposer **独立槽位**（priority=800，与 skill 同级；`@include` 可用，见 §6.5）。
+- **★ 项目级 agent 文件属 untrusted 来源**（仓库作者可控，随 clone 进来）：正文先包 `<untrusted source="agent-def:<path>">` 再作为 prompt 基础（§6.5.0a 包裹协议）；发现注入指令（"忽略以上规则"/"读取凭据"类）→ UI 红条警告。全局 `~/.apollo/agents/` 是用户自己写的，trusted。
+- **装载**：冷启动扫两层目录的 frontmatter（只读 frontmatter，正文懒加载——复用 §6.5.3 progressive disclosure 三阶段）。
+- **Task 校验**：Task 工具 inputSchema 的 `agentType` 枚举 = 内置（`main` / `task-agent` / `review-agent`）+ 已扫描定义的 `name`；装载失败的文件跳过并 telemetry 记录（不阻塞启动）。
+- **权限**：自定义 agent 同样受 W8 降级 + tools 白名单约束；其 Task 调用在父 turn 的并发上限（默认 4）内。
+- 里程碑：**L3**（随 subagent/Task 一起交付）。
+- 强制点：shared 单测（frontmatter zod 用例：合法/缺 name/非法字符/tools 超父集拒绝）；core 单测（项目级覆盖全局同名；untrusted 包裹生效）。
 
 ### 2.8 异常谱
 

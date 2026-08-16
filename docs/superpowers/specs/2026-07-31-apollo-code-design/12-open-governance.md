@@ -33,6 +33,12 @@
 
 不用 CLA 的理由：CLA 提高贡献门槛、需要基金会/实体运营、对社区体验负面。DCO 对小项目更合适。
 
+**★ r13-D1：AI / bot 提交者的署名归属**：
+
+- **bot 纯自动提交**（CI bot / renovate / changesets version PR）：豁免 `Signed-off-by`（DCO app 配置跳过 bot 账号列表，登记于 `.github/dco-bots.txt`）——机器无 origins 可声明。
+- **AI 辅助的人类提交**（本项目主路径，§12.6b）：由**指令人类签署**——`Signed-off-by` 写人类的名字（操作者 / PR 作者），AI 不作为 sign-off 主体；commit message 可加 `Co-authored-by: Apollo <noreply@apollo-code.dev>` 标注辅助（可选）。理由：DCO 声明的是"我有权提交这段代码"，只有人能做此声明。
+- 该规则同步进 CONTRIBUTING 的 DCO 段。
+
 ### 12.3 SECURITY.md
 
 内容：

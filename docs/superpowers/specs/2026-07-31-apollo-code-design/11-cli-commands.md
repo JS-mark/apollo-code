@@ -32,6 +32,7 @@ apollo hook <list|test>
 apollo memory <list|show|add|edit|rm|search|pin|unpin|export|import>   # v4 新增，详见 §6.12.7
 apollo context <show|diff|keep|unkeep|compact|policy>   # r10 新增，详见 §11.3.12 + §8b.13
 apollo evolution <show|rollback|enable|disable>         # r10 新增，详见 §11.3.13 + §15
+apollo review [--base <ref>|--staged|--pr <n>|--range <a>..<b>]  # r13 新增，详见 §17
 apollo doctor                 # 全局诊断（native / auth / permission / 各 provider 连通性）
 apollo telemetry <status|export|clear>
 apollo completion <bash|zsh|fish>   # 生成 shell 补全脚本
@@ -42,7 +43,7 @@ apollo help [command]
 # apollo update                # 自升级
 ```
 
-**顶层命令数**：MVP (L1-L4) 共 **20 个**顶层入口（r10：+ `context` + `evolution`；默认 REPL / chat / login / logout / config / history / resume / restore / model / plugin / skill / mcp / hook / memory / context / evolution / doctor / telemetry / completion / version + help 元命令）；`update` 留 v2。`memory` 子命令树在 §6.12.7、`context` 在 §11.3.12、`evolution` 在 §11.3.13 完整定义，此处仅作交叉索引。
+**顶层命令数**：MVP (L1-L4) 共 **21 个**顶层入口（r10：+ `context` + `evolution`；r13：+ `review`；默认 REPL / chat / login / logout / config / history / resume / restore / model / plugin / skill / mcp / hook / memory / context / evolution / review / doctor / telemetry / completion / version + help 元命令）；`update` 留 v2。`memory` 子命令树在 §6.12.7、`context` 在 §11.3.12、`evolution` 在 §11.3.13、`review` 在 §17 完整定义，此处仅作交叉索引。
 
 ### 11.3 命令详细定义
 
@@ -248,6 +249,8 @@ apollo doctor                                   # 输出（按里程碑分层，
                                                 #   ✓ auth: anthropic (keychain)
                                                 #   ✓ config valid
                                                 #   ✓ cwd writable
+                                                #   ✓ gh CLI: 2.x (/opt/homebrew/bin/gh)   # r13-G6：缺失 ⚠️ 不 fail，
+                                                #                                           # 提示 "PR 工作流需要 gh（CONTRIBUTING 推荐依赖）"
                                                 # ── L2+ 项（当对应能力启用时展示） ──
                                                 #   ✓ skills: 3 installed / 0 broken           # skills-runtime 装载后
                                                 #   ✓ context policy: sliding+summary          # L2 加入
@@ -327,7 +330,9 @@ apollo evolution dashboard                # L4: 参数随时间变化曲线
 | `/debug prompt` | — | dump 当前 system prompt（见 §6.5.5） |
 | `/debug state` | — | dump SessionState 摘要 |
 | `/save <name>` | `apollo history export` | 命名当前 session |
-| `/undo` | — | 撤销最后一次 tool 执行（若有 backup） |
+| `/undo` | — | 撤销最后一次 tool 执行（若有 backup；选点规则见 §8.6.2） |
+| `/shells` | — | **r13 新增**：列出后台 shell（shellId / 命令 / 运行时长 / 输出预览），可选中 kill |
+| `/review [flags 子集]` | `apollo review` | **r13 新增**：对当前 working tree 跑 code review（详见 §17） |
 | 用户自定义 | 插件 `apollo.commands.register` | |
 
 ### 11.5 输入前缀（非 slash）
@@ -366,7 +371,7 @@ apollo evolution dashboard                # L4: 参数随时间变化曲线
 ### 11.7 里程碑
 
 - **L1（MVP）**：`chat` / `login` / `logout` / `config` / `history list-show` / `doctor`（L1 项） / `hook list`（builtin only） / `version` / `help` + 交互 REPL 内基础 slash
-- **L2**：`history search-export-import` / `resume` / `restore` / `model` / `completion` / **`context *`（r10，随 §8b.13）** / **`evolution show/rollback`（r10，随 §15）** + TUI `/context` 面板
-- **L3**：`plugin *` / `skill *` / `mcp *` / `hook test` / `telemetry *` / doctor 加 plugin/mcp 段 / **`evolution enable/disable`（r10）**
-- **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康
+- **L2**：`history search-export-import` / `resume` / `restore` / `model` / `completion` / **`context *`（r10，随 §8b.13）** / **`evolution show/rollback`（r10，随 §15）** / **`review`（r13，本地 diff 模式 + `/review`，随 §17）** + TUI `/context` 面板
+- **L3**：`plugin *` / `skill *` / `mcp *` / `hook test` / `telemetry *` / doctor 加 plugin/mcp 段 / **`evolution enable/disable`（r10）** / **`review --pr` 模式 + 分片（r13，随 §17）**
+- **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康 / **`review` CI gate 文档模板 + reviewer 角色路由（r13，随 §17）**
 - **v2（不进 L1-L4）**：`apollo update`（自升级 + 签名校验，需要发布渠道成熟）

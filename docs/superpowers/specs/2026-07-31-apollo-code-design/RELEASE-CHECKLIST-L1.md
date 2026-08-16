@@ -24,6 +24,8 @@
 ## 0. Definition of Done（§10 L1）
 
 > L1 的核心 DoD：**能用 `apollo` 对着 Anthropic 完成一个真实的编码任务（改文件 + 跑测试 + 提 PR），全程权限弹窗可控；mac/linux 4 target 的 escape 测试基础用例全部通过，任何降级都在 UI 显式披露**。
+>
+> ★ r13-G6 注：「提 PR」经 Bash + `gh` CLI 完成（用户环境需预装；CONTRIBUTING 已列推荐依赖；doctor §11.3.10 检测但不因缺失 fail）。「跑测试」的长命令场景由后台 Bash（`runInBackground` + `ShellOutput`，§4.3.1）支撑。
 
 - [ ] 👤 **真实编码任务跑通**（dog-fooding，闸门第 7 项）：用 apollo 完成 ≥1 个真实编码任务，覆盖「读文件 → 改文件 → 跑测试」全链路
 - [ ] 👤 **全程权限弹窗可控**：任务过程中所有副作用操作（Write/Edit/Bash）都走 permission 决策链，无静默放行
@@ -55,7 +57,7 @@ L1 CI matrix：`ts` + `license-check` + `native`(4 target) + `sandbox-escape`(4 
 
 ### 2.1 事件总线（§2.3）
 
-- [ ] ⚙️ **17 种事件全部实现**（含 `session.resumed`，[§2.3 表](./02-agent-loop.md#23-事件总线-core)）
+- [ ] ⚙️ **19 种事件全部实现**（含 `session.resumed` 与 r13-G2 的 `shell.background_started/exited`，[§2.3 表](./02-agent-loop.md#23-事件总线-core)）
 - [ ] ⚙️ **`event.id` 用 UUIDv7**（时间前缀 + 单调可排序）
 - [ ] ⚙️ **subscriber seen-set 去重**（LRU 上限 10k）+ storage JSONL idempotency key 双层保护
 - [ ] ⚙️ **Core 只发不订**（唯一 emitter，ESLint 强制）

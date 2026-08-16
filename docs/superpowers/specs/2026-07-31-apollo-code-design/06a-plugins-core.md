@@ -200,6 +200,11 @@ export interface ApolloBridge {
     prompt(question: string, opts?: { default?: string; secret?: boolean }): Promise<string | null>
     pick<T>(options: T[], opts?: { label: (t: T) => string }): Promise<T | null>
     notify(message: string, level?: 'info' | 'warn' | 'error'): void
+    // ★ r13-D1：非 TTY（--json / CI / pipe）降级语义——
+    //   confirm → false（fail-closed，宁可拒绝不可静默放行）
+    //   prompt  → null（无输入即无答案）
+    //   pick    → null
+    //   notify  → 降级为 stderr 一行文本（--json 模式不得污染 stdout NDJSON）
   }
 
   //-------- 插件私有存储 --------

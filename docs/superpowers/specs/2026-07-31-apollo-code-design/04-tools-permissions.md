@@ -80,6 +80,8 @@ export interface ToolResultMeta {
 | `Edit`      | 文件改   | 精确字符串替换               | ❌       | ✅   | apollo-fs              |
 | `MultiEdit` | 文件改   | 批量 Edit（原子）            | ❌       | ✅   | apollo-fs              |
 | `Bash`      | 命令执行 | shell 命令                   | ❌       | **必须** | apollo-sandbox    |
+| `ShellOutput` | 后台任务 | 查看等待后台 shell 输出（r13-G2，L1 随 Bash） | ✅（只读缓冲） | 继承对应 shell 的 profile | apollo-sandbox |
+| `KillShell` | 后台任务 | 终止后台 shell（r13-G2，L1 随 Bash） | ❌ | 继承对应 shell 的 profile | apollo-sandbox |
 | `Grep`      | 搜索     | ripgrep（Rust addon）        | ✅       | 只读 | apollo-search          |
 | `Glob`      | 搜索     | 文件通配                    | ✅       | 只读 | fast-glob (JS fallback) |
 | `Todo`      | 状态     | Todo 列表（session-scoped） | ✅       | 无   | -                      |
@@ -90,18 +92,74 @@ export interface ToolResultMeta {
 | `WebFetch`  | 网络     | 抓 URL（可选，v2）           | ✅       | 允许 net | http-kit               |
 | `WebSearch` | 网络     | 搜索引擎（v2）               | ✅       | 允许 net | 各家 API              |
 
-**MVP L1** 只上：`Read` / `Write` / `Edit` / `Bash` / `Grep` / `Glob` / `Todo`。
+**MVP L1** 只上：`Read` / `Write` / `Edit` / `Bash`（含 `runInBackground` + `ShellOutput` / `KillShell`，r13-G2）/ `Grep` / `Glob` / `Todo`。
 
 > ★ **自我进化接入（r10）**：各 tool 的 `timeoutMs` 可经 [§15.4](./15-self-evolution.md) 自调优；调整记 `~/.apollo/tuning/tool-timeout.jsonl`。观察信号：tool 超时频率 / 超时后用户重试频率。落地里程碑：L3。安全护栏：timeout 上限不可超过 300s（防进化让恶意 tool 长期占用）。
 
 **Task / WebFetch / WebSearch** 分 L2-L4 逐步加。
+
+#### 4.3.1 Bash 执行语义与后台任务（r13-G2 / I11）
+
+**shell 选择与 env 继承（I11 钉死）**：
+
+- Unix：`/bin/bash -c`（**固定**，不读 `$SHELL`——避免用户 rc 副作用与跨机不确定性）。
+- Windows：PowerShell 7+ 若存在否则 cmd；`config [tools] windows_shell` 可覆盖。
+- sandbox exec 白名单含所选 shell；shell 内命令仍受 fs/net 策略约束（syscall 层正交，§4.5）。
+- env 继承**最小集**：`PATH` / `HOME` / `LANG` / `TZ` + `config [tools] pass_through_env` 显式白名单——**非全量继承**（防宿主机敏感变量泄漏进沙箱进程）。
+- 强制点：tools 单测（管道 / 变量展开 / env 最小集断言）。
+
+**后台任务（G2）**——长命令（`npm install`、`cargo build`、`--watch`、`pnpm dev`）不阻塞 turn：
+
+```ts
+// Bash inputSchema 增可选字段
+{ command: string, timeoutMs?: number, runInBackground?: boolean }
+// runInBackground: true → 立即返回 { shellId, note: "output via ShellOutput" }，不阻塞 turn
+
+// 新工具（L1 随 Bash 交付）
+ShellOutput { shellId: string, action: 'view' | 'wait', timeoutMs?: number }
+  // view → 返回当前缓冲快照；wait → 阻塞至退出或超时，返回最终输出 + exitCode
+KillShell { shellId: string }
+```
+
+配套契约：
+
+- **生命周期**：后台 shell **跨 turn 存活**（turn 结束不 kill）；`session.ended` 时**统一 kill 全部后台 shell**（★ 强制单测：session 结束 → 无孤儿进程）；CLI 进程异常退出的兜底 = 进程组 SIGKILL（后台 shell 与 CLI 同 process group）。
+- **输出缓冲**：stdout/stderr 各自环形 buffer，合计上限 **10MB**；超限丢头部 + 在输出首部标注 `[... dropped N bytes ...]`。
+- **沙箱**：与前台 Bash 同 profile（cwd 读写白名单）；`timeoutMs` 对后台模式**不生效**（abort 语义只在 `KillShell` / session 结束时生效）。
+- **事件**：`shell.background_started` / `shell.background_exited`（§2.3 事件表，17 → 19）。
+- **UI**：TopBar 后台任务计数徽标；`/shells` slash 命令列出全部后台 shell（§11.4）。
+- **权限**：`runInBackground: true` 的 Bash 弹窗文案加"（后台运行）"标注；后台 Bash **不进** auto-allow 静默白名单（长时副作用风险更高）。
+
+#### 4.3.2 Edit 完整契约（r13-J3）
+
+`Edit` 是最高频写工具，契约钉死：
+
+```ts
+inputSchema: { path: string, old_string: string, new_string: string, replace_all?: boolean }
+```
+
+- `old_string` 在文件中**须唯一**（`replace_all` 缺省 `false`）；多处命中 → `isError`，提示"old_string matches N locations; provide a longer context to disambiguate"。
+- 不存在 → `isError`：`` old_string not found in <path> (file may have changed; re-Read) ``。
+- `new_string === old_string` → `isError`（no-op 拒绝，防模型幻觉性"成功"）。
+- **并发保护双闸**：
+  1. 写入前 lockfile（`<path>.apollolock`；重试 3 × 1s；仍占用 → `isError` 报错含持锁 pid）；
+  2. 成功后自动 backup（§8.6，`/undo` 可回退）。
+- Edit 前后各校验一次文件快照（mtime + size），变了 → `isError` 提示 re-Read（防基于陈旧内容的覆盖）。
+- `MultiEdit`（L2）= 多组 `{old_string, new_string}` 在单 lockfile 事务内顺序应用，任一失败全部回滚。
+- 强制点：tools 单测——多命中 / 不存在 / no-op / 锁冲突 四用例。
+
+#### 4.3.3 Read 默认值与忽略规则（r13-D1）
+
+- `Read` 缺省读 **2000 行**（`offset` / `limit` 可覆盖）；超长文件读首 2000 行 + 末尾标注 `[... N more lines, use offset to continue]`。
+- 目录遍历类操作（`Glob` / `@` picker / attachment 扫描）**默认跳过** `.git` / `node_modules` / `target` / `dist` / 构建缓存目录（`config [tools] ignore_dirs` 可扩展）。
+- 强制点：tools 单测（默认行数边界；忽略目录生效）。
 
 ### 4.4 权限模型（packages/permission）
 
 ```ts
 export interface PermissionSpec {
   fs?: {
-    read?: string[]                                 // 具体路径或 glob
+    read?: string[]                                 // 具体路径或 glob（方言钉死，见 §4.4 路径模式语义）
     write?: string[]
   }
   bash?: {
@@ -152,7 +210,19 @@ permission.request(req):
 - `Read` 目标在 `cwd` 内 → allow-session
 - `Grep` / `Glob` 在 `cwd` 内 → allow-session
 - `Bash` 命令匹配 `^(ls|pwd|git status|git diff|git log|node --version|...)` 只读子集 → allow-once
+- ★ r13-G6：`gh pr create` / `gh pr view` / `gh pr checks` 有**外发语义**（创建/变更远端资源）→ **不进静默白名单**，始终弹窗且文案明示"将执行 gh pr …（外发操作）"；`gh pr view` / `gh pr checks` 只读类可 allow-session
 - 其它一律弹窗
+
+**★ 路径模式语义（r13-I2，权限 glob 方言钉死）**——`fs.read/write` 的模式匹配不能有歧义，全仓一套语义（permission 与 Glob 工具同源）：
+
+1. 实现库钉死 **picomatch**（与 fast-glob 同源，依赖树内已有）；Glob 工具的 pattern 翻译也走它，全仓唯一 glob 方言。
+2. `**` 跨目录分隔符（`globstar: true`）；**大小写敏感**（保守方向：宁可多弹窗不少拦）。
+3. 匹配前双方 canonicalize 到绝对路径 + 展开 `~`；被检路径先 `realpath`（防 symlink 绕过白名单）。
+4. 相对模式相对 `cwd` 解析；无前导锚点的裸名模式不支持（v1，防误配过宽）。
+5. 否定模式 `!` **不支持**——deny 走 `permissions.toml` 黑名单（决策链 1-2），不混入 PermissionSpec。
+- 强制点：permission 单测（大小写 / 双星 / symlink / 字面-vs-glob 用例）。
+
+**★ net 匹配粒度 = origin（r13-D1）**：`net` 权限 key 按 **origin**（`scheme://host[:port]`）归一后匹配——同域不同路径共享 allow-session；`WebFetch` 首次弹窗按 origin 记忆。
 
 **弹窗触发**：`permission` 内部持有 `PromptHandler`（由 `apps/cli` 注入 ui 实现，见 §1.5）。permission 内部**串行队列**弹窗，一次只显示一个（防刷屏，见 §2.5）。
 

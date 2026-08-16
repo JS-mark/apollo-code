@@ -91,7 +91,12 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence
 **关键约定**：
 
 - **`stream` 是主 API**。所有 provider 实现都必须提供 stream；`complete` 只是包装糖。
-- **tool_use 参数流式拼接**：`tool_use.delta.argsFragment` 是 JSON 字符串增量，`tool_use.end` 时由 Runner 一次性 `JSON.parse`（失败则包成 tool_result error）。
+- **★ tool_use 流式聚合规则（r13-I1，v1 钉死）**——多 tool_use 交错流式时 Runner 按以下规则聚合：
+  1. Runner 维护 `Map<toolUseId, string[]>`；`tool_use.delta.argsFragment` 按 `id` 追加；`tool_use.end` 时合并全文一次性 `JSON.parse`。
+  2. parse 失败 → 构造 tool_result：`isError: true`，content = `` Invalid JSON arguments for tool <name> (stream truncated?): <first 200 chars>... ``（截断附原文，供模型自纠）。**失败的 tool_use 不执行，直接以该 error tool_result 返模型**——不存在"parse 失败仍尝试执行"的路径。
+  3. v1 **不做**流式部分校验（不在 delta 阶段验证 JSON 合法性）。
+  4. `message.interrupted` 到达时，所有未 `end` 的聚合 entry **作废**（连同所在 message，见 §3.9a）。
+  - 强制点：core 单测——双 tool_use 交错 delta + 破损 JSON 用例；断言破损 tool 不执行且 error tool_result 形状正确。
 - **`usage` 可多次到达**（有的 provider 中间报 cache_read，结束报 output）。累计规则：以 `message.stop` 前的最后一次为准，中间的用于 UI 实时显示。
 - **`AbortSignal` 必须传递**：Runner 通过它实现 Ctrl+C 立即中断。
 - **`error` chunk 不重复 throw**：底层实现要么发 `error` chunk 要么 throw，二选一。
@@ -306,6 +311,8 @@ export interface RouterDecision {
 
 **问题**：tool_use_id 是 provider-specific 格式（Anthropic 用 `toolu_01...`，OpenAI 用 `call_...`）。一个 turn 内若产生了 tool_use 后 fallback 切 provider，新 provider 无法识别原 tool_use_id → tool_result 匹配失败 → 500 或错答。
 
+> **r13-D1 注记（合成 tool_use id 的合法性）**：Gemini / Ollama 等适配器不回传稳定 tool_use id 时，允许适配器**合成 id**（如 `gemini-call-N`，N 为 turn 内序号）。合成 id 的唯一性要求 = **turn 内唯一**即可；同一 turn 的 tool_result 匹配、§3.2 聚合 Map 都以 turn 为作用域。**不跨 provider / 跨 turn 复用**合成 id（防 replay 与去重冲突）。
+
 **规则**：
 
 1. **首轮 / 纯文本轮可自由切换**：turn 内**尚未产生任何 `tool_use.*` chunk** 的 provider call，Router 可任意切换（fallback / role-route / etc.）。
@@ -451,6 +458,7 @@ provider stream 可能在任意 chunk 边界中断。若不定义 resume 语义�
 **5. 不做 resume-from-offset（v1 明确）**：
 
 - v1 **不**实现"从断点继续接收剩余 chunk"（byte/token offset 级续传）。理由：(a) 各 provider 无稳定的 byte/token offset resume API；(b) 半截 message + 续传的实现复杂度高于收益。
+- **★ r13-D1（streamResume 护栏入契约）**：ProviderCapabilities **不设** `streamResume` 能力位；若未来 provider 插件在 `rawMeta` / capability 里自行声明 offset-resume 能力，Runner **显式拒绝**（fail-fast：emit `error.raised { code: 'stream_resume_unsupported' }`），不静默尝试。防误用护栏从实现约定升级为契约。
 - **r9 区分**：上述"不做 resume-from-offset"指**provider stream 的字节级续传**；而规则 4 的"复用已完成 tool_result"是**Runner 侧状态复用**（不需要 provider 支持 offset），两者不同。后者 v1 即做（省 tool 重复执行 + 省 input token），前者推 v2。
 - 留 v2：若 provider 提供官方 resume（如 Anthropic 的 stream_id），再评估接入字节级续传。
 - ★ **自我进化接入（r10）**：retry 次数 / 退避系数可经 [§15.4](./15-self-evolution.md) 自调优；调整记 `~/.apollo/tuning/retry.jsonl`。观察信号：重试成功率 / 重试后仍失败比例。落地里程碑：L3。安全护栏：retry 次数上限不可超过 5（防进化无限重试烧 token）。

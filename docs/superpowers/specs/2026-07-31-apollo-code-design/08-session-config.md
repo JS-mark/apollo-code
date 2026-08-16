@@ -42,7 +42,7 @@
 
 ### 8.2 Session 存储：JSONL append-only
 
-每 session 一个 `<session-id>.jsonl`，每行一个 event（复用 §2.3 的 17 种事件，含 `session.resumed`）：
+每 session 一个 `<session-id>.jsonl`，每行一个 event（复用 §2.3 的 19 种事件，含 `session.resumed` 与 r13-G2 新增的 `shell.background_started` / `shell.background_exited`）：
 
 ```
 {"v":1,"id":"01H8...","type":"session.started","sessionId":"...","at":"...","payload":{"cwd":"..."}}
@@ -71,6 +71,7 @@
 - `stream.delta` **不写盘**（volume 太大），只写 `stream.completed`（含完整 assistant message）
 - 附件二进制不写 JSONL，`AttachmentRef` 里存路径引用，实际文件在 `~/.apollo/sessions/<sid>/attachments/<hash>.bin`
 - 写入通过 `write` 追加 + fsync（可配置 `fsync: async` 用 fsync interval 提升吞吐）
+- ★ **r13-D1 裁决：不引入 `session.snapshot` 全量快照事件**（实现曾自创"每 turn 全量落 SessionState"）。理由：(a) 每 turn 全量序列化 SessionState 与 append-only 增量哲学冲突，长会话单行可达数十 MB，违反 §5.6.2 `max_line_bytes=4MB`；(b) resume 加速已有正解——§8.2b 行级索引 + `tailTurns` 分段读取（50MB 文件 <2s 恢复），无需快照；(c) 事件重放是单一真相源，快照会引入"两份状态需对账"的一致性问题。**实现要求**：resume 路径一律走 §8.2b 索引 + replay；禁止 storage 侧自创快照行。
 
 **订阅路径**：`storage` 订阅 core `session.started` / `message.appended` / `stream.completed` / `tool.completed` / `context.compacted` / `session.ended`。
 
@@ -188,6 +189,13 @@ max_tokens = 180000
 ```
 
 **schema**：用 zod 描述（`packages/shared/config-schema.ts`），启动时校验，友好报错。
+
+**★ r13-I4：未知 key 策略与全量 schema**：
+
+- **未知 key → warn + 忽略**（顶层未知 section 与已知 section 内未知 key 均如此；向前兼容——新版本 apollo 的 config 在旧版本上不炸）。警告带 key 全名与所在文件，防"打错段名静默失效"（如把 `[context]` 写成 `[contex]`）。
+- **已知 key 类型错 → 启动 fail**（zod 校验失败，友好报错指出文件 + key + 期望类型）。
+- **全量 schema 与示例的唯一真相源 = [附录 C](./APPENDIX-C-config-schema.md)**：config key 分散于 §2/§3/§4/§5/§8/§8b/§14 各章，各章片段一律"以附录 C 为准"；新增 key 必须同步附录 C（CI 校验 zod schema 与附录 C 表一致性）。
+- 上方示例只是节选（完整示例见附录 C）。
 
 #### 8.3.1 ★ 项目级 config / mcp.toml 信任门（防配置注入）
 
@@ -437,6 +445,23 @@ Runner 在 `sendUserMessage` 前把结果拼成一条 `role='user'` 的 message�
 - backup 目录 `<session-id>` 隔离 + 文件 flock 双重保护：即使两实例同时改不同文件也互不干扰；改同一文件时后者明确报错而非静默损坏。
 
 **强制点**：`packages/tools` 的 Write/Edit/MultiEdit 实现 + storage 的 backup GC，单元测试覆盖"两伪实例争抢同文件"用例。
+
+#### 8.6.2 ★ 回退边界声明与 `/undo` 选点规则（r13-G4）
+
+> 用户对"回到 10 分钟前的状态（对话 + 文件）"有天然预期——必须显式声明 v1 做什么、不做什么，不留给用户猜。
+
+**v1 边界声明**：v1 的"后悔药" = **文件级 backup（按 session 隔离）+ `/undo` 单步 tool 回退**。**不提供**会话级时间旅行（对话与文件整体回退到历史时点）。
+
+**`/undo` 选点规则**（钉死）：
+
+- 撤销对象 = **最近一次有 backup 的副作用 tool 执行**（按 backup 目录条目时间序取最新；不只是"最后一次 tool"——纯只读 tool 之后 `/undo` 应跳过它们找到更早的写操作）。
+- 单步语义：每次 `/undo` 回退一步（恢复该次 Write/Edit/MultiEdit 的 backup）；连续 `/undo` 依次向前。v1 不提供 `/undo N` 跳步与列表选择（`apollo restore <session-id>` 是全量回滚的另一入口）。
+- 该次执行无 backup（目标文件当时不存在 / 只读 tool）→ StatusLine 明确提示 `nothing to undo (no backup for last side-effecting tool)`，不静默失败。
+- Bash 产生的文件变更**不在** `/undo` 范围（Bash 无 backup 语义；恢复依赖 git）。
+- 失败提示：backup 文件缺失 / 目标文件已被外部修改（mtime > backup 时间）→ 警告后仍恢复，UI 提示可能覆盖手动修改。
+- 强制点：storage 单测（连续两步 undo 的顺序；只读 tool 穿透；无 backup 提示）。
+
+**v2 占位**：`/checkpoint`（记录 `SessionState.version` + 文件增量快照）+ `/rewind <checkpoint>`（JSONL 逻辑截断 + 文件恢复）另立 RFC，v1 不实现、不预留 UI 入口。
 
 ### 8.7 Telemetry：默认本地
 

@@ -68,10 +68,20 @@ CLI：apollo-sandbox exec  （或省略子命令，兼容默认）
     "permissions": {
       "fs": { "read": ["/path/to/project/**"], "write": ["/path/to/project/**"] },
       "net": false,
-      "env": { "read": ["HOME", "PATH", "LANG"] }
+      "env": { "read": ["HOME", "PATH", "LANG"] },
+      "exec": { "allow": ["/bin/bash", "/usr/bin/git"] },   // ★ r13-D1：可执行白名单（syscall 名单的输入位）
+      "limits": {                                            // ★ r13-D1：资源上限（rlimit 系）
+        "max_memory_mb": 2048,                               //   RLIMIT_AS 等价
+        "max_cpu_seconds": 600,                              //   RLIMIT_CPU
+        "max_processes": 256,                                //   RLIMIT_NPROC
+        "max_file_size_mb": 512                              //   RLIMIT_FSIZE
+      }
     },
     "env": { "CUSTOM_VAR": "value" }
   }
+// exec.allow 缺省 = 仅沙箱选择的 shell 本身（§4.3.1）；limits 缺省 = 上表默认值。
+// exec/limits 由各平台 Backend 翻译：Linux seccomp + setrlimit；macOS sbpl + POSIX rlimit；
+// Windows job object + AppContainer 能力限制（个别项无直接等价则就近映射并在 violations 记录）
 
 输出（stdout JSON）：
   {
@@ -107,6 +117,8 @@ CLI：apollo-sandbox --run-plugin \
      - Windows：CreateProcessAsUserW + STARTUPINFOEXW + PROC_THREAD_ATTRIBUTE_HANDLE_LIST
   5. 子进程内 plugin-host.mjs 从 bridge 读写 JSON-RPC NDJSON
   6. 进程退出 → apollo-sandbox 自身退出，退出码透传
+
+> ★ r13-D1：Unix `--bridge-fd 3` 与 Windows `--bridge-pipe` **同为 L2 落地要求**——插件宿主进 Windows（§5.9 T5/T6 平台包）时 named pipe 路径必须同 PR 交付，不允许"先只做 Unix fd、Windows 留 TODO"。
 
 profile 差异 vs exec 模式：
   - fs.read: pluginDir 只读 + Node 内置模块路径 + tzdata 等
@@ -145,6 +157,7 @@ CLI：apollo-sandbox --probe
 
 - 5 秒超时；若崩溃 / 超时 → native-bridge 视为 tier=none
 - 结果**冻结**在 SessionState.sandbox_info，session 内不重探
+- ★ **r13-D1：features 键名三平台统一契约**：合法键 = `landlock_abi`（int，Linux）/ `seccomp`（bool，Linux）/ `namespaces`（bool，Linux）/ `sandbox_init`（bool，macOS）/ `appcontainer`（bool，Windows）/ `wfp`（bool，Windows）。**非本平台的键整体省略**（不输出 `false` 也不输出 `null`）——消费侧（native-bridge / doctor / §14.3b Tier 披露）以"键存在与否"判断能力，禁止自创键名。
 
 ### 5.4 平台 Backend 实现（三平台各一份）
 
@@ -309,7 +322,11 @@ idle 回收：worker 空闲（无 RPC 调用）超过 30s → 自行退出（省
 | stream end（worker → main） | 无 id，带 streamId | `{"jsonrpc":"2.0","method":"search.end","streamId":"s_1"}` |
 | abort（main → worker） | 无 id，带 streamId | `{"jsonrpc":"2.0","method":"search.abort","streamId":"s_1"}` |
 
-**method 前缀约定**：`search.*`（apollo-search worker）/ `fs.*`（apollo-fs worker）/ `sandbox.*`（apollo-sandbox，已有）。worker 侧只认自己前缀，未知 method 返 `-32601`。
+**method 前缀约定**：`search.*`（apollo-search worker）/ `fs.*`（apollo-fs worker）。worker 侧只认自己前缀，未知 method 返 `-32601`。
+
+> ★ **r13-D1（sandbox 协议形态修正）**：`sandbox.*` 前缀**从本表删除**——apollo-sandbox 是**一次性进程协议**（exec 模式：stdin 喂 JSON → stdout 收 JSON → 进程退出，见 §5.3.1），**不是**常驻 NDJSON JSON-RPC 通道。只有 search / fs 两个 worker 走本节的常驻协议。
+
+**★ r13-I6：单行尺寸上限**：NDJSON 逐行读取**必须带上限**——`max_line_bytes = 4MB`（`config [native] ipc_max_line_bytes` 可配）。超限行为：该 RPC 返 JSON-RPC error `-32600`（invalid request）+ telemetry `ipc.line_too_large`，**通道存活**（读端丢弃该行直至下一个 `\n`）。设计推论：任何入参可能 > 4MB 的 API（如大文件内容）**必须走分片子协议**（§6.4.3 附件分片 / `fs.read_chunk` 流式），不得单行直传——否则一行 2GB JSON 可 OOM 主进程。强制点：ipc 单测（5MB 单行 → 拒绝且通道存活）。
 
 #### 5.6.3 流式结果协议
 
@@ -387,9 +404,10 @@ packages/native-bridge/
 ```ts
 export interface NativeBridge {
   readonly available: {
-    sandbox: boolean
-    search: boolean
-    fs: boolean
+    // r13-P1：探测期为 'probing'（三态），REPL 先起、结果异步回填（见下方启动时序契约）
+    sandbox: boolean | 'probing'
+    search: boolean | 'probing'
+    fs: boolean | 'probing'
     sandbox_tier: 'full' | 'partial' | 'weak' | 'none'   // 探测后冻结
     sandbox_info: {
       platform: string
@@ -472,6 +490,26 @@ class WorkerPool {
 - `available.fs` = fs 二进制存在 + worker 握手成功
 - 任一失败 → 对应 `available.* = false` + 走 JS fallback（仅 search/fs；sandbox → tier=none）
 - 结果**冻结**在 SessionState，session 内不重探（tier 变化需重启 apollo）
+
+**★ 启动时序契约（r13-P1，P0 级）**——探测串行还是并行、阻塞 REPL 与否，钉死：
+
+1. **全部并行发起**：probe 与 search/fs worker 握手用 `Promise.allSettled` 同时发起，互不等待（最坏路径从 +15s 串行降到 +5s）。
+2. **REPL 就绪不等探测**：UI 先起、输入符先出；探测结果**异步回填**——`available.*` 初始值 `probing`（三态：`probing | true | false`），回填后 TopBar 徽标刷新。
+3. **探测未完成期间的按需等待**：副作用工具（Bash/Write/Edit）被调用 → `await` 对应探测（带剩余超时预算）；**只读工具不等待**（search/fs 未就绪先走 JS fallback，回填后自动切 native）。
+4. **tier 冻结起点 = 探测完成时刻**（§5.5 冻结约束不变：冻结后 session 内不重探）。
+5. **首次运行的二进制下载必须显示进度且可 Ctrl+C 跳过**（降级提示：跳过 = 本 session JS fallback / tier=none）。
+- 强制点：集成测试——探测 stub 挂 5s，assert REPL 100ms 内可用（对应 §9.10 冷启动预算）。
+
+**★ 二进制来源优先级（r13-D1，四级链钉死）**：`resolveBinary` 的完整决策序：
+
+```
+env（APOLLO_NATIVE_<KIND>_PATH 显式指定，doctor/调试用）
+  > bundled（§5.9 平台包 require.resolve 命中）
+  > download（按 §5.9 矩阵 + digest 校验拉 GitHub Release，缓存目录 ~/.apollo/native/<ver>/）
+  > cache（上次下载的版本，版本号不匹配则视为 miss）
+```
+
+任一级命中即用；全 miss → JS fallback（search/fs）或 tier=none（sandbox）。分发模型若经 r12 REM-45 换轨认定，本链的 download 级同步改写（§5.9 联动）。
 
 **对接 tool-kit / permission / UI**：
 - `Bash` 检查 sandbox tier → tier=none 时拒绝或走 --dangerous 覆盖
