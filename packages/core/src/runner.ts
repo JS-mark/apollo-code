@@ -34,10 +34,24 @@ export interface RunnerOptions {
   maxToolLoopsPerTurn?: number
   budget?: { tokenMax?: number; costUSDMax?: number; timeMsMax?: number; toolCallMax?: number }
 }
+/**
+ * tool_use 流式聚合条目（spec 03-provider-router §3.2 rule 1）：
+ * `fragments` 即 `Map<toolUseId, string[]>` 的 per-id 片段列表，delta 按 id 追加，
+ * `tool_use.end` 时 join 全文并做一次性 `JSON.parse`。
+ */
+interface AggregatingToolUse {
+  id: string
+  name: string
+  fragments: string[]
+  raw?: string // join 结果，end 时定稿
+  input?: JsonValue // parse 成功时定稿；undefined = 未 parse 或 parse 失败
+  ended?: boolean
+}
 interface InProgress {
   text: string
   thinking: string
-  tools: Map<string, { id: string; name: string; args: string }>
+  tools: Map<string, AggregatingToolUse>
+  invalidTools: Set<string> // parse 失败的 toolUseId（§3.2 rule 2：不执行）
   usage?: Usage
   stopReason?: StopReason
 }
@@ -194,7 +208,12 @@ export class Runner {
           provider: decision.provider.name,
           model: decision.model,
         })
-        const current: InProgress = { text: '', thinking: '', tools: new Map() }
+        const current: InProgress = {
+          text: '',
+          thinking: '',
+          tools: new Map(),
+          invalidTools: new Set(),
+        }
         let interrupted = false
         for await (const chunk of decision.provider.stream(
           {
@@ -210,6 +229,10 @@ export class Runner {
           if (chunk.kind === 'message.interrupted') {
             interrupted = true
             const hadPartialToolUse = current.tools.size > 0
+            // §3.2 rule 4：interrupted 到达时所有聚合 entry（含已 end 的）连同所在 message 作废，
+            // 不落盘、不执行、不产生 tool_result（见 §3.9a）。
+            current.tools.clear()
+            current.invalidTools.clear()
             await this.emit('error.raised', turnId, {
               code: 'stream_interrupted',
               reason: chunk.reason,
@@ -285,6 +308,21 @@ export class Runner {
         toolCalls += toolUses.length
         const results = await Promise.all(
           toolUses.map(async (tool) => {
+            if (current.invalidTools.has(tool.id)) {
+              // §3.2 rule 2：parse 失败的 tool_use 不执行，直接以固定格式的 error tool_result 返模型。
+              const raw = current.tools.get(tool.id)?.raw ?? ''
+              return {
+                toolUseId: tool.id,
+                toolName: tool.name,
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: `Invalid JSON arguments for tool ${tool.name} (stream truncated?): ${raw.slice(0, 200)}...`,
+                  },
+                ],
+                isError: true,
+              } satisfies ToolExecution
+            }
             await this.emit('tool.started', turnId, {
               toolUseId: tool.id,
               toolName: tool.name,
@@ -410,25 +448,38 @@ export class Runner {
     if (chunk.kind === 'text.delta') current.text += chunk.text
     else if (chunk.kind === 'thinking.delta') current.thinking += chunk.text
     else if (chunk.kind === 'tool_use.start')
-      current.tools.set(chunk.id, { id: chunk.id, name: chunk.name, args: '' })
+      current.tools.set(chunk.id, { id: chunk.id, name: chunk.name, fragments: [] })
     else if (chunk.kind === 'tool_use.delta') {
-      const tool = current.tools.get(chunk.id)
-      if (tool) tool.args += chunk.argsFragment
-    } else if (chunk.kind === 'usage') current.usage = chunk.usage
+      current.tools.get(chunk.id)?.fragments.push(chunk.argsFragment)
+    } else if (chunk.kind === 'tool_use.end') this.endToolUse(current, chunk.id)
+    else if (chunk.kind === 'usage') current.usage = chunk.usage
     else if (chunk.kind === 'message.stop') current.stopReason = chunk.stopReason
+  }
+  /** §3.2 rule 1/2：合并全文，一次性 JSON.parse；失败仅标记 invalid，不在此构造 tool_result。 */
+  private endToolUse(current: InProgress, id: string): void {
+    const tool = current.tools.get(id)
+    if (!tool || tool.ended) return
+    tool.ended = true
+    tool.raw = tool.fragments.join('')
+    try {
+      tool.input = JSON.parse(tool.raw) as JsonValue
+    } catch {
+      current.invalidTools.add(tool.id)
+    }
   }
   private finish(current: InProgress, decision: RouterDecision): Message {
     const content: ContentPart[] = []
     if (current.thinking) content.push({ type: 'thinking', text: current.thinking })
     if (current.text) content.push({ type: 'text', text: current.text })
     for (const tool of current.tools.values()) {
-      let input: JsonValue
-      try {
-        input = JSON.parse(tool.args) as JsonValue
-      } catch {
-        input = { parseError: true, raw: tool.args }
-      }
-      content.push({ type: 'tool_use', id: tool.id, name: tool.name, input })
+      // 防御：provider 流缺 tool_use.end 就 message.stop 时，仍按累计片段定稿
+      this.endToolUse(current, tool.id)
+      content.push({
+        type: 'tool_use',
+        id: tool.id,
+        name: tool.name,
+        input: tool.input !== undefined ? tool.input : { parseError: true, raw: tool.raw ?? '' },
+      })
     }
     const message = this.message('assistant', content)
     message.meta = {
