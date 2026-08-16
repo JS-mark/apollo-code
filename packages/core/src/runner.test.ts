@@ -281,6 +281,134 @@ describe('Runner', () => {
     expect(state.messages.at(-1)?.content).toContainEqual({ type: 'text', text: 'kept' })
   })
 
+  it('assembles interleaved tool_use deltas per id and parses each at tool_use.end (spec 3.2 rule 1)', async () => {
+    const client = provider([
+      [
+        { kind: 'tool_use.start', id: 't1', name: 'first' },
+        { kind: 'tool_use.start', id: 't2', name: 'second' },
+        { kind: 'tool_use.delta', id: 't1', argsFragment: '{"a"' },
+        { kind: 'tool_use.delta', id: 't2', argsFragment: '{"b":' },
+        { kind: 'tool_use.delta', id: 't1', argsFragment: ': 1}' },
+        { kind: 'tool_use.delta', id: 't2', argsFragment: ' 2}' },
+        { kind: 'tool_use.end', id: 't2' },
+        { kind: 'tool_use.end', id: 't1' },
+        { kind: 'message.stop', stopReason: 'tool_use' },
+      ],
+      [
+        { kind: 'text.delta', text: 'done' },
+        { kind: 'message.stop', stopReason: 'end_turn' },
+      ],
+    ])
+    const state = await new Runner(context(), router(client), composer, tools).run('hi')
+    expect(tools.execute).toHaveBeenCalledTimes(2)
+    expect(tools.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1', input: { a: 1 } }),
+      expect.any(AbortSignal),
+    )
+    expect(tools.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't2', input: { b: 2 } }),
+      expect.any(AbortSignal),
+    )
+    expect(state.messages).toContainEqual(
+      expect.objectContaining({
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 't1', name: 'first', input: { a: 1 } },
+          { type: 'tool_use', id: 't2', name: 'second', input: { b: 2 } },
+        ],
+      }),
+    )
+    expect(state.turns.at(-1)?.status).toBe('done')
+  })
+
+  it('never executes a tool_use whose args fail JSON.parse and returns the fixed-format error tool_result (spec 3.2 rule 2)', async () => {
+    const brokenRaw = `{"pad":"${'y'.repeat(192)}ENDMARK` // 207 chars, unterminated JSON string
+    const client = provider([
+      [
+        { kind: 'tool_use.start', id: 'ok', name: 'fine' },
+        { kind: 'tool_use.delta', id: 'ok', argsFragment: '{}' },
+        { kind: 'tool_use.end', id: 'ok' },
+        { kind: 'tool_use.start', id: 'bad', name: 'broken' },
+        { kind: 'tool_use.delta', id: 'bad', argsFragment: brokenRaw.slice(0, 100) },
+        { kind: 'tool_use.delta', id: 'bad', argsFragment: brokenRaw.slice(100) },
+        { kind: 'tool_use.end', id: 'bad' },
+        { kind: 'message.stop', stopReason: 'tool_use' },
+      ],
+      [
+        { kind: 'text.delta', text: 'recovered' },
+        { kind: 'message.stop', stopReason: 'end_turn' },
+      ],
+    ])
+    const started: string[] = []
+    const completed: unknown[] = []
+    const bus = new EventBus()
+    bus.subscribe((event) => {
+      const payload = event.payload as { toolUseId?: string }
+      if (event.type === 'tool.started' && payload.toolUseId) started.push(payload.toolUseId)
+      if (event.type === 'tool.completed') completed.push(event.payload)
+    })
+    const state = await new Runner(context(), router(client), composer, tools, bus).run('hi')
+    expect(tools.execute).toHaveBeenCalledTimes(1)
+    expect(tools.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ok', input: {} }),
+      expect.any(AbortSignal),
+    )
+    expect(started).toEqual(['ok'])
+    const expected = `Invalid JSON arguments for tool broken (stream truncated?): ${brokenRaw.slice(0, 200)}...`
+    expect(completed).toContainEqual({
+      toolUseId: 'bad',
+      toolName: 'broken',
+      content: [{ type: 'text', text: expected }],
+      isError: true,
+    })
+    const badResult = state.messages.find((message) =>
+      message.content.some((part) => part.type === 'tool_result' && part.toolUseId === 'bad'),
+    )
+    expect(badResult).toBeDefined()
+    const badPart = badResult?.content[0] as {
+      type: string
+      isError?: boolean
+      content: { type: string; text: string }[]
+    }
+    expect(badPart.type).toBe('tool_result')
+    expect(badPart.isError).toBe(true)
+    expect(badPart.content[0]?.type).toBe('text')
+    expect(badPart.content[0]?.text).toContain(expected)
+    expect(badPart.content[0]?.text).not.toContain('ENDMARK')
+    expect(state.messages.at(-1)?.content).toContainEqual({ type: 'text', text: 'recovered' })
+    expect(state.turns.at(-1)?.status).toBe('done')
+  })
+
+  it('voids every aggregation entry, including ended ones, when message.interrupted arrives (spec 3.2 rule 4)', async () => {
+    const client = provider([
+      [
+        { kind: 'text.delta', text: 'partial' },
+        { kind: 'tool_use.start', id: 't1', name: 'never' },
+        { kind: 'tool_use.delta', id: 't1', argsFragment: '{"a":' },
+        { kind: 'tool_use.start', id: 't2', name: 'ended-but-void' },
+        { kind: 'tool_use.delta', id: 't2', argsFragment: '{"b":2}' },
+        { kind: 'tool_use.end', id: 't2' },
+        { kind: 'message.interrupted', reason: 'rst' },
+      ],
+    ])
+    const events: string[] = []
+    const bus = new EventBus()
+    bus.subscribe((event) => {
+      if (event.type === 'error.raised') events.push((event.payload as { code: string }).code)
+    })
+    const state = await new Runner(context(), router(client), composer, tools, bus).run('hi')
+    expect(events).toContain('stream_interrupted')
+    expect(events).toContain('stream_resume_unsafe_partial_tool_use')
+    expect(tools.execute).not.toHaveBeenCalled()
+    expect(
+      state.messages.some((message) => message.content.some((part) => part.type === 'tool_use')),
+    ).toBe(false)
+    expect(
+      state.messages.some((message) => message.content.some((part) => part.type === 'tool_result')),
+    ).toBe(false)
+    expect(state.turns.at(-1)?.status).toBe('aborted')
+  })
+
   it('derives role hints from built-in subagent types while preserving explicit hints', async () => {
     const client = provider([
       [{ kind: 'message.stop', stopReason: 'end_turn' }],
