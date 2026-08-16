@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'node:child_process'
 
-import { RpcPeer } from './ipc'
+import { RpcPeer, type IpcTelemetry } from './ipc'
 import { resolveBinary } from './resolver'
 
 export type WorkerKind = 'search' | 'fs'
@@ -13,6 +13,8 @@ type SpawnLike = (
 interface Options {
   idleMs?: number
   handshakeMs?: number
+  ipcMaxLineBytes?: number
+  telemetry?: IpcTelemetry
   resolve?: typeof resolveBinary
   spawn?: SpawnLike
 }
@@ -27,12 +29,16 @@ export class WorkerPool {
   private readonly restarts = new Map<WorkerKind, number>()
   private readonly idleMs: number
   private readonly handshakeMs: number
+  private readonly ipcMaxLineBytes: number | undefined
+  private readonly telemetry: IpcTelemetry | undefined
   private readonly resolve: typeof resolveBinary
   private readonly spawn: SpawnLike
 
   constructor(options: Options = {}) {
     this.idleMs = options.idleMs ?? 30_000
     this.handshakeMs = options.handshakeMs ?? 5_000
+    this.ipcMaxLineBytes = options.ipcMaxLineBytes
+    this.telemetry = options.telemetry
     this.resolve = options.resolve ?? resolveBinary
     this.spawn = options.spawn ?? nodeSpawn
   }
@@ -47,7 +53,10 @@ export class WorkerPool {
     const binary = await this.resolve(kind)
     if (!binary) return null
     const child = this.spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'] })
-    const rpc = new RpcPeer(child.stdout, child.stdin)
+    const rpc = new RpcPeer(child.stdout, child.stdin, {
+      maxLineBytes: this.ipcMaxLineBytes,
+      telemetry: this.telemetry,
+    })
     let timer: ReturnType<typeof setTimeout> | undefined
     const ready = (await Promise.race([
       rpc.notification('worker.ready'),
