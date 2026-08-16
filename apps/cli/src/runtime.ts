@@ -34,8 +34,13 @@ import type { PromptComposer, RunnerToolPort, SessionState } from '@apollo-code/
 import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
-import { BridgeRuntime, PluginManager, PluginRuntime } from '@apollo-code/plugin-runtime'
-import type { PluginRuntimeOptions } from '@apollo-code/plugin-runtime'
+import {
+  BridgeRuntime,
+  createToolHookDispatcher,
+  PluginManager,
+  PluginRuntime,
+} from '@apollo-code/plugin-runtime'
+import type { HookPipelineSignal, PluginRuntimeOptions } from '@apollo-code/plugin-runtime'
 import type {
   CommandSpec,
   PluginManifest,
@@ -1338,13 +1343,61 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         return result.stdout
       },
     }
-    const executor = new ToolExecutor(permissions, (signal) => ({
-      abortSignal: signal,
-      session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
-      native,
-      logger,
-      ui: { requestInput: promptLine },
-    }))
+    // REM-52 (spec 02-agent-loop.md §2.6, r13-I10): pre/postToolUse hooks dispatch from
+    // the tool invoke chain. The session bridge below is assigned after the executor is
+    // constructed (its host eagerly reads runner state); until then the lazy dispatcher
+    // reports "no hooks" so tool execution degrades gracefully during startup.
+    let sessionHooks: BridgeRuntime | undefined
+    const reportHookSignal = (signal: HookPipelineSignal) => {
+      if (signal.kind === 'builtin_hook_timeout' || signal.kind === 'builtin_hook_error') {
+        void events
+          .emit({
+            type: 'error.raised',
+            version: state.version,
+            sessionId: state.id,
+            ...(runner?.state.activeTurn ? { turnId: runner.state.activeTurn } : {}),
+            payload: { code: signal.code, hook: signal.hook, event: signal.event },
+          })
+          .catch(() => undefined)
+        return
+      }
+      if (signal.kind === 'hook_skipped') {
+        logger.warn(
+          `Hook skipped (${signal.domain} ${signal.hook} on ${signal.event}, ${signal.cause}): ${signal.message}`,
+        )
+        void telemetry
+          .emit('hook.skipped', 'plugin-runtime', {
+            domain: signal.domain,
+            hook: signal.hook,
+            event: signal.event,
+            cause: signal.cause,
+          })
+          .catch(() => undefined)
+        return
+      }
+      logger.warn(
+        `Hook payload truncated for ${signal.hook} on ${signal.event}: ${signal.truncatedBytes} bytes over ${signal.limitBytes}`,
+      )
+      void telemetry
+        .emit('hook.payload_truncated', 'plugin-runtime', {
+          hook: signal.hook,
+          event: signal.event,
+          limitBytes: signal.limitBytes,
+          truncatedBytes: signal.truncatedBytes,
+        })
+        .catch(() => undefined)
+    }
+    const executor = new ToolExecutor(
+      permissions,
+      (signal) => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
+        native,
+        logger,
+        ui: { requestInput: promptLine },
+      }),
+      createToolHookDispatcher(() => sessionHooks, { report: reportHookSignal }),
+    )
     const tools: RunnerToolPort = {
       schemas: () => registry.forProvider(),
       async execute(use, signal) {
@@ -1355,7 +1408,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
             isError: true,
             content: [{ type: 'text', text: `Unknown tool: ${use.name}` }],
           }
-        const result = await executor.execute(tool, use.input, signal)
+        const result = await executor.execute(tool, use.input, signal, use.id)
         return {
           toolUseId: use.id,
           content: result.content,
@@ -1366,141 +1419,139 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     runner = new Runner(state, router, composer, tools, events, {}, contextPolicy)
     await pluginsReady
     const pluginStorage = new Map<string, unknown>()
-    const pluginRuntime = new PluginRuntime(
-      plugins,
-      new BridgeRuntime({
-        get session() {
-          return {
-            id: runner.state.id,
-            cwd: runner.state.cwd,
-            messages: runner.state.messages,
-            usage: {
-              inputTokens: runner.state.cumulativeUsage.input,
-              outputTokens: runner.state.cumulativeUsage.output,
-              cost: runner.state.cumulativeUsage.costUSD,
-            },
-          }
-        },
-        register(kind, value, plugin) {
-          if (kind === 'command') {
-            // Only the top-level interactive session contributes commands. Child and
-            // non-interactive runners still activate safely without acquiring TUI state.
-            if (runner.state.lineage.depth !== 0) return { dispose() {} }
-            const spec = value as CommandSpec
-            const dispose = slashCommands.register(
-              {
-                name: spec.name,
-                description: spec.description ?? `Run ${spec.name}`,
-                run: ({ args }) => spec.handler(args),
-              },
-              { kind: 'plugin', plugin },
-            )
-            options.onPluginContribution?.({ kind: 'command', name: spec.name, plugin })
-            return { dispose }
-          }
-          if (kind !== 'tool') throw new Error(`plugin_${kind}_registration_not_supported`)
-          const spec = value as ToolSpec
-          const dispose = registry.register(
+    const sessionBridge = new BridgeRuntime({
+      get session() {
+        return {
+          id: runner.state.id,
+          cwd: runner.state.cwd,
+          messages: runner.state.messages,
+          usage: {
+            inputTokens: runner.state.cumulativeUsage.input,
+            outputTokens: runner.state.cumulativeUsage.output,
+            cost: runner.state.cumulativeUsage.costUSD,
+          },
+        }
+      },
+      register(kind, value, plugin) {
+        if (kind === 'command') {
+          // Only the top-level interactive session contributes commands. Child and
+          // non-interactive runners still activate safely without acquiring TUI state.
+          if (runner.state.lineage.depth !== 0) return { dispose() {} }
+          const spec = value as CommandSpec
+          const dispose = slashCommands.register(
             {
               name: spec.name,
-              description: spec.description,
-              inputSchema: spec.inputSchema as never,
-              permissionSpec: () => ({}),
-              async invoke(input, context) {
-                const result = await spec.handler(input, {
-                  session: context.session,
-                  aborted: context.abortSignal.aborted,
-                })
-                const content =
-                  result &&
-                  typeof result === 'object' &&
-                  Array.isArray((result as { content?: unknown }).content)
-                    ? (result as { content: Array<{ type: 'text'; text: string }> }).content
-                    : [
-                        {
-                          type: 'text' as const,
-                          text: typeof result === 'string' ? result : JSON.stringify(result),
-                        },
-                      ]
-                return {
-                  content: wrapUntrusted(content, `plugin:${plugin}:${spec.name}`),
-                  meta: { durationMs: 0 },
-                }
-              },
+              description: spec.description ?? `Run ${spec.name}`,
+              run: ({ args }) => spec.handler(args),
             },
             { kind: 'plugin', plugin },
           )
-          options.onPluginContribution?.({ kind: 'tool', name: spec.name, plugin })
+          options.onPluginContribution?.({ kind: 'command', name: spec.name, plugin })
           return { dispose }
-        },
-        fs: {
-          readFile: (path, encoding) => readFile(path, encoding === 'binary' ? undefined : 'utf8'),
-          writeFile,
-          exists: async (path) =>
-            access(path).then(
-              () => true,
-              () => false,
-            ),
-          glob: async (pattern, cwd) => Array.fromAsync(glob(pattern, { cwd })),
-          stat: async (path) => {
-            const value = await stat(path)
-            return {
-              size: value.size,
-              type: value.isFile() ? 'file' : value.isDirectory() ? 'directory' : 'other',
-              modifiedAt: value.mtimeMs,
-            }
-          },
-        },
-        exec: async (command, rawOptions, signal) => {
-          const execOptions = (rawOptions ?? {}) as { cwd?: string; timeoutMs?: number }
-          const result = await execSandbox(
-            {
-              command,
-              cwd: execOptions.cwd ?? runner.state.cwd,
-              ...(execOptions.timeoutMs === undefined ? {} : { timeout_ms: execOptions.timeoutMs }),
-              permissions: {
-                fs: { read: [runner.state.cwd], write: [runner.state.cwd] },
-                net: false,
-                env: { read: [] },
-              },
+        }
+        if (kind !== 'tool') throw new Error(`plugin_${kind}_registration_not_supported`)
+        const spec = value as ToolSpec
+        const dispose = registry.register(
+          {
+            name: spec.name,
+            description: spec.description,
+            inputSchema: spec.inputSchema as never,
+            permissionSpec: () => ({}),
+            async invoke(input, context) {
+              const result = await spec.handler(input, {
+                session: context.session,
+                aborted: context.abortSignal.aborted,
+              })
+              const content =
+                result &&
+                typeof result === 'object' &&
+                Array.isArray((result as { content?: unknown }).content)
+                  ? (result as { content: Array<{ type: 'text'; text: string }> }).content
+                  : [
+                      {
+                        type: 'text' as const,
+                        text: typeof result === 'string' ? result : JSON.stringify(result),
+                      },
+                    ]
+              return {
+                content: wrapUntrusted(content, `plugin:${plugin}:${spec.name}`),
+                meta: { durationMs: 0 },
+              }
             },
-            signal,
-          )
-          return { stdout: result.stdout, stderr: result.stderr, code: result.exit_code }
-        },
-        fetch: async () => {
-          throw new Error('plugin_http_not_connected')
-        },
-        ui: () => {
-          throw new Error('plugin_ui_not_connected')
-        },
-        storage: async (plugin, operation, key, value) => {
-          const isolated = `${plugin}:${key}`
-          if (operation === 'set') pluginStorage.set(isolated, value)
-          if (operation === 'delete') pluginStorage.delete(isolated)
-          return pluginStorage.get(isolated)
-        },
-        memory: createPluginMemoryHost({
-          home,
-          cwd: runner.state.cwd,
-          sessionId: runner.state.id,
-          memory,
-          memoryRecall,
-          memoryTransfer,
-        }),
-        config: () => undefined,
-        log: (level, message) => {
-          if (level === 'error') logger.error(message)
-          else if (level === 'warn') logger.warn(message)
-          else if (level === 'debug') logger.debug(message)
-          else logger.info(message)
-        },
-      }),
-      {
-        dataRoot: join(home, 'plugin-data'),
-        ...(options.pluginHostStart ? { start: options.pluginHostStart } : {}),
+          },
+          { kind: 'plugin', plugin },
+        )
+        options.onPluginContribution?.({ kind: 'tool', name: spec.name, plugin })
+        return { dispose }
       },
-    )
+      fs: {
+        readFile: (path, encoding) => readFile(path, encoding === 'binary' ? undefined : 'utf8'),
+        writeFile,
+        exists: async (path) =>
+          access(path).then(
+            () => true,
+            () => false,
+          ),
+        glob: async (pattern, cwd) => Array.fromAsync(glob(pattern, { cwd })),
+        stat: async (path) => {
+          const value = await stat(path)
+          return {
+            size: value.size,
+            type: value.isFile() ? 'file' : value.isDirectory() ? 'directory' : 'other',
+            modifiedAt: value.mtimeMs,
+          }
+        },
+      },
+      exec: async (command, rawOptions, signal) => {
+        const execOptions = (rawOptions ?? {}) as { cwd?: string; timeoutMs?: number }
+        const result = await execSandbox(
+          {
+            command,
+            cwd: execOptions.cwd ?? runner.state.cwd,
+            ...(execOptions.timeoutMs === undefined ? {} : { timeout_ms: execOptions.timeoutMs }),
+            permissions: {
+              fs: { read: [runner.state.cwd], write: [runner.state.cwd] },
+              net: false,
+              env: { read: [] },
+            },
+          },
+          signal,
+        )
+        return { stdout: result.stdout, stderr: result.stderr, code: result.exit_code }
+      },
+      fetch: async () => {
+        throw new Error('plugin_http_not_connected')
+      },
+      ui: () => {
+        throw new Error('plugin_ui_not_connected')
+      },
+      storage: async (plugin, operation, key, value) => {
+        const isolated = `${plugin}:${key}`
+        if (operation === 'set') pluginStorage.set(isolated, value)
+        if (operation === 'delete') pluginStorage.delete(isolated)
+        return pluginStorage.get(isolated)
+      },
+      memory: createPluginMemoryHost({
+        home,
+        cwd: runner.state.cwd,
+        sessionId: runner.state.id,
+        memory,
+        memoryRecall,
+        memoryTransfer,
+      }),
+      config: () => undefined,
+      log: (level, message) => {
+        if (level === 'error') logger.error(message)
+        else if (level === 'warn') logger.warn(message)
+        else if (level === 'debug') logger.debug(message)
+        else logger.info(message)
+      },
+    })
+    sessionHooks = sessionBridge
+    const pluginRuntime = new PluginRuntime(plugins, sessionBridge, {
+      dataRoot: join(home, 'plugin-data'),
+      ...(options.pluginHostStart ? { start: options.pluginHostStart } : {}),
+    })
     for (const failure of await pluginRuntime.loadEnabled())
       logger.warn(`Plugin activation failed: ${failure.name}`)
     pluginRuntimes.add(pluginRuntime)

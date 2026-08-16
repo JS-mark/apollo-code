@@ -1108,8 +1108,90 @@ export interface BridgeHost {
   log(level: string, message: string, meta?: unknown): void
 }
 
+/**
+ * Hook source domain (spec 02-agent-loop.md §2.6, r13-I10). `builtin` marks hooks
+ * registered by the Apollo runtime itself (e.g. the memory redaction guard); they run
+ * first and fail closed on timeout or error. Plugins register through the bridge and
+ * are always `plugin`. `project` / `user` are host-controlled registration domains for
+ * `<cwd>/.apollo/hooks` and `~/.apollo/hooks`.
+ */
+export type HostHookDomain = 'builtin' | 'project' | 'user'
+export type HookDomain = HostHookDomain | 'plugin'
+
+/** Per-handler timeout for intercepting hooks (spec §2.6 执行语义: 超时 5 秒). */
+export const HOOK_HANDLER_TIMEOUT_MS = 5_000
+/** Size gate applied to builtin (security) hook payloads before dispatch (spec §2.6: >1MB 截断). */
+export const BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES = 1024 * 1024
+
+const HOST_DOMAIN_PRIORITY_BANDS = {
+  builtin: { min: 900, max: 1000, priority: 1000 },
+  project: { min: 500, max: 899, priority: 600 },
+  user: { min: -1000, max: -1, priority: -1000 },
+} as const
+
+// Domain rank wins over numeric priority so no plugin/user hook can ever preempt a
+// builtin security hook, regardless of the priority dialect in use (see PR notes for
+// the 900–1000 vs -100..100 spec tension).
+const HOOK_DOMAIN_ORDER: Record<HookDomain, number> = {
+  builtin: 0,
+  project: 1,
+  plugin: 2,
+  user: 3,
+}
+
+/**
+ * Telemetry / error signals surfaced by {@link BridgeRuntime.runDomainHooks}. The
+ * composition layer maps `builtin_hook_timeout` (and `builtin_hook_error`) to
+ * `error.raised` events and logs/records the fail-open signals.
+ */
+export type HookPipelineSignal =
+  | {
+      kind: 'builtin_hook_timeout'
+      code: 'builtin_hook_timeout'
+      domain: 'builtin'
+      hook: string
+      event: HookEvent
+      timeoutMs: number
+    }
+  | {
+      kind: 'builtin_hook_error'
+      code: 'builtin_hook_error'
+      domain: 'builtin'
+      hook: string
+      event: HookEvent
+      message: string
+    }
+  | {
+      kind: 'hook_skipped'
+      code: 'hook_skipped'
+      domain: HookDomain
+      hook: string
+      event: HookEvent
+      cause: 'timeout' | 'error'
+      message: string
+    }
+  | {
+      kind: 'hook_payload_truncated'
+      code: 'hook_payload_truncated'
+      domain: 'builtin'
+      hook: string
+      event: HookEvent
+      limitBytes: number
+      truncatedBytes: number
+    }
+
+export interface RunDomainHooksOptions {
+  signal?: AbortSignal
+  toolUseId?: string
+  /** Per-handler timeout; defaults to {@link HOOK_HANDLER_TIMEOUT_MS}. */
+  timeoutMs?: number
+  /** Observability channel for fail-closed / fail-open / truncation signals. */
+  report?: (signal: HookPipelineSignal) => void
+}
+
 type HookRecord = {
   plugin: string
+  domain: HookDomain
   event: HookEvent
   handler: HookHandler
   priority: number
@@ -1139,6 +1221,77 @@ const redact = (value: unknown): unknown => {
       ]),
     )
   return value
+}
+
+const serializedBytes = (value: unknown): number => {
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? 'null')
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+const TRUNCATION_MARKER = 'apollo-hook'
+
+/**
+ * Size gate for builtin security hooks (spec §2.6 防喂爆扫描器): payloads over
+ * `limitBytes` are truncated before a builtin handler ever sees them. Truncation is
+ * structure-preserving (strings shrink proportionally) with a hard serialized fallback
+ * so the gate always holds. The input value is never mutated.
+ */
+export function truncateHookPayload(
+  value: unknown,
+  limitBytes: number = BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
+): { value: unknown; truncatedBytes: number } {
+  const total = serializedBytes(value)
+  if (total <= limitBytes) return { value, truncatedBytes: 0 }
+  const marker = (removed: number) => `[...${TRUNCATION_MARKER}: truncated ${removed} bytes...]`
+  const shrinkStrings = (item: unknown, factor: number): unknown => {
+    const walk = (node: unknown): unknown => {
+      if (typeof node === 'string') {
+        const bytes = Buffer.byteLength(node)
+        const keep = Math.max(16, Math.floor(bytes * factor))
+        if (bytes <= keep) return node
+        const kept = Buffer.from(node, 'utf8').subarray(0, keep).toString('utf8')
+        return `${kept}${marker(bytes - Buffer.byteLength(kept))}`
+      }
+      if (Array.isArray(node)) return node.map(walk)
+      if (node && typeof node === 'object')
+        return Object.fromEntries(Object.entries(node).map(([key, nested]) => [key, walk(nested)]))
+      return node
+    }
+    return walk(item)
+  }
+  let next = value
+  for (let attempt = 0; attempt < 4 && serializedBytes(next) > limitBytes; attempt++) {
+    const current = serializedBytes(next)
+    const factor = Math.max(0.05, (limitBytes * 0.85) / (Number.isFinite(current) ? current : 1))
+    next = shrinkStrings(next, factor)
+  }
+  if (serializedBytes(next) > limitBytes) {
+    // Pathological shape (e.g. millions of tiny fields): hard slice the serialized
+    // form. Re-serialization escapes the sliced text, so shrink until it fits.
+    let encoded: string
+    try {
+      encoded = JSON.stringify(next) ?? 'null'
+    } catch {
+      encoded = String(next)
+    }
+    const sliceBytes = (keep: number) =>
+      Buffer.from(encoded, 'utf8').subarray(0, keep).toString('utf8')
+    let keep = Math.floor(limitBytes * 0.8)
+    let hard: unknown
+    do {
+      hard = {
+        truncated: true,
+        originalBytes: Number.isFinite(total) ? total : -1,
+        text: sliceBytes(keep),
+      }
+      keep = Math.floor(keep * 0.8)
+    } while (serializedBytes(hard) > limitBytes && keep > 0)
+    next = hard
+  }
+  return { value: next, truncatedBytes: Math.max(0, total - serializedBytes(next)) }
 }
 
 export class BridgeRuntime {
@@ -1231,6 +1384,7 @@ export class BridgeRuntime {
             throw new PluginError('plugin_hook_priority_invalid', event)
           const record = {
             plugin: manifest.name,
+            domain: 'plugin' as const,
             event,
             handler,
             priority,
@@ -1457,6 +1611,151 @@ export class BridgeRuntime {
     )
   }
 
+  /**
+   * Register a host-owned hook (builtin security hook, project hook, or user hook).
+   * Priority bands follow spec 06b §6.11.1 per domain; out-of-band priorities are
+   * rejected at registration time so no host hook can masquerade as another domain.
+   */
+  registerHostHook(
+    domain: HostHookDomain,
+    event: HookEvent,
+    handler: HookHandler,
+    options: { priority?: number; name?: string } = {},
+  ): Disposable {
+    const band = HOST_DOMAIN_PRIORITY_BANDS[domain]
+    const priority = options.priority ?? band.priority
+    if (!Number.isSafeInteger(priority) || priority < band.min || priority > band.max)
+      throw new PluginError('plugin_hook_priority_invalid', `${domain}:${event}`)
+    const record: HookRecord = {
+      plugin: options.name ?? `apollo.${domain}`,
+      domain,
+      event,
+      handler,
+      priority,
+      order: this.#order++,
+      // Host hooks are trusted: they observe every memory scope.
+      memoryScopes: ['workspace', 'project', 'session'],
+    }
+    this.#hooks.push(record)
+    return { dispose: () => this.removeHook(record) }
+  }
+
+  /**
+   * Domain-aware intercepting-hook dispatch (spec 02-agent-loop.md §2.6, r13-I10):
+   * handlers run as a serial pipeline where each handler may rewrite the payload for
+   * the next one; a veto short-circuits the chain. Per-handler timeout defaults to 5s
+   * and its consequence is split by hook domain:
+   * - `builtin` timeout or exception -> fail-closed: the outcome is a veto and
+   *   `builtin_hook_timeout` / `builtin_hook_error` is reported for `error.raised`.
+   * - `plugin` / `project` / `user` timeout or exception -> fail-open: the handler is
+   *   skipped (`hook_skipped` reported) and the pipeline continues.
+   * Builtin payloads additionally pass the >1MB truncation gate before dispatch.
+   */
+  async runDomainHooks(
+    event: HookEvent,
+    payload: unknown,
+    options: RunDomainHooksOptions = {},
+  ): Promise<HookResult | undefined> {
+    if (event.startsWith('memory.'))
+      throw new PluginError('plugin_memory_hook_dispatch_required', event)
+    const timeoutMs = options.timeoutMs ?? HOOK_HANDLER_TIMEOUT_MS
+    const report = options.report
+    const handlers = this.#hooks
+      .filter((hook) => hook.event === event)
+      .sort(
+        (a, b) =>
+          HOOK_DOMAIN_ORDER[a.domain] - HOOK_DOMAIN_ORDER[b.domain] ||
+          b.priority - a.priority ||
+          a.order - b.order,
+      )
+    if (handlers.length === 0) return undefined
+    let current = payload
+    for (const hook of handlers) {
+      if (options.signal?.aborted) throw options.signal.reason
+      let handlerPayload = current
+      if (hook.domain === 'builtin') {
+        const gate = truncateHookPayload(current)
+        if (gate.truncatedBytes > 0) {
+          handlerPayload = gate.value
+          report?.({
+            kind: 'hook_payload_truncated',
+            code: 'hook_payload_truncated',
+            domain: 'builtin',
+            hook: hook.plugin,
+            event,
+            limitBytes: BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
+            truncatedBytes: gate.truncatedBytes,
+          })
+        }
+      }
+      let timer: NodeJS.Timeout | undefined
+      // The async wrapper converts a synchronously throwing handler into a rejection
+      // so the race below routes it through the same domain semantics.
+      const invoke: Promise<void | HookResult> = (async () => hook.handler(clone(handlerPayload)))()
+      // Keep a late rejection (after the race already settled) from becoming unhandled.
+      void invoke.catch(() => {})
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new PluginError('hook_dispatch_timeout', `${hook.plugin}:${event}`)),
+          timeoutMs,
+        )
+      })
+      let result: HookResult | void
+      try {
+        result = await Promise.race([invoke, timeout])
+      } catch (error) {
+        const timedOut = error instanceof PluginError && error.code === 'hook_dispatch_timeout'
+        const message = error instanceof Error ? error.message : String(error)
+        if (hook.domain === 'builtin') {
+          report?.(
+            timedOut
+              ? {
+                  kind: 'builtin_hook_timeout',
+                  code: 'builtin_hook_timeout',
+                  domain: 'builtin',
+                  hook: hook.plugin,
+                  event,
+                  timeoutMs,
+                }
+              : {
+                  kind: 'builtin_hook_error',
+                  code: 'builtin_hook_error',
+                  domain: 'builtin',
+                  hook: hook.plugin,
+                  event,
+                  message,
+                },
+          )
+          return {
+            veto: true,
+            reason: timedOut
+              ? `builtin hook ${hook.plugin} on ${event} timed out after ${timeoutMs}ms (fail-closed)`
+              : `builtin hook ${hook.plugin} on ${event} failed: ${message} (fail-closed)`,
+          }
+        }
+        report?.({
+          kind: 'hook_skipped',
+          code: 'hook_skipped',
+          domain: hook.domain,
+          hook: hook.plugin,
+          event,
+          cause: timedOut ? 'timeout' : 'error',
+          message,
+        })
+        continue
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+      if (result?.veto)
+        return {
+          veto: true,
+          ...(result.reason === undefined ? {} : { reason: result.reason }),
+        }
+      if (result && result.value !== undefined) current = result.value
+    }
+    return { value: current }
+  }
+
   async #runHooks(
     event: HookEvent,
     payload: unknown,
@@ -1465,7 +1764,12 @@ export class BridgeRuntime {
   ): Promise<{ plugin: string; result: HookResult } | undefined> {
     const handlers = this.#hooks
       .filter((hook) => hook.event === event && include(hook))
-      .sort((a, b) => b.priority - a.priority || a.order - b.order)
+      .sort(
+        (a, b) =>
+          HOOK_DOMAIN_ORDER[a.domain] - HOOK_DOMAIN_ORDER[b.domain] ||
+          b.priority - a.priority ||
+          a.order - b.order,
+      )
     for (const hook of handlers) {
       if (options.signal?.aborted) throw options.signal.reason
       const controller = new AbortController(),
@@ -1504,5 +1808,38 @@ export class BridgeRuntime {
     const created = new Map<string, unknown>()
     this.#kv.set(key, created)
     return created
+  }
+}
+
+export interface ToolHookDispatchOptions {
+  signal?: AbortSignal
+}
+/**
+ * Structural match for the dispatcher `ToolExecutor` accepts; declared here so the
+ * runtime package can adapt {@link BridgeRuntime} without depending on the tools package.
+ */
+export type ToolHookDispatch = (
+  event: 'preToolUse' | 'postToolUse',
+  payload: unknown,
+  options?: ToolHookDispatchOptions,
+) => Promise<HookResult | undefined>
+
+/**
+ * Adapt a {@link BridgeRuntime} (optionally resolved lazily) into a ToolExecutor hook
+ * dispatcher running the r13-I10 domain semantics. Returns `undefined` while the lazy
+ * runtime is not yet constructed so tool execution degrades to a hook-free path
+ * instead of crashing during startup.
+ */
+export function createToolHookDispatcher(
+  source: BridgeRuntime | (() => BridgeRuntime | undefined),
+  options: { report?: (signal: HookPipelineSignal) => void } = {},
+): ToolHookDispatch {
+  return (event, payload, dispatchOptions) => {
+    const runtime = typeof source === 'function' ? source() : source
+    if (!runtime) return Promise.resolve(undefined)
+    return runtime.runDomainHooks(event, payload, {
+      ...(dispatchOptions?.signal === undefined ? {} : { signal: dispatchOptions.signal }),
+      ...(options.report === undefined ? {} : { report: options.report }),
+    })
   }
 }

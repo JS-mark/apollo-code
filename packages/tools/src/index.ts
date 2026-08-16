@@ -500,28 +500,163 @@ function validate(schema: Record<string, unknown>, input: unknown): string | und
     for (const key of Object.keys(input))
       if (!Object.hasOwn(schema.properties as object, key)) return `unknown property: ${key}`
 }
+/**
+ * Outcome of a preToolUse/postToolUse pipeline run (mirrors the plugin-sdk HookResult).
+ * `veto` blocks the tool call; `value` carries the (possibly rewritten) payload.
+ */
+export interface ToolHookOutcome {
+  veto?: boolean
+  reason?: string
+  value?: unknown
+}
+export type ToolHookEvent = 'preToolUse' | 'postToolUse'
+export interface ToolHookDispatchCall {
+  signal: AbortSignal
+}
+export type ToolHookDispatcher = (
+  event: ToolHookEvent,
+  payload: unknown,
+  options: ToolHookDispatchCall,
+) => Promise<ToolHookOutcome | undefined>
+
+/** preToolUse payload; hooks may return `{ value: <payload with rewritten input> }`. */
+export interface PreToolUseHookPayload {
+  schemaVersion: 1
+  tool: string
+  toolUseId?: string
+  turnId?: string
+  input: unknown
+}
+/** postToolUse payload; hooks may return `{ value: <payload with rewritten result> }`. */
+export interface PostToolUseHookPayload {
+  schemaVersion: 1
+  tool: string
+  toolUseId?: string
+  turnId?: string
+  input: unknown
+  result: { content: ContentPart[]; isError?: boolean }
+}
+
+const blockedByHook = (reason: string | undefined, meta: ToolResult['meta']): ToolResult => ({
+  isError: true,
+  content: [{ type: 'text', text: `blocked by hook: ${reason ?? 'unspecified reason'}` }],
+  ...(meta === undefined ? {} : { meta }),
+})
+const adoptHookInput = (outcome: ToolHookOutcome | undefined, fallback: unknown): unknown => {
+  const value = outcome?.value
+  if (value && typeof value === 'object' && !Array.isArray(value) && 'input' in value)
+    return (value as { input: unknown }).input
+  return fallback
+}
+const adoptHookResult = (
+  outcome: ToolHookOutcome | undefined,
+): { content: ContentPart[]; isError?: boolean } | undefined => {
+  const value = outcome?.value
+  if (value && typeof value === 'object' && !Array.isArray(value) && 'result' in value) {
+    const result = (value as { result?: unknown }).result
+    if (
+      result &&
+      typeof result === 'object' &&
+      Array.isArray((result as { content?: unknown }).content)
+    ) {
+      const isError = (result as { isError?: boolean }).isError
+      return {
+        content: (result as { content: ContentPart[] }).content,
+        ...(isError === undefined ? {} : { isError }),
+      }
+    }
+  }
+  return undefined
+}
 export class ToolExecutor {
   constructor(
     readonly permissions: PermissionManager,
     readonly context: (signal: AbortSignal) => ToolContext,
+    readonly dispatchHook?: ToolHookDispatcher,
   ) {}
-  async execute(tool: Tool, input: unknown, signal: AbortSignal): Promise<ToolResult> {
+  async execute(
+    tool: Tool,
+    input: unknown,
+    signal: AbortSignal,
+    toolUseId?: string,
+  ): Promise<ToolResult> {
+    const started = Date.now()
     const error = validate(tool.inputSchema, input)
     if (error) return failure(new Error(`Invalid input: ${error}`))
+    const session = this.context(signal).session
+    const hookContext = {
+      schemaVersion: 1 as const,
+      tool: tool.name,
+      ...(toolUseId === undefined ? {} : { toolUseId }),
+      ...(session.turnId ? { turnId: session.turnId } : {}),
+    }
+    // REM-52 (spec §2.5/§2.6): preToolUse pipeline runs before permission; a veto
+    // blocks only this tool_use and never disturbs parallel tool calls.
+    if (this.dispatchHook) {
+      let outcome: ToolHookOutcome | undefined
+      try {
+        outcome = await this.dispatchHook(
+          'preToolUse',
+          { ...hookContext, input } satisfies PreToolUseHookPayload,
+          { signal },
+        )
+      } catch (hookError) {
+        return failure(hookError, started)
+      }
+      if (outcome?.veto) return blockedByHook(outcome.reason, { durationMs: Date.now() - started })
+      const rewritten = adoptHookInput(outcome, input)
+      if (rewritten !== input) {
+        const invalid = validate(tool.inputSchema, rewritten)
+        if (invalid)
+          return failure(new Error(`Invalid input after preToolUse hook: ${invalid}`), started)
+        input = rewritten
+      }
+    }
+    let result: ToolResult
     try {
-      return await this.permissions.requestAndExecute(
+      result = await this.permissions.requestAndExecute(
         {
           toolName: tool.name,
           spec: tool.permissionSpec(input),
           input,
-          session: { id: this.context(signal).session.id, cwd: this.context(signal).session.cwd },
+          session: { id: session.id, cwd: session.cwd },
           attempt: 1,
         },
         () => tool.invoke(input, this.context(signal)),
       )
     } catch (e) {
-      return failure(e)
+      result = failure(e)
     }
+    // postToolUse observes both successful and failed results and may rewrite them.
+    if (this.dispatchHook) {
+      let outcome: ToolHookOutcome | undefined
+      try {
+        outcome = await this.dispatchHook(
+          'postToolUse',
+          {
+            ...hookContext,
+            input,
+            result: {
+              content: result.content,
+              ...(result.isError === undefined ? {} : { isError: result.isError }),
+            },
+          } satisfies PostToolUseHookPayload,
+          { signal },
+        )
+      } catch (hookError) {
+        return failure(hookError, started)
+      }
+      if (outcome?.veto)
+        return blockedByHook(outcome.reason, result.meta ?? { durationMs: Date.now() - started })
+      const rewritten = adoptHookResult(outcome)
+      if (rewritten)
+        result = {
+          content: rewritten.content,
+          ...(rewritten.isError === undefined ? {} : { isError: rewritten.isError }),
+          ...(result.meta === undefined ? {} : { meta: result.meta }),
+        }
+    }
+    return result
   }
 }
 
