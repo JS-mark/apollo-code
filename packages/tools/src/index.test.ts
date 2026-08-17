@@ -61,8 +61,8 @@ describe('L1 tools', () => {
     const failed = await tool.invoke(
       {
         edits: [
-          { path: 'a.txt', oldText: 'alpha', newText: 'A' },
-          { path: 'b.txt', oldText: 'beta', newText: 'B' },
+          { path: 'a.txt', old_string: 'alpha', new_string: 'A' },
+          { path: 'b.txt', old_string: 'beta', new_string: 'B' },
         ],
       },
       context(cwd),
@@ -96,8 +96,8 @@ describe('L1 tools', () => {
     const result = await new MultiEditTool(backups).invoke(
       {
         edits: [
-          { path: 'a.txt', oldText: 'alpha', newText: 'A' },
-          { path: 'b.txt', oldText: 'beta', newText: 'B' },
+          { path: 'a.txt', old_string: 'alpha', new_string: 'A' },
+          { path: 'b.txt', old_string: 'beta', new_string: 'B' },
         ],
       },
       context(cwd),
@@ -113,7 +113,7 @@ describe('L1 tools', () => {
     await writeFile(outside, 'outside')
     await symlink(outside, resolve(cwd, 'linked.txt'))
     const linked = await new MultiEditTool().invoke(
-      { edits: [{ path: 'linked.txt', oldText: 'outside', newText: 'changed' }] },
+      { edits: [{ path: 'linked.txt', old_string: 'outside', new_string: 'changed' }] },
       context(cwd),
     )
     expect(linked.isError).toBe(true)
@@ -122,7 +122,7 @@ describe('L1 tools', () => {
     await writeFile(resolve(cwd, 'locked.txt'), 'before')
     await writeFile(resolve(cwd, 'locked.txt.apollolock'), 'other-session')
     const pending = new MultiEditTool().invoke(
-      { edits: [{ path: 'locked.txt', oldText: 'before', newText: 'after' }] },
+      { edits: [{ path: 'locked.txt', old_string: 'before', new_string: 'after' }] },
       context(cwd),
     )
     expect((await pending).isError).toBe(true)
