@@ -1,6 +1,6 @@
 # r13 功能设计修正 · 实现执行计划（2026-08-16）
 
-> **状态**：执行中（BDFL 已批准启动，PR 逐个审批）
+> **状态**：执行中（批次 1 已收口：REM-51/54/55/58 已合并 #112/#110/#111/#109 @ 66256fe/8ce6be7/eb0ef63/6c99154；REM-52 = PR #113 待 BDFL 审（安全边界））
 > **输入**：[REVIEW-r13](../specs/2026-07-31-apollo-code-design/REVIEW-r13.md) 修正任务清单 25 项，spec 已于 `fb3158c` 落地（docs(superpowers/specs) 为冻结契约，本计划只改代码）
 > **编号**：延续 [2026-08-15-design-remediation.md](./2026-08-15-design-remediation.md) 的 REM 编号（r11: REM-1~25，r12: REM-26~50），本计划从 **REM-51** 起
 > **执行方式**：并行 worktree + 每 REM 一分支一 PR；验收走 [agents 监督体系](./agents/README.md)；每项完成后回写 [16-capability-traceability](../specs/2026-07-31-apollo-code-design/16-capability-traceability.md)
@@ -35,9 +35,10 @@
 | 3 | REM-65 | G6 | doctor gh CLI 检测（⚠️ 不 fail）+ auto-allow gh 规则 | apps/cli + permission 规则 | 批 3 |
 | 4 | REM-66 | G1 | §17 review L2（ReviewReport/ReviewFinding + local pipeline + `apollo review` + exit 4） | shared + 新 review 包 + apps/cli | 批 4 |
 | 4 | REM-67 | D1 长尾-a | probe 键名契约 / ExecRequest exec+limits / streamResume 显式拒绝码对齐附录 B / 合成 id 注记落测 | native-bridge + provider 适配器 | 批 4 |
-| 4 | REM-68 | D1 长尾-b | 非交互 ui.* 降级 / --json 错误两行协议 / DCO bot 豁免清单 / docs verify:cli 脚本 / 估算缓存生命周期 / Task 并发上限 4 / budget 范围 | 分散小项 | 批 4 |
+| 4 | REM-68 | D1 长尾-b | 非交互 ui.* 降级 / --json 错误两行协议 / DCO bot 豁免清单 / docs verify:cli 脚本 / 估算缓存生命周期 / Task 并发上限 4 / budget 范围 / **Read 默认 2000 行 + ignore_dirs（§4.3.3，补排）** | 分散小项 | 批 4 |
 | 4 | REM-69 | T2 | e2e smoke job（MockProvider 脚本化全链路 + JSONL replay 断言） | CI + e2e | 批 4 |
 | 4 | REM-70 | P2/P5/T4 | §9.10 性能预算 CI 采集 + 基线 artifact | CI | 批 4 |
+| 4 | REM-73 | P3 | `@` picker 候选缓存（git ls-files 缓存 + TTL + 首帧子集，§7.5.3） | ui | 批 4（补排：r13 对账发现漏排） |
 | 5 | REM-71 | G3 | 自定义 agent 定义装载（.apollo/agents/*.md + untrusted 包裹） | subagent + shared/agent-schema | 批 5 |
 | 5 | REM-72 | S1/S2 | npm org 抢注防护 / provenance / NOTICE tiktoken | 发布配置 | 批 5 |
 
