@@ -49,3 +49,10 @@
 - 根因：执行 agent 的任务卡 DoD 只写了「test + typecheck 绿」，未含 `pnpm format`、`pnpm lint`，也没有 Windows 语义意识；本地验证 lint error 时误把 warning 帮助文本当 error（oxlint 输出中 `x` 才是 error、`!` 是 warning）。
 - 规则：① 执行 agent 任务卡 DoD 固定加：`pnpm format && pnpm turbo run build && pnpm lint`（type-aware lint 依赖先 build 出 dist 声明）+ 受影响包 test；② 路径/权限/IPC 类代码必须考虑 win32 差异（分隔符、HOME vs USERPROFILE、无盘符绝对路径的 resolve、8.3 短名）；③ lint 结果判定以 `grep "^  x "` 提取，CI 为最终裁决；④ 重负载并发类测试（如 storage 的 20 轮文件锁合并）在满载 Windows runner 上需显式 `it(..., 30_000)` 超时。
 - 状态：active
+
+### LL-7 storage 并发合并测试在满载 Windows runner 上有两种 flaky 形态，需要根治而非续命
+- 类别：测试脆弱性｜日期：2026-08-17｜来源：r13 批次 2 CI（#117 ts windows 二次失败）
+- 问题：`packages/storage/src/memory-runtime.test.ts` 的 20 轮双实例并发写用例，在满载 Windows runner 上先后以两种形态失败：① vitest 5s 默认超时（批次 1，已用 `it(..., 30_000)` 缓解）；② 锁竞争失败 `MemoryError: Unable to persist memory`（批次 2 #117，同基线的 #114/#115/#116 均过——非确定性）。
+- 根因：该用例依赖真实文件锁的 3×1s 重试预算，慢 runner 上预算不足即抛应用级错误；且它在 ts matrix 里与其它包测试并行跑，负载不可控。
+- 规则：① 遇 `memory-runtime` 测试失败先看失败形态（timeout vs MemoryError）并在干净基线判断是否 flaky，flaky 则 rerun + 记录；② 该测试的根治（重试预算可测控 / 串行化 / 减轮数+断言不变式）应排专门 REM，不再逐 PR 打补丁；③ 新写并发类测试必须给重试预算留测试钩子（env 或注入），禁止裸依赖真实时序。
+- 状态：active
