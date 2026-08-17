@@ -8,7 +8,17 @@ export interface SessionSnapshot {
   turnId: string
 }
 export interface NativeBridge {
-  execute(command: string, args: string[], signal: AbortSignal): Promise<unknown>
+  /**
+   * Executes `command` with `args` inside the native sandbox. `env` (REM-57,
+   * r13-I11) is the minimal inherited environment for the sandboxed process;
+   * bridges must not merge it with the full host environment.
+   */
+  execute(
+    command: string,
+    args: string[],
+    signal: AbortSignal,
+    env?: Record<string, string>,
+  ): Promise<unknown>
 }
 export interface ToolUiPort {
   requestInput(prompt: string): Promise<string>

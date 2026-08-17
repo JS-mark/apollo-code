@@ -23,6 +23,8 @@ export * from './web-search'
 import { WebFetchTool, type WebFetchOptions } from './web-fetch'
 export { canonicalWebOrigin, isForbiddenAddress, WebFetchTool } from './web-fetch'
 export type { WebFetchInput, WebFetchOptions } from './web-fetch'
+export * from './bash-shell'
+import { minimalEnv, quoteShellArgument, resolvePwshPath, selectShell } from './bash-shell'
 
 const objectSchema = (properties: Record<string, unknown>, required: string[]) =>
   ({ type: 'object', additionalProperties: false, properties, required }) as never
@@ -57,6 +59,8 @@ export interface BuiltinToolsOptions {
   task?: { dispatcher: SubagentDispatcher; parent: (signal: AbortSignal) => DispatchParent }
   webSearch?: { provider?: WebSearchProvider }
   webFetch?: WebFetchOptions
+  /** REM-57 (r13-I11): shell selection + env inheritance knobs ([tools] config). */
+  bash?: BashToolOptions
 }
 
 async function safeMutationPath(cwd: string, input: string): Promise<string> {
@@ -366,7 +370,16 @@ export class MultiEditTool implements Tool<MultiEditInput> {
     }
   }
 }
+export interface BashToolOptions {
+  /** `[tools] windows_shell` — overrides PowerShell/cmd detection (win32 only). */
+  windowsShell?: string
+  /** `[tools] pass_through_env` — env names inherited beyond PATH/HOME/LANG/TZ. */
+  passThroughEnv?: string[]
+  /** Effective platform; defaults to `process.platform`. Injectable for tests. */
+  platform?: string
+}
 export class BashTool implements Tool<{ command: string }> {
+  constructor(readonly options: BashToolOptions = {}) {}
   readonly name = 'Bash'
   readonly description = 'Run a command in the Rust sandbox'
   readonly inputSchema = objectSchema({ command: stringProp }, ['command'])
@@ -378,7 +391,24 @@ export class BashTool implements Tool<{ command: string }> {
   async invoke(i: { command: string }, c: ToolContext) {
     const s = Date.now()
     try {
-      const out = await c.native.execute(i.command, [], c.abortSignal)
+      // REM-57 (spec §4.3.1, r13-I11): the shell is pinned per platform —
+      // /bin/bash -c on Unix ($SHELL is never read), PowerShell 7+ else cmd on
+      // Windows — and only the minimal env set (PATH/HOME/LANG/TZ +
+      // pass_through_env) is inherited into the sandbox process.
+      const platform = this.options.platform ?? process.platform
+      const override = this.options.windowsShell?.trim()
+      const pwshPath = platform === 'win32' && !override ? await resolvePwshPath() : undefined
+      const shell = selectShell(platform, {
+        ...(override ? { windowsShell: override } : {}),
+        ...(pwshPath ? { pwshPath } : {}),
+      })
+      const env = minimalEnv(process.env, this.options.passThroughEnv)
+      const out = await c.native.execute(
+        shell.program,
+        [...shell.args, quoteShellArgument(i.command, shell.quoting)],
+        c.abortSignal,
+        env,
+      )
       return result(typeof out === 'string' ? out : JSON.stringify(out), {
         durationMs: Date.now() - s,
       })
@@ -539,7 +569,7 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new WriteTool(options.backups),
   new EditTool(options.backups),
   new MultiEditTool(options.backups),
-  new BashTool(),
+  new BashTool(options.bash),
   new GrepTool(),
   new GlobTool(),
   new TodoTool(),
