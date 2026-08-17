@@ -8,6 +8,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
@@ -74,7 +75,7 @@ async function safeMutationPath(cwd: string, input: string): Promise<string> {
 
 async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(resolve(path, '..'), { recursive: true })
-  const temporary = resolve(path, `.${randomUUID()}.apollo-tmp`)
+  const temporary = resolve(path, '..', `.${randomUUID()}.apollo-tmp`)
   try {
     await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
     await rename(temporary, path)
@@ -83,9 +84,31 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   }
 }
 
+interface FileSnapshot {
+  mtimeMs: number
+  size: number
+}
+async function snapshotOf(path: string): Promise<FileSnapshot> {
+  const info = await stat(path)
+  return { mtimeMs: info.mtimeMs, size: info.size }
+}
+function sameSnapshot(a: FileSnapshot, b: FileSnapshot): boolean {
+  return a.mtimeMs === b.mtimeMs && a.size === b.size
+}
+const notFoundError = (path: string) =>
+  `old_string not found in ${path} (file may have changed; re-Read)`
+const ambiguousMatchError = (path: string, count: number) =>
+  `old_string matches ${count} locations in ${path}; provide a longer context to disambiguate`
+const noOpEditError = (path: string) =>
+  `new_string equals old_string in ${path}; refusing no-op edit`
+const changedSinceReadError = (path: string) =>
+  `file ${path} changed since read (mtime or size mismatch); re-Read and retry`
+const changedAfterWriteError = (path: string) =>
+  `file ${path} changed after write (concurrent modification); edit rolled back, re-Read`
+
 async function mutateFiles(
   sessionId: string,
-  updates: Array<{ path: string; content: string }>,
+  updates: Array<{ path: string; content: string; expect?: FileSnapshot }>,
   backups?: FileBackupPort,
 ): Promise<void> {
   const releases: Array<() => Promise<void>> = []
@@ -96,7 +119,13 @@ async function mutateFiles(
     transaction = backups
       ? await backups.prepare(sessionId, paths)
       : await prepareEphemeralTransaction(paths)
+    for (const update of updates)
+      if (update.expect && !sameSnapshot(update.expect, await snapshotOf(update.path)))
+        throw new Error(changedSinceReadError(update.path))
     for (const update of updates) await atomicWrite(update.path, update.content)
+    for (const update of updates)
+      if ((await snapshotOf(update.path)).size !== Buffer.byteLength(update.content))
+        throw new Error(changedAfterWriteError(update.path))
     await transaction?.commit()
   } catch (error) {
     await transaction?.rollback().catch(() => undefined)
@@ -134,6 +163,12 @@ async function prepareEphemeralTransaction(paths: string[]): Promise<FileMutatio
   }
 }
 
+async function lockConflictMessage(lockPath: string): Promise<string> {
+  const holder = await readFile(lockPath, 'utf8').catch(() => '')
+  const pid = /^\s*(\d+)/.exec(holder)?.[1]
+  return `file locked by another apollo session${pid ? ` (pid ${pid})` : ''}, retry later`
+}
+
 async function acquireMutationLock(path: string, sessionId: string): Promise<() => Promise<void>> {
   const lockPath = `${path}.apollolock`
   let lastError: unknown
@@ -148,12 +183,11 @@ async function acquireMutationLock(path: string, sessionId: string): Promise<() 
     } catch (error) {
       lastError = error
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      if (attempt === 3)
-        throw new Error('File locked by another apollo session; retry later', { cause: error })
+      if (attempt === 3) throw new Error(await lockConflictMessage(lockPath), { cause: lastError })
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
     }
   }
-  throw new Error('File locked by another apollo session; retry later', { cause: lastError })
+  throw new Error(await lockConflictMessage(lockPath), { cause: lastError })
 }
 
 export class ReadTool implements Tool<{ path: string; offset?: number; limit?: number }> {
@@ -218,27 +252,44 @@ export class WriteTool implements Tool<{ path: string; content: string }> {
     }
   }
 }
-export class EditTool implements Tool<{ path: string; oldText: string; newText: string }> {
+export interface EditInput {
+  path: string
+  old_string: string
+  new_string: string
+  replace_all?: boolean
+}
+export class EditTool implements Tool<EditInput> {
   constructor(readonly backups?: FileBackupPort) {}
   readonly name = 'Edit'
   readonly description = 'Replace one exact string in a file'
   readonly inputSchema = objectSchema(
-    { path: stringProp, oldText: stringProp, newText: { type: 'string' } },
-    ['path', 'oldText', 'newText'],
+    {
+      path: stringProp,
+      old_string: stringProp,
+      new_string: { type: 'string' },
+      replace_all: { type: 'boolean' },
+    },
+    ['path', 'old_string', 'new_string'],
   )
   readonly sandboxRequired = true
   permissionSpec(i: { path: string }): PermissionSpec {
     return { fs: { read: [i.path], write: [i.path] } }
   }
-  async invoke(i: { path: string; oldText: string; newText: string }, c: ToolContext) {
+  async invoke(i: EditInput, c: ToolContext) {
     const s = Date.now()
     try {
+      if (i.new_string === i.old_string) throw new Error(noOpEditError(i.path))
       const p = await safeMutationPath(c.session.cwd, i.path),
-        old = await readFile(p, 'utf8'),
-        count = old.split(i.oldText).length - 1
-      if (count !== 1) throw new Error(`Expected exactly one match, found ${count}`)
-      const next = old.replace(i.oldText, i.newText)
-      await mutateFiles(c.session.id, [{ path: p, content: next }], this.backups)
+        before = await snapshotOf(p),
+        old = await readFile(p, 'utf8')
+      if (!sameSnapshot(before, await snapshotOf(p))) throw new Error(changedSinceReadError(p))
+      const count = old.split(i.old_string).length - 1
+      if (count === 0) throw new Error(notFoundError(p))
+      if (count > 1 && i.replace_all !== true) throw new Error(ambiguousMatchError(p, count))
+      const next = i.replace_all
+        ? old.split(i.old_string).join(i.new_string)
+        : old.replace(i.old_string, i.new_string)
+      await mutateFiles(c.session.id, [{ path: p, content: next, expect: before }], this.backups)
       return result('File edited', {
         durationMs: Date.now() - s,
         bytesWritten: Buffer.byteLength(next),
@@ -251,7 +302,7 @@ export class EditTool implements Tool<{ path: string; oldText: string; newText: 
 }
 
 export interface MultiEditInput {
-  edits: Array<{ path: string; oldText: string; newText: string }>
+  edits: Array<{ path: string; old_string: string; new_string: string }>
 }
 
 export class MultiEditTool implements Tool<MultiEditInput> {
@@ -266,8 +317,8 @@ export class MultiEditTool implements Tool<MultiEditInput> {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['path', 'oldText', 'newText'],
-          properties: { path: stringProp, oldText: stringProp, newText: { type: 'string' } },
+          required: ['path', 'old_string', 'new_string'],
+          properties: { path: stringProp, old_string: stringProp, new_string: { type: 'string' } },
         },
       },
     },
@@ -282,23 +333,27 @@ export class MultiEditTool implements Tool<MultiEditInput> {
   async invoke(input: MultiEditInput, context: ToolContext): Promise<ToolResult> {
     const started = Date.now()
     try {
-      const grouped = new Map<string, Array<{ oldText: string; newText: string }>>()
+      const grouped = new Map<string, Array<{ old_string: string; new_string: string }>>()
       for (const edit of input.edits) {
         const path = await safeMutationPath(context.session.cwd, edit.path)
         grouped.set(path, [...(grouped.get(path) ?? []), edit])
       }
-      const updates: Array<{ path: string; content: string }> = []
+      const updates: Array<{ path: string; content: string; expect: FileSnapshot }> = []
       for (const [path, edits] of grouped) {
+        const before = await snapshotOf(path)
         let content = await readFile(path, 'utf8')
+        if (!sameSnapshot(before, await snapshotOf(path)))
+          throw new Error(changedSinceReadError(path))
         for (const edit of edits) {
-          const count = content.split(edit.oldText).length - 1
-          if (count !== 1)
-            throw new Error(
-              `Expected exactly one match in ${relative(context.session.cwd, path)}, found ${count}`,
-            )
-          content = content.replace(edit.oldText, edit.newText)
+          if (edit.new_string === edit.old_string)
+            throw new Error(noOpEditError(relative(context.session.cwd, path)))
+          const count = content.split(edit.old_string).length - 1
+          if (count === 0) throw new Error(notFoundError(relative(context.session.cwd, path)))
+          if (count > 1)
+            throw new Error(ambiguousMatchError(relative(context.session.cwd, path), count))
+          content = content.replace(edit.old_string, edit.new_string)
         }
-        updates.push({ path, content })
+        updates.push({ path, content, expect: before })
       }
       await mutateFiles(context.session.id, updates, this.backups)
       return result(`Edited ${updates.length} file(s)`, {
