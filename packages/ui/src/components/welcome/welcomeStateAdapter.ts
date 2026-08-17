@@ -20,7 +20,11 @@ export function buildWelcomeScreenState(input: BuildWelcomeScreenStateInput): We
       : `not configured${model.reason ? ` (${model.reason.message})` : ''}`
   const authLabel = modelAvailable ? 'configured' : 'unknown'
   const sandboxLabel =
-    sandbox.status === 'available' ? `${sandbox.mechanism} (${sandbox.tier})` : 'unknown'
+    sandbox.status === 'available'
+      ? `${sandbox.mechanism} (${sandbox.tier})`
+      : sandbox.status === 'probing'
+        ? 'probing'
+        : 'unknown'
   return {
     app: { name: 'Apollo Code', version: data.version },
     workspace: {

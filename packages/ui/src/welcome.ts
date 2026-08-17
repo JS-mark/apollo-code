@@ -49,6 +49,10 @@ export type WelcomeSandboxStatus =
       network: 'available' | 'restricted' | 'unavailable' | 'unknown'
     }
   | {
+      /** r13-P1: native probing still in flight; the result backfills asynchronously. */
+      status: 'probing'
+    }
+  | {
       status: 'unavailable'
       reason: UnavailableReason
     }

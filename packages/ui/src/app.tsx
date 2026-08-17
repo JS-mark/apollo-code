@@ -22,7 +22,7 @@ import type { PermissionPromptController } from './permission'
 import type { SessionCandidate } from './session-picker'
 import type { SlashCommandRegistry } from './slash-command-registry'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
-import type { WelcomePanelData } from './welcome'
+import type { WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
 export interface TranscriptEntry {
   id: string
@@ -76,6 +76,12 @@ export interface InteractiveAppOptions {
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
   resume?: SessionResumeController
+  /**
+   * r13-P1: resolves the settled native sandbox state after probing. When the
+   * welcome panel still shows `sandbox: probing`, the app refreshes the welcome
+   * badge and top status once this promise resolves (asynchronous backfill).
+   */
+  sandboxProbe?: () => Promise<{ sandbox: WelcomeSandboxStatus; status: string }>
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   slashCommandRegistry?: SlashCommandRegistry
@@ -105,6 +111,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     transcript: [],
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
+  const [welcome, setWelcome] = useState(options.welcome)
   const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
@@ -230,6 +237,28 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     }
   }, [options.history])
 
+  useEffect(() => {
+    // r13-P1: the REPL rendered while native probing was still in flight; once
+    // the probe settles, backfill the welcome sandbox badge and the top status.
+    if (!welcome || welcome.sandbox.status !== 'probing' || !options.sandboxProbe) return
+    let disposed = false
+    options.sandboxProbe().then(
+      (resolved) => {
+        if (disposed || resolved.sandbox.status === 'probing') return
+        setWelcome((current) => (current ? { ...current, sandbox: resolved.sandbox } : current))
+        setState((current) =>
+          current.status === (options.status ?? 'ready')
+            ? { ...current, status: resolved.status }
+            : current,
+        )
+      },
+      () => undefined,
+    )
+    return () => {
+      disposed = true
+    }
+  }, [options.sandboxProbe, options.status, welcome])
+
   const slashCommands = useMemo(() => {
     const hasModelPicker = Boolean(options.modelPicker?.models.length)
     const commands: SlashCommand[] = [
@@ -258,7 +287,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
-      options.welcome
+      welcome
         ? {
             name: 'status',
             description: 'Show runtime status',
@@ -340,7 +369,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     options.resume,
     options.slashCommands,
     registryCommands,
-    options.welcome,
+    welcome,
   ])
 
   const transcript = useMemo(() => {
@@ -407,11 +436,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
 
   return (
     <Box flexDirection="column">
-      {showWelcome && options.welcome ? (
+      {showWelcome && welcome ? (
         <WelcomeScreen
           bottomStatus={bottomStatus}
           commandInput={commandInput}
-          state={buildWelcomeScreenState({ data: options.welcome })}
+          state={buildWelcomeScreenState({ data: welcome })}
           terminalSize={terminalSize}
         />
       ) : (
@@ -425,9 +454,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           {commandInput}
         </>
       )}
-      {statusPanelOpen && (options.statusPanel || options.welcome) ? (
+      {statusPanelOpen && (options.statusPanel || welcome) ? (
         <StatusPanel
-          data={options.statusPanel ?? statusPanelFromWelcome(options.welcome!)}
+          data={options.statusPanel ?? statusPanelFromWelcome(welcome!)}
           {...(options.statusPanelController ? { controller: options.statusPanelController } : {})}
           onClose={() => {
             setStatusPanelOpen(false)

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 
 import fg from 'fast-glob'
 
+import { nativeProbes } from './probe'
 import { workerPool } from './worker-pool'
 
 export interface SearchOptions {
@@ -77,23 +78,35 @@ async function fallbackSearch(
   return matches
 }
 
+/**
+ * r13-P1: read-only search never waits for probing — the JS fallback answers
+ * while `available.search` is `'probing'`/`false`, native picks up after backfill.
+ */
+function nativeSearchReady(): boolean {
+  return nativeProbes.available.search === true
+}
+
 export async function* search(
   options: SearchOptions,
   signal?: AbortSignal,
 ): AsyncIterable<SearchMatch> {
   throwIfAborted(signal)
-  try {
-    const result = (await workerPool.call('search', 'search.query', options)) as {
-      matches?: SearchMatch[]
+  if (nativeSearchReady()) {
+    try {
+      const result = (await workerPool.call('search', 'search.query', options)) as {
+        matches?: SearchMatch[]
+      }
+      for (const match of result.matches ?? []) {
+        throwIfAborted(signal)
+        yield match
+      }
+      return
+    } catch {
+      // fall through to the JS implementation
     }
-    for (const match of result.matches ?? []) {
-      throwIfAborted(signal)
-      yield match
-    }
-  } catch {
-    throwIfAborted(signal)
-    for (const match of await fallbackSearch(options, signal)) yield match
   }
+  throwIfAborted(signal)
+  for (const match of await fallbackSearch(options, signal)) yield match
 }
 
 export async function* astQuery(
@@ -101,6 +114,7 @@ export async function* astQuery(
   signal?: AbortSignal,
 ): AsyncIterable<AstMatch> {
   throwIfAborted(signal)
+  if (!nativeSearchReady()) throw new Error('AST query requires the native apollo-search worker')
   let result: { matches?: AstMatch[] }
   try {
     result = (await workerPool.call('search', 'search.ast_query', options)) as typeof result

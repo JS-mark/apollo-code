@@ -155,7 +155,9 @@ export function statusPanelFromWelcome(data: WelcomePanelData): StatusPanelData 
         value:
           data.sandbox.status === 'available'
             ? `${data.sandbox.tier} (${data.sandbox.mechanism})`
-            : unavailable,
+            : data.sandbox.status === 'probing'
+              ? 'probing'
+              : unavailable,
       },
       {
         label: 'Network',

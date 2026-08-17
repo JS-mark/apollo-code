@@ -14,6 +14,7 @@ import type {
   SandboxDisclosure,
   StatusPanelData,
   WelcomePanelData,
+  WelcomeSandboxStatus,
 } from '@apollo-code/ui'
 import { parseArgs, renderUsage } from 'citty'
 
@@ -136,7 +137,7 @@ export async function runCli(
           cwd: fallbackCwd,
           dangerousPermissions: false,
           ports,
-          probe: await ports.native.probe(),
+          sandbox: welcomeSandboxFrom(await ports.native.probe()),
           sessionId: 'not available',
           trustLabel: 'not available',
         }),
@@ -522,7 +523,14 @@ export async function runCli(
         stderr: 'Dangerous no-sandbox mode requires typing: I understand the risk',
       }
   }
-  const probe = await ports.native.probe()
+  // r13-P1 startup contract (spec 05-rust-sidecar.md §5.8): every native probe
+  // fires now, in parallel; the interactive REPL never awaits them — the UI
+  // starts with a 'probing' sandbox badge that backfills when the probe
+  // settles. Only the opt-in strict gate and the deterministic non-interactive
+  // path block on the probe.
+  ports.native.startProbes?.()
+  const probePromise = ports.native.probe()
+  probePromise.catch(() => undefined)
   const shouldUseTui =
     prompt === undefined &&
     !jsonMode &&
@@ -530,26 +538,32 @@ export async function runCli(
     Boolean(io.isInteractiveTerminal?.()) &&
     Boolean(ports.ui?.renderInteractiveApp) &&
     Boolean(resumeSelection ? ports.session.resumeInteractive : ports.session.startInteractive)
-  if (!jsonMode && !shouldUseTui) {
-    stdout += `${renderPrivacyDisclosure()}\n`
-    stdout += `${renderSandboxDisclosure(probe)}\n`
-  }
-  if (args.strictSandbox && probe.tier !== 'full') {
-    const message = `Full sandbox required; detected ${probe.tier}.`
-    return jsonMode
-      ? jsonFailure(message, 3, 'sandbox_unavailable')
-      : { exitCode: 3, stdout, stderr: message }
-  }
-  if (probe.tier === 'none' && !args.dangerousNoSandbox) {
-    await ports.telemetry.securityEvent('sandbox.probe.failed', { cwd, mechanism: probe.mechanism })
-    if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
-      return {
-        exitCode: 1,
-        stdout,
-        stderr: 'None-tier sandbox requires typing: I understand the risk',
-      }
-    dangerousModes.push('no-sandbox')
-    await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
+  if (!shouldUseTui) {
+    const probe = await probePromise
+    if (!jsonMode) {
+      stdout += `${renderPrivacyDisclosure()}\n`
+      stdout += `${renderSandboxDisclosure(probe)}\n`
+    }
+    if (args.strictSandbox && probe.tier !== 'full') {
+      const message = `Full sandbox required; detected ${probe.tier}.`
+      return jsonMode
+        ? jsonFailure(message, 3, 'sandbox_unavailable')
+        : { exitCode: 3, stdout, stderr: message }
+    }
+    if (probe.tier === 'none' && !args.dangerousNoSandbox) {
+      await ports.telemetry.securityEvent('sandbox.probe.failed', {
+        cwd,
+        mechanism: probe.mechanism,
+      })
+      if (!(await ports.confirmation.confirmDangerousNoSandbox('I understand the risk')))
+        return {
+          exitCode: 1,
+          stdout,
+          stderr: 'None-tier sandbox requires typing: I understand the risk',
+        }
+      dangerousModes.push('no-sandbox')
+      await ports.telemetry.securityEvent('sandbox.dangerously_disabled', { cwd })
+    }
   }
   const banner = renderSecurityBanner(dangerousModes, !noColor)
   if (banner && !shouldUseTui) stdout += `${banner}\n`
@@ -560,17 +574,31 @@ export async function runCli(
   ports.session.configureTerminalOutput?.({ streamToStdout: !jsonMode && !shouldUseTui })
   try {
     if (shouldUseTui) {
+      // --strict-sandbox is an explicit opt-in hard gate, so it may block on
+      // the probe; the plain REPL path never does.
+      if (args.strictSandbox) {
+        const probe = await probePromise
+        if (probe.tier !== 'full')
+          return {
+            exitCode: 3,
+            stdout,
+            stderr: `Full sandbox required; detected ${probe.tier}.`,
+          }
+      }
       const interactive = resumeSelection
         ? await ports.session.resumeInteractive!(resumeSelection.id)
         : await ports.session.startInteractive!({ cwd })
       const permissions = new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
         interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
+      const permissionsBypassed = Boolean(args.yolo || args.dangerouslySkipPermissions)
+      const statusText = (tier: string) =>
+        `sandbox ${tier}${permissionsBypassed ? '; permissions bypassed' : ''}`
       const welcome = await buildWelcomePanelData({
         cwd,
-        dangerousPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
+        dangerousPermissions: permissionsBypassed,
         ports,
-        probe,
+        sandbox: { status: 'probing' },
         sessionId: interactive.id,
         trustLabel,
       })
@@ -591,6 +619,11 @@ export async function runCli(
         onSubmit: interactive.submit,
         modelPicker: buildModelPicker(defaultInteractiveModel),
         permissions,
+        sandboxProbe: () =>
+          probePromise.then((probe) => ({
+            sandbox: welcomeSandboxFrom(probe),
+            status: statusText(probe.tier),
+          })),
         ...(ports.session.list && ports.session.resumeInteractive
           ? {
               resume: {
@@ -610,10 +643,7 @@ export async function runCli(
             }
           : {}),
         sessionId: interactive.id,
-        status:
-          args.yolo || args.dangerouslySkipPermissions
-            ? `sandbox ${probe.tier}; permissions bypassed`
-            : `sandbox ${probe.tier}`,
+        status: statusText('probing'),
         welcome,
         statusPanel: ports.config.status
           ? await ports.config.status({ cwd, sessionId: interactive.id })
@@ -645,11 +675,21 @@ function renderTextStatus(data: StatusPanelData) {
   return `${data.status.map((row) => `${row.label}: ${row.value}`).join('\n')}\n`
 }
 
+function welcomeSandboxFrom(probe: SandboxDisclosure): WelcomeSandboxStatus {
+  return {
+    status: 'available',
+    tier: probe.tier,
+    mechanism: probe.mechanism,
+    filesystem: probe.features.filesystem ? 'isolated' : 'unknown',
+    network: probe.features.network ? 'available' : 'unavailable',
+  }
+}
+
 async function buildWelcomePanelData(input: {
   cwd: string
   dangerousPermissions: boolean
   ports: ApolloPorts
-  probe: SandboxDisclosure
+  sandbox: WelcomeSandboxStatus
   sessionId: string
   trustLabel: string
 }): Promise<WelcomePanelData> {
@@ -666,13 +706,7 @@ async function buildWelcomePanelData(input: {
       model: defaultInteractiveModel.split('/').slice(1).join('/'),
       source: 'default',
     },
-    sandbox: {
-      status: 'available',
-      tier: input.probe.tier,
-      mechanism: input.probe.mechanism,
-      filesystem: input.probe.features.filesystem ? 'isolated' : 'unknown',
-      network: input.probe.features.network ? 'available' : 'unavailable',
-    },
+    sandbox: input.sandbox,
     permission: {
       mode: input.dangerousPermissions ? 'bypassed' : 'ask',
       dangerous: input.dangerousPermissions,

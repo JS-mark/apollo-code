@@ -31,7 +31,7 @@ import {
   wrapUntrusted,
 } from '@apollo-code/core'
 import type { PromptComposer, RunnerToolPort, SessionState } from '@apollo-code/core'
-import { execSandbox, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
+import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
 import {
@@ -1784,6 +1784,25 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
     },
     native: {
+      /** Tri-state availability snapshot (r13-P1): 'probing' until backfill. */
+      available() {
+        const availability = nativeProbes.available
+        return {
+          sandbox: availability.sandbox,
+          search: availability.search,
+          fs: availability.fs,
+        }
+      },
+      /**
+       * r13-P1 startup contract (spec 05-rust-sidecar.md §5.8): fires every
+       * native probe (sandbox --probe + search/fs worker handshakes) in
+       * parallel. The REPL never awaits them — `available.*` starts as
+       * 'probing' and backfills asynchronously; side-effect waits are
+       * budget-bounded instead.
+       */
+      startProbes() {
+        nativeProbes.start()
+      },
       async probe() {
         const info = await probeSandbox()
         const features = info.features as Record<string, unknown>

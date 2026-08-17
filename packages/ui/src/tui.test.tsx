@@ -44,6 +44,59 @@ class MemoryReadStream extends PassThrough {
 }
 
 describe('renderInteractiveApp', () => {
+  it('renders while the sandbox probe is pending and backfills the badge when it settles (r13-P1)', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    let resolveProbe!: (value: {
+      sandbox: import('./welcome').WelcomeSandboxStatus
+      status: string
+    }) => void
+    const probe = new Promise<{
+      sandbox: import('./welcome').WelcomeSandboxStatus
+      status: string
+    }>((resolve) => {
+      resolveProbe = resolve
+    })
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        sessionId: 'session-1234567890',
+        status: 'sandbox probing',
+        welcome: { ...welcomeFixture(), sandbox: { status: 'probing' } },
+        sandboxProbe: () => probe,
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    // The REPL is usable while probing: welcome shows the probing badge.
+    expect(stdout.output).toContain('probing')
+    expect(stdout.output).not.toContain('sandbox partial')
+
+    resolveProbe({
+      sandbox: {
+        status: 'available',
+        tier: 'full',
+        mechanism: 'seatbelt',
+        filesystem: 'isolated',
+        network: 'available',
+      },
+      status: 'sandbox full',
+    })
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+    // Backfill refreshed both the welcome badge and the status line.
+    expect(stdout.output).toContain('seatbelt (full)')
+    expect(stdout.output).toContain('sandbox full')
+  })
+
   it('renders and switches all three status tabs at narrow width', async () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 42
