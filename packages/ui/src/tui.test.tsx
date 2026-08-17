@@ -438,6 +438,65 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('runs /undo as single steps and surfaces all three prompt paths (r13-G4)', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const sessionIds: string[] = []
+    const outcomes: Array<import('./app').UndoStepOutcome> = [
+      { undone: true, paths: ['/repo/project.txt'], warnings: [] },
+      {
+        undone: true,
+        paths: ['/repo/project.txt'],
+        warnings: [{ path: '/repo/project.txt', kind: 'target_modified' }],
+      },
+      { undone: false, reason: 'no_backup', paths: [], warnings: [] },
+    ]
+    let next = 0
+    const undoStep = async (sessionId: string) => {
+      sessionIds.push(sessionId)
+      return outcomes[next++]!
+    }
+    const app = renderInteractiveApp(
+      { cwd: '/repo', initialInput: '/undo', sessionId: 'session-undo-1', undo: { undoStep } },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    // Success: the newest unconsumed backup step is restored.
+    await vi.waitFor(() => expect(stdout.output).toContain('undo: restored 1 file(s)'))
+    expect(stdout.output).toContain('restored /repo/project.txt')
+    expect(stdout.output).toContain('undid 1 file(s)')
+
+    stdin.write('/undo')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    // Warning path: restore still happens, the user is told manual changes
+    // may have been overwritten (spec 08-session-config.md §8.6.2).
+    await vi.waitFor(() =>
+      expect(stdout.output).toContain('undo restored with warnings (may have overwritten'),
+    )
+    expect(stdout.output).toContain('warning: /repo/project.txt was modified after the backup')
+
+    stdin.write('/undo')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    // Nothing left: the exact StatusLine message from the spec.
+    await vi.waitFor(() =>
+      expect(stdout.output).toContain('nothing to undo (no backup for last side-effecting tool)'),
+    )
+    expect(sessionIds).toEqual(['session-undo-1', 'session-undo-1', 'session-undo-1'])
+
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('switches slash command suggestions with arrow keys', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()

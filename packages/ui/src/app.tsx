@@ -49,6 +49,31 @@ export interface InputHistoryStore {
   list(): Promise<readonly string[]> | readonly string[]
 }
 
+export interface UndoStepWarning {
+  path: string
+  kind: 'backup_missing' | 'target_modified'
+}
+
+export interface UndoStepOutcome {
+  undone: boolean
+  reason?: 'no_backup'
+  paths: readonly string[]
+  warnings: readonly UndoStepWarning[]
+}
+
+/**
+ * r13-G4 (spec 08-session-config.md §8.6.2): single-step `/undo` adapter.
+ * The implementation picks the most recent not-yet-consumed backup batch for
+ * the session — read-only tools are skipped naturally and Bash changes are out
+ * of scope because Bash produces no backups.
+ */
+export interface UndoController {
+  undoStep(sessionId: string): Promise<UndoStepOutcome>
+}
+
+/** Exact StatusLine message required when no undoable backup exists. */
+export const UNDO_NOTHING_MESSAGE = 'nothing to undo (no backup for last side-effecting tool)'
+
 export interface ResumedInteractiveSession {
   cwd: string
   events?: EventBus
@@ -88,6 +113,7 @@ export interface InteractiveAppOptions {
   status?: string
   statusPanel?: StatusPanelData
   statusPanelController?: StatusPanelController
+  undo?: UndoController
   welcome?: WelcomePanelData
 }
 
@@ -287,6 +313,34 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
+      options.undo
+        ? {
+            name: 'undo',
+            description: 'Undo the last side-effecting tool (single step)',
+            run: async () => {
+              setShowWelcome(false)
+              setStatusPanelOpen(false)
+              const outcome = await options.undo!.undoStep(activeSession?.id ?? state.sessionId)
+              if (!outcome.undone) {
+                appendSystemMessage(setState, UNDO_NOTHING_MESSAGE)
+                setState((current) => ({
+                  ...current,
+                  status: UNDO_NOTHING_MESSAGE,
+                  statusLevel: 'warning',
+                }))
+                return
+              }
+              appendSystemMessage(setState, undoTranscriptMessage(outcome))
+              setState((current) => ({
+                ...current,
+                status: outcome.warnings.length
+                  ? 'undo restored with warnings (may have overwritten manual changes)'
+                  : `undid ${outcome.paths.length} file(s)`,
+                statusLevel: outcome.warnings.length ? 'warning' : 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('undo', 'Undo the last side-effecting tool (single step)'),
       welcome
         ? {
             name: 'status',
@@ -361,6 +415,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     ]
     return [...commands, ...(options.slashCommands ?? []), ...registryCommands]
   }, [
+    activeSession,
     currentModelId,
     exit,
     options.memory,
@@ -368,7 +423,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     activeOnExit,
     options.resume,
     options.slashCommands,
+    options.undo,
     registryCommands,
+    state.sessionId,
     welcome,
   ])
 
@@ -592,6 +649,24 @@ function unavailableSlashCommand(name: string, description: string): SlashComman
     available: false,
     run: () => {},
   }
+}
+
+/**
+ * Transcript lines for a completed single-step undo. Warnings never block the
+ * restore (spec 08-session-config.md §8.6.2), so the user is told afterwards
+ * that manual changes may have been overwritten.
+ */
+function undoTranscriptMessage(outcome: UndoStepOutcome): string {
+  const lines = outcome.paths.map((path) => `restored ${path}`)
+  for (const warning of outcome.warnings)
+    lines.push(
+      warning.kind === 'backup_missing'
+        ? `warning: backup file missing for ${warning.path}; file left unchanged`
+        : `warning: ${warning.path} was modified after the backup (mtime > backup time); restored anyway and may have overwritten manual changes`,
+    )
+  return [`undo: restored ${outcome.paths.length} file(s) to their pre-tool state`, ...lines].join(
+    '\n',
+  )
 }
 
 export async function runSlashCommand(raw: string, commands: readonly SlashCommand[]) {
