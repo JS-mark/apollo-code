@@ -29,6 +29,7 @@
 | 2 | REM-59 | I3 | 错误码 registry（shared/error-codes.ts）+ ESLint 禁裸串 + verify 脚本 | shared + CI | 批 2 |
 | 2 | REM-60 | I8 | per-event zod schema（shared/events/）+ CI 校验 | shared + core | 批 2 |
 | 3 | REM-61 | I4 | config 未知 key warn + 附录 C 对齐 | config-loader/shared | 批 3 |
+| 3 | REM-75 | LL-7 | storage 并发合并测试根治（锁重试预算可测控 / vitest pool 串行化，二选一或组合；消除满载 Windows 双形态 flaky） | packages/storage | 批 3（新排） |
 | 3 | REM-74 | I8 后续 | 事件 emit 点迁移到附录 D 契约形状（13 处漂移，含 stream.delta 整 chunk、tool.* 字段名）+ 消费侧（machine-output）同改 + **清除实现自创 session.snapshot（§8.2 已裁决拒绝）** + subagent 冒泡按 D.3 保留原 event.id | core/ui/subagent/runtime | 批 3（REM-60 审计产出，新排） |
 | 3 | REM-62 | G2 | 后台 Bash（runInBackground + ShellOutput/KillShell + 2 事件 + /shells） | tools + core 事件表 + ui | 批 3 |
 | 3 | REM-63 | G5 | B7 截断续写（UI 标记 + sticky 复用） | core + ui | 批 3 |
