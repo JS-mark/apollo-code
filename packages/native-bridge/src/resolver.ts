@@ -119,7 +119,7 @@ async function fetchReleaseBinary(
 
   let checksumResponse: Response
   try {
-    checksumResponse = await fetch(checksumUrl)
+    checksumResponse = await fetch(checksumUrl, { signal: AbortSignal.timeout(15_000) })
   } catch {
     return null
   }
@@ -138,7 +138,9 @@ async function fetchReleaseBinary(
 
   let binaryResponse: Response
   try {
-    binaryResponse = await fetch(`${releaseBase}/${assetName}`)
+    binaryResponse = await fetch(`${releaseBase}/${assetName}`, {
+      signal: AbortSignal.timeout(15_000),
+    })
   } catch {
     return null
   }

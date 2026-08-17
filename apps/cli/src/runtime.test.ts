@@ -491,6 +491,41 @@ describe('status configuration adapter', () => {
     expect(await composer.compose(context)).not.toContain('Always run the focused tests first.')
   })
 
+  it('backfills tri-state native availability after parallel probing (r13-P1)', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.native-probe-composition-'))
+    fixtures.push(root)
+    const previousVersion = process.env.APOLLO_VERSION
+    // Keep resolution local-only so the test never touches the network.
+    process.env.APOLLO_VERSION = '0.0.0'
+    try {
+      const ports = createProductionPorts({
+        apolloHome: root,
+        identity: { version: '1.2.3-test' },
+      })
+      // Reading availability fires the probes lazily and starts in the probing
+      // tri-state; the REPL is up long before the probes settle.
+      expect(ports.native.available?.()).toEqual({
+        sandbox: 'probing',
+        search: 'probing',
+        fs: 'probing',
+      })
+      await vi.waitFor(() => {
+        const availability = ports.native.available?.()
+        expect(availability?.sandbox).not.toBe('probing')
+        expect(availability?.search).not.toBe('probing')
+        expect(availability?.fs).not.toBe('probing')
+      })
+      const settled = ports.native.available?.()
+      for (const value of [settled?.sandbox, settled?.search, settled?.fs])
+        expect(typeof value).toBe('boolean')
+      // startProbes is the composition-root parallel trigger and stays idempotent.
+      ports.native.startProbes?.()
+    } finally {
+      if (previousVersion === undefined) delete process.env.APOLLO_VERSION
+      else process.env.APOLLO_VERSION = previousVersion
+    }
+  })
+
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
     fixtures.push(root)

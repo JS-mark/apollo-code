@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { EventBus } from '@apollo-code/core'
+import type { SandboxDisclosure } from '@apollo-code/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -351,6 +352,71 @@ describe('runCli', () => {
     )
   })
 
+  it('starts the interactive REPL within the cold-start budget while the native probe hangs (r13-P1 §5.8)', async () => {
+    // Mandatory integration test: probe stub hangs for seconds; the REPL
+    // initialization path (session start + UI render) must return without it.
+    const hangingProbe = new Promise<SandboxDisclosure>(() => {})
+    let probeSettled = false
+    void hangingProbe.then(() => {
+      probeSettled = true
+    })
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const renderInteractiveApp = vi.fn(() => ({
+      clear: vi.fn(),
+      unmount: vi.fn(),
+      waitUntilExit: vi.fn(async () => {}),
+      waitUntilRenderFlush: vi.fn(async () => {}),
+    }))
+    const testPorts = ports({
+      native: {
+        probe: vi.fn(() => hangingProbe),
+        health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
+        startProbes: vi.fn(),
+      },
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: {
+        renderInteractiveApp,
+      },
+    })
+
+    const startedAt = performance.now()
+    const result = await runCli(['chat'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+    const elapsedMs = performance.now() - startedAt
+
+    expect(result).toEqual({ exitCode: 0, stderr: '', stdout: '' })
+    expect(renderInteractiveApp).toHaveBeenCalledOnce()
+    // §9.10 cold-start budget: the REPL path never waits for the probe.
+    expect(elapsedMs).toBeLessThan(100)
+    expect(testPorts.native.probe).toHaveBeenCalledOnce()
+    expect(testPorts.native.startProbes).toHaveBeenCalledOnce()
+    // The probe was fired but never awaited by the REPL path.
+    expect(probeSettled).toBe(false)
+    expect(renderInteractiveApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'sandbox probing',
+        sandboxProbe: expect.any(Function),
+        welcome: expect.objectContaining({ sandbox: { status: 'probing' } }),
+      }),
+    )
+  })
+
   it('routes promptless TTY chat to the Ink UI port', async () => {
     const interactive = {
       id: 'session-1',
@@ -409,17 +475,32 @@ describe('runCli', () => {
           ]),
         }),
         permissions: expect.any(Object),
+        sandboxProbe: expect.any(Function),
         sessionId: 'session-1',
-        status: 'sandbox full',
+        status: 'sandbox probing',
         welcome: expect.objectContaining({
           cwd: process.cwd(),
           sessionId: 'session-1',
           version: '0.0.0-test',
-          sandbox: expect.objectContaining({ status: 'available', tier: 'full' }),
+          sandbox: { status: 'probing' },
           permission: expect.objectContaining({ mode: 'ask', dangerous: false }),
         }),
       }),
     )
+    // The probe result arrives asynchronously and backfills the badge.
+    const renderArg = testPorts.ui?.renderInteractiveApp.mock.calls[0]?.[0] as {
+      sandboxProbe: () => Promise<{ sandbox: { status: string; tier?: string }; status: string }>
+    }
+    await expect(renderArg.sandboxProbe()).resolves.toEqual({
+      sandbox: {
+        status: 'available',
+        tier: 'full',
+        mechanism: 'test sandbox',
+        filesystem: 'isolated',
+        network: 'available',
+      },
+      status: 'sandbox full',
+    })
     expect(interactive.setPermissionPromptHandler).toHaveBeenCalledWith(expect.any(Function))
     expect(waitUntilExit).toHaveBeenCalledOnce()
   })
@@ -461,8 +542,9 @@ describe('runCli', () => {
     expect(interactive.setPermissionPromptHandler).not.toHaveBeenCalled()
     expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'sandbox full; permissions bypassed',
+        status: 'sandbox probing; permissions bypassed',
         welcome: expect.objectContaining({
+          sandbox: { status: 'probing' },
           permission: expect.objectContaining({ mode: 'bypassed', dangerous: true }),
         }),
       }),

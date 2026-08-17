@@ -33,6 +33,12 @@ export interface NativeHealth {
   search: boolean
   fs: boolean
 }
+/** r13-P1 tri-state: `'probing'` until the startup probe backfills. */
+export interface NativeAvailabilityView {
+  sandbox: boolean | 'probing'
+  search: boolean | 'probing'
+  fs: boolean | 'probing'
+}
 export interface SessionPort {
   start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
@@ -125,7 +131,14 @@ export interface ApolloPorts {
   identity: Readonly<AppIdentity>
   /** @deprecated Use identity.version. */
   version: string
-  native: { probe(): Promise<SandboxDisclosure>; health(): Promise<NativeHealth> }
+  native: {
+    probe(): Promise<SandboxDisclosure>
+    health(): Promise<NativeHealth>
+    /** r13-P1: tri-state snapshot; 'probing' until the startup probe backfills. */
+    available?(): NativeAvailabilityView
+    /** r13-P1: fire all native probes in parallel (REPL startup path). */
+    startProbes?(): void
+  }
   auth: {
     health(): Promise<DoctorHealth>
     login(input: {
@@ -184,6 +197,8 @@ export function unavailablePorts(): ApolloPorts {
         degradationReasons: ['apollo-sandbox probe unavailable'],
       }),
       health: async () => ({ sandbox: false, search: false, fs: false }),
+      available: () => ({ sandbox: false, search: false, fs: false }),
+      startProbes: () => {},
     },
     auth: {
       health: async () => ({ configured: false, detail: 'auth port not connected' }),

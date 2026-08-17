@@ -58,6 +58,7 @@ function formatModel(model: WelcomePanelData['model']) {
 
 function formatSandbox(sandbox: WelcomePanelData['sandbox']) {
   if (sandbox.status === 'unavailable') return `sandbox unavailable: ${sandbox.reason.message}`
+  if (sandbox.status === 'probing') return 'sandbox probing'
   return `sandbox ${sandbox.tier}`
 }
 
