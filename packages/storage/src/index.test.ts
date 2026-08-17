@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -172,6 +172,188 @@ describe('BackupStore', () => {
     await writeFile(target, 'after')
     await transaction.commit()
     await expect(access(resolve(root, 'session-5'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+})
+
+describe('BackupStore /undo selection rules (r13-G4)', () => {
+  it('undoes one step per call in reverse order and reports no_backup when exhausted', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'project.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(target, 'v0')
+    const first = await store.prepare('session-undo', [target])
+    await writeFile(target, 'v1')
+    await first.commit()
+    const second = await store.prepare('session-undo', [target])
+    await writeFile(target, 'v2')
+    await second.commit()
+    // Read-only tools (Read/Grep/Glob) ran after the last write: they touch
+    // nothing in the manifest — selection sees only backup entries, so reads
+    // are skipped naturally and still target the newest backup entry.
+    expect(await readFile(target, 'utf8')).toBe('v2')
+    const undo1 = await store.undoStep('session-undo')
+    expect(undo1.undone).toBe(true)
+    expect(undo1.paths).toEqual([target])
+    expect(undo1.warnings).toEqual([])
+    expect(await readFile(target, 'utf8')).toBe('v1')
+    const undo2 = await store.undoStep('session-undo')
+    expect(undo2.undone).toBe(true)
+    expect(await readFile(target, 'utf8')).toBe('v0')
+    const undo3 = await store.undoStep('session-undo')
+    expect(undo3.undone).toBe(false)
+    expect(undo3.reason).toBe('no_backup')
+    expect(undo3.paths).toEqual([])
+    expect(undo3.warnings).toEqual([])
+  })
+
+  it('reports no_backup for a session without any backup entries', async () => {
+    const store = new BackupStore(resolve(await temp(), 'backups'))
+    expect(await store.undoStep('never-seen')).toMatchObject({
+      undone: false,
+      reason: 'no_backup',
+    })
+  })
+
+  it('warns but still restores when the target was externally modified after the backup', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'project.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(target, 'before')
+    const transaction = await store.prepare('session-mtime', [target])
+    await writeFile(target, 'after')
+    await transaction.commit()
+    // External manual change after the backup: content matches neither the
+    // recorded before- nor after-state and mtime is past the backup time.
+    await writeFile(target, 'manual edit')
+    await utimes(target, new Date(), new Date(Date.now() + 60_000))
+    const outcome = await store.undoStep('session-mtime')
+    expect(outcome.undone).toBe(true)
+    expect(outcome.warnings).toEqual([{ path: target, kind: 'target_modified' }])
+    expect(await readFile(target, 'utf8')).toBe('before')
+  })
+
+  it('warns when the backup object is missing yet consumes the step', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'project.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(target, 'before')
+    const transaction = await store.prepare('session-missing', [target])
+    await writeFile(target, 'after')
+    await transaction.commit()
+    const manifest = JSON.parse(
+      await readFile(resolve(dir, 'backups', 'session-missing', 'manifest.json'), 'utf8'),
+    ) as { records: Array<{ backupPath: string }> }
+    await rm(manifest.records[0]!.backupPath)
+    const outcome = await store.undoStep('session-missing')
+    expect(outcome.undone).toBe(true)
+    expect(outcome.warnings).toEqual([{ path: target, kind: 'backup_missing' }])
+    expect(await readFile(target, 'utf8')).toBe('after')
+    // The consumed step is never retried even though nothing was restored from it.
+    expect(await store.undoStep('session-missing')).toMatchObject({ undone: false })
+  })
+
+  it('removes files that the undone tool run created', async () => {
+    const dir = await temp(),
+      created = resolve(dir, 'created.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    const transaction = await store.prepare('session-create', [created])
+    await writeFile(created, 'new content')
+    await transaction.commit()
+    const outcome = await store.undoStep('session-create')
+    expect(outcome.undone).toBe(true)
+    expect(outcome.paths).toEqual([created])
+    await expect(readFile(created, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('undoes multi-file batches as one step and groups legacy records by createdAt', async () => {
+    const dir = await temp(),
+      one = resolve(dir, 'one.txt'),
+      two = resolve(dir, 'two.txt'),
+      root = resolve(dir, 'backups')
+    // MultiEdit-style batch: two records sharing one commit must undo together.
+    await writeFile(one, 'one-v0')
+    await writeFile(two, 'two-v0')
+    const store = new BackupStore(root)
+    const batch = await store.prepare('session-multi', [one, two])
+    await writeFile(one, 'one-v1')
+    await writeFile(two, 'two-v1')
+    await batch.commit()
+    const outcome = await store.undoStep('session-multi')
+    expect(outcome.paths).toEqual([one, two])
+    expect(await readFile(one, 'utf8')).toBe('one-v0')
+    expect(await readFile(two, 'utf8')).toBe('two-v0')
+
+    // Legacy manifest without stepId: batches are identified by createdAt.
+    const legacyRoot = resolve(dir, 'legacy')
+    const legacyOne = resolve(dir, 'legacy-one.txt'),
+      legacyTwo = resolve(dir, 'legacy-two.txt')
+    const manifest = {
+      v: 1,
+      sessionId: 'legacy-sess',
+      records: [
+        {
+          path: legacyTwo,
+          existed: false,
+          afterHash: 'b'.repeat(64),
+          createdAt: '2026-08-16T10:00:02.000Z',
+        },
+        {
+          path: legacyOne,
+          existed: false,
+          afterHash: 'a'.repeat(64),
+          createdAt: '2026-08-16T10:00:01.000Z',
+        },
+      ],
+    }
+    await mkdir(resolve(legacyRoot, 'legacy-sess'), { recursive: true })
+    await writeFile(
+      resolve(legacyRoot, 'legacy-sess', 'manifest.json'),
+      `${JSON.stringify(manifest)}\n`,
+    )
+    await writeFile(legacyOne, 'later')
+    await writeFile(legacyTwo, 'later')
+    const legacyStore = new BackupStore(legacyRoot)
+    const first = await legacyStore.undoStep('legacy-sess')
+    expect(first.undone).toBe(true)
+    expect(first.paths).toEqual([legacyTwo])
+    await expect(readFile(legacyTwo, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(legacyOne, 'utf8')).toBe('later')
+    const second = await legacyStore.undoStep('legacy-sess')
+    expect(second.undone).toBe(true)
+    expect(second.paths).toEqual([legacyOne])
+    await expect(readFile(legacyOne, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('never targets Bash-made changes: they create no backup entries (out of scope)', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'bash-only.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    // A session where only Bash touched the file system: no Write/Edit ran, so
+    // the backup manifest has no entries for it.
+    await writeFile(target, 'bash wrote this')
+    const outcome = await store.undoStep('session-bash-only')
+    expect(outcome).toMatchObject({ undone: false, reason: 'no_backup' })
+    // Nothing was reverted: Bash recovery is out of scope and relies on git.
+    expect(await readFile(target, 'utf8')).toBe('bash wrote this')
+  })
+
+  it('restores the tracked Write backup even when Bash later edited the same file', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'project.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(target, 'before-write')
+    const transaction = await store.prepare('session-bash-mixed', [target])
+    await writeFile(target, 'tool wrote')
+    await transaction.commit()
+    // Bash edits the file outside the backup-tracked Write/Edit/MultiEdit path.
+    await writeFile(target, 'bash edited')
+    const outcome = await store.undoStep('session-bash-mixed')
+    // The undo target is still the tracked Write step; the Bash edit is simply
+    // overwritten by the restore (spec: Bash changes are not undo targets).
+    expect(outcome.undone).toBe(true)
+    expect(outcome.paths).toEqual([target])
+    expect(outcome.warnings).toEqual([{ path: target, kind: 'target_modified' }])
+    expect(await readFile(target, 'utf8')).toBe('before-write')
   })
 })
 describe('PromptLoader', () => {

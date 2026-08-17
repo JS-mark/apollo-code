@@ -19,6 +19,7 @@ export const BUILTIN_SLASH_COMMAND_NAMES = Object.freeze([
   'help',
   'exit',
   'clear',
+  'undo',
   'status',
   'context',
   'compact',

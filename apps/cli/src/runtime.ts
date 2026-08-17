@@ -1615,7 +1615,14 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     session,
     ui: {
       renderInteractiveApp: (input) =>
-        renderInteractiveApp({ history, slashCommandRegistry: slashCommands, ...input }),
+        renderInteractiveApp({
+          history,
+          slashCommandRegistry: slashCommands,
+          // r13-G4 (spec 08-session-config.md §8.6.2): `/undo` single-step tool
+          // rollback backed by the session backup store.
+          undo: { undoStep: (sessionId) => backups.undoStep(sessionId) },
+          ...input,
+        }),
       renderDirectoryTrustPrompt,
       renderSessionPicker,
     },

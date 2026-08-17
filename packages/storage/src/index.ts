@@ -317,12 +317,32 @@ export interface BackupRecord {
   afterHash: string
   backupPath?: string
   createdAt: string
+  /**
+   * Identifies the tool execution (commit batch) this record belongs to.
+   * r13-G4: `/undo` restores exactly one batch per invocation (spec 08-session-config.md §8.6.2).
+   */
+  stepId?: string
+  /** Set when a `/undo` single-step restore consumed this record; consumed steps are skipped. */
+  consumedAt?: string
 }
 
 interface BackupManifest {
   v: 1
   sessionId: string
   records: BackupRecord[]
+}
+
+export interface UndoStepWarning {
+  path: string
+  kind: 'backup_missing' | 'target_modified'
+}
+
+export interface UndoStepResult {
+  undone: boolean
+  reason?: 'no_backup'
+  paths: string[]
+  warnings: UndoStepWarning[]
+  stepCreatedAt?: string
 }
 
 export interface RestoreResult {
@@ -379,11 +399,13 @@ export class BackupStore {
       commit: async () => {
         if (settled) return
         const createdAt = new Date(this.now()).toISOString()
+        const stepId = randomUUID()
         const records: BackupRecord[] = await Promise.all(
           captures.map(async (capture) => ({
             ...capture,
             afterHash: await sourceHash(capture.path),
             createdAt,
+            stepId,
           })),
         )
         await this.appendRecords(sessionId, records)
@@ -465,6 +487,94 @@ export class BackupStore {
       return { restored, conflicts: [], missing: false, dryRun: Boolean(options.dryRun) }
     } finally {
       for (const release of releases.toReversed()) await release()
+    }
+  }
+  /**
+   * r13-G4 (spec 08-session-config.md §8.6.2): `/undo` selection rules.
+   * The undo target is the most recent not-yet-consumed backup batch — one
+   * side-effecting tool execution — selected by backup entry order (manifest is
+   * newest-first) rather than by "last tool run", so read-only tools that
+   * produce no entries are skipped naturally. Bash has no backup semantics and
+   * is therefore out of scope. Warnings (backup object missing, target
+   * externally modified after the backup) never block the restore; the caller
+   * surfaces them in the UI because the restore may overwrite manual changes.
+   */
+  async undoStep(sessionId: string): Promise<UndoStepResult> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    if (!manifest || manifest.records.length === 0)
+      return { undone: false, reason: 'no_backup', paths: [], warnings: [] }
+    const step = undoStepsOf(manifest.records).find((records) =>
+      records.every((record) => !record.consumedAt),
+    )
+    if (!step) return { undone: false, reason: 'no_backup', paths: [], warnings: [] }
+    const paths = [...new Set(step.map((record) => record.path))].toSorted()
+    const warnings: UndoStepWarning[] = []
+    const releases: Array<() => Promise<void>> = []
+    try {
+      for (const path of paths)
+        releases.push(await acquireFileLock(`${path}.apollolock`, `undo ${sessionId}`))
+      for (const record of step) {
+        if (record.existed && record.backupPath) {
+          assertWithin(resolve(this.root, sessionId), record.backupPath)
+          let backupPresent = true
+          try {
+            await stat(record.backupPath)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+            backupPresent = false
+            warnings.push({ path: record.path, kind: 'backup_missing' })
+          }
+          try {
+            const currentHash = await sourceHash(record.path)
+            if (currentHash !== record.afterHash && currentHash !== record.beforeHash)
+              warnings.push({ path: record.path, kind: 'target_modified' })
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+            // Target vanished since the backup: restoring recreates it, nothing to warn about.
+          }
+          if (backupPresent) {
+            await mkdir(dirname(record.path), { recursive: true })
+            await copyFile(record.backupPath, record.path)
+          }
+        } else {
+          await rm(record.path, { force: true })
+        }
+      }
+      await this.markConsumed(sessionId, step)
+      const stepCreatedAt = step[0]?.createdAt
+      return {
+        undone: true,
+        paths,
+        warnings,
+        ...(stepCreatedAt ? { stepCreatedAt } : {}),
+      }
+    } finally {
+      for (const release of releases.toReversed()) await release()
+    }
+  }
+  private async markConsumed(sessionId: string, step: readonly BackupRecord[]): Promise<void> {
+    const consumedAt = new Date(this.now()).toISOString()
+    const identity = new Set(step.map(undoRecordKey))
+    const path = this.manifestPath(sessionId)
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+    const release = await acquireFileLock(`${path}.lock`, `manifest ${sessionId}`)
+    const temporary = `${path}.${randomUUID()}.tmp`
+    try {
+      const current = await this.readManifest(sessionId)
+      if (!current) return
+      for (const record of current.records)
+        if (!record.consumedAt && identity.has(undoRecordKey(record)))
+          record.consumedAt = consumedAt
+      await writeFile(temporary, `${JSON.stringify({ ...current, records: current.records })}\n`, {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      })
+      await rename(temporary, path)
+    } finally {
+      await rm(temporary, { force: true })
+      await release()
     }
   }
   async gc(): Promise<void> {
@@ -564,6 +674,32 @@ export class BackupStore {
 
 function validateSessionId(sessionId: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error('Invalid session id')
+}
+
+/**
+ * Splits the newest-first manifest records into undo steps (one side-effecting
+ * tool execution each). New records share a `stepId` from a single commit;
+ * legacy records without one fall back to their commit `createdAt`.
+ */
+function undoStepsOf(records: readonly BackupRecord[]): BackupRecord[][] {
+  const steps: BackupRecord[][] = []
+  let current: BackupRecord[] = []
+  let key: string | undefined
+  for (const record of records) {
+    const recordKey = record.stepId ?? record.createdAt
+    if (!current.length || recordKey === key) current.push(record)
+    else {
+      steps.push(current)
+      current = [record]
+    }
+    key = recordKey
+  }
+  if (current.length) steps.push(current)
+  return steps
+}
+
+function undoRecordKey(record: BackupRecord): string {
+  return `${record.path}\0${record.createdAt}\0${record.stepId ?? ''}\0${record.beforeHash ?? ''}`
 }
 
 function assertWithin(root: string, path: string): void {
