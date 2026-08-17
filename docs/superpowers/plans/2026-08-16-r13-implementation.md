@@ -1,6 +1,6 @@
 # r13 功能设计修正 · 实现执行计划（2026-08-16）
 
-> **状态**：执行中（批次 1 已收口：REM-51/54/55/58 已合并 #112/#110/#111/#109 @ 66256fe/8ce6be7/eb0ef63/6c99154；REM-52 已合并 #113 @ 39e32b1——批次 1 全收口（5/5））
+> **状态**：批次 1 全收口（5/5 合并）。批次 2 四 REM 完成待审：REM-59=#114 / REM-60=#115 / REM-56=#116 / REM-53=#117（均 CI 全绿、已独立核验）。REM-57 排在 #116 合并后（同文件纪律）。
 > **输入**：[REVIEW-r13](../specs/2026-07-31-apollo-code-design/REVIEW-r13.md) 修正任务清单 25 项，spec 已于 `fb3158c` 落地（docs(superpowers/specs) 为冻结契约，本计划只改代码）
 > **编号**：延续 [2026-08-15-design-remediation.md](./2026-08-15-design-remediation.md) 的 REM 编号（r11: REM-1~25，r12: REM-26~50），本计划从 **REM-51** 起
 > **执行方式**：并行 worktree + 每 REM 一分支一 PR；验收走 [agents 监督体系](./agents/README.md)；每项完成后回写 [16-capability-traceability](../specs/2026-07-31-apollo-code-design/16-capability-traceability.md)
@@ -29,6 +29,7 @@
 | 2 | REM-59 | I3 | 错误码 registry（shared/error-codes.ts）+ ESLint 禁裸串 + verify 脚本 | shared + CI | 批 2 |
 | 2 | REM-60 | I8 | per-event zod schema（shared/events/）+ CI 校验 | shared + core | 批 2 |
 | 3 | REM-61 | I4 | config 未知 key warn + 附录 C 对齐 | config-loader/shared | 批 3 |
+| 3 | REM-74 | I8 后续 | 事件 emit 点迁移到附录 D 契约形状（13 处漂移，含 stream.delta 整 chunk、tool.* 字段名）+ 消费侧（machine-output）同改 + **清除实现自创 session.snapshot（§8.2 已裁决拒绝）** + subagent 冒泡按 D.3 保留原 event.id | core/ui/subagent/runtime | 批 3（REM-60 审计产出，新排） |
 | 3 | REM-62 | G2 | 后台 Bash（runInBackground + ShellOutput/KillShell + 2 事件 + /shells） | tools + core 事件表 + ui | 批 3 |
 | 3 | REM-63 | G5 | B7 截断续写（UI 标记 + sticky 复用） | core + ui | 批 3 |
 | 3 | REM-64 | G4 | /undo 选点规则 + 无 backup 提示 | storage/tools | 批 3 |
