@@ -692,7 +692,11 @@ interface MemorySnapshotV1 {
 
 export interface LocalMemoryRepositoryOptions {
   beforeRename?: (temporaryPath: string, destinationPath: string) => void | Promise<void>
-  /** Maximum time a writer or consistent reader waits for another process. */
+  /**
+   * Maximum time a writer or consistent reader waits for the transaction lock.
+   * The budget also bounds retries of transient lock access errors (LL-7), so
+   * contention-heavy callers (e.g. tests) can widen it without changing code.
+   */
   lockTimeoutMs?: number
   /** Delay between lock attempts. Kept configurable to make contention tests deterministic. */
   lockRetryMs?: number
@@ -818,21 +822,35 @@ export class LocalMemoryRepository implements MemoryRepository {
             const owner = JSON.parse(await readFile(this.#lockPath, 'utf8')) as {
               token?: unknown
             }
-            if (owner.token === token) await rm(this.#lockPath, { force: true })
+            if (owner.token !== token) return
+            await rm(this.#lockPath, { force: true }).catch(
+              (removeError: NodeJS.ErrnoException) => {
+                // A racing Windows unlink can report a transient error for a
+                // lock that is already delete-pending; the file disappears
+                // once the competing handle closes, so treat the lock as
+                // released instead of failing a committed write.
+                if (!isTransientLockErrorCode(removeError.code)) throw removeError
+              },
+            )
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
           }
         }
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-        if (!(await lockOwnerAlive(this.#lockPath))) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (!isTransientLockErrorCode(code)) throw error
+        if (code === 'EEXIST' && !(await lockOwnerAlive(this.#lockPath))) {
           await rm(this.#lockPath, { force: true }).catch((removeError: NodeJS.ErrnoException) => {
-            if (removeError.code !== 'ENOENT') throw removeError
+            // Another writer can win the stale-lock recovery race; the next
+            // open attempt decides, so only non-transient failures escape.
+            if (!isTransientLockErrorCode(removeError.code)) throw removeError
           })
           continue
         }
         if (Date.now() >= deadline)
-          throw new MemoryError('memory_io', 'Timed out waiting for the memory transaction lock')
+          throw new MemoryError('memory_io', 'Timed out waiting for the memory transaction lock', {
+            cause: error,
+          })
         await delay(retryMs)
       }
     }
@@ -851,6 +869,20 @@ export class LocalMemoryRepository implements MemoryRepository {
       return { ok: false, missing: (error as NodeJS.ErrnoException).code === 'ENOENT', error }
     }
   }
+}
+
+/**
+ * Lock error codes that mean "contended right now", not "broken".
+ *
+ * On Windows, `open(path, 'wx')` and `unlink` report EPERM/EACCES/EBUSY while
+ * a competing process is creating or removing the lock file (delete-pending
+ * handles, sharing violations, antivirus scanners). Treating those like EEXIST
+ * and retrying inside the lock budget — instead of surfacing them as a fatal
+ * `memory_io` — is what keeps concurrent writers from flaking on loaded
+ * Windows runners (LL-7).
+ */
+function isTransientLockErrorCode(code: string | undefined): boolean {
+  return code === 'EEXIST' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
 }
 
 async function lockOwnerAlive(path: string): Promise<boolean> {
