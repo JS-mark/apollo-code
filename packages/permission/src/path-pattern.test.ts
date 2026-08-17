@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -167,7 +167,8 @@ describe('canonicalizePattern / canonicalizePath', () => {
     expect(canonicalizePattern('./src/*.ts', { cwd: root })).toBe(
       toPosixSeparators(join(root, 'src', '*.ts')),
     )
-    expect(canonicalizePattern('/abs/x')).toBe(toPosixSeparators('/abs/x'))
+    // Windows 上无盘符的绝对路径会 resolve 到当前盘（如 D:/abs/x）——期望值取 resolve 形态
+    expect(canonicalizePattern('/abs/x')).toBe(toPosixSeparators(resolve('/abs/x')))
     expect(() => canonicalizePattern('src/**')).toThrow(PathPatternError)
   })
   it('canonicalizePath anchors, expands `~` and applies best-effort realpath', () => {
