@@ -84,7 +84,7 @@ export async function tempApolloHome(options: TempApolloHomeOptions = {}): Promi
     await rm(home, { recursive: true, force: true })
   }
   try {
-    onTestFinished(() => restore())
+    onTestFinished(() => void restore())
   } catch {
     // Called outside a running vitest test: the caller owns restore().
   }
