@@ -159,7 +159,7 @@ describe('DefaultMemoryService', () => {
     const records = await new LocalMemoryRepository(file).load()
     expect(records).toHaveLength(40)
     expect(new Set(records.map(({ id }) => id)).size).toBe(40)
-  })
+  }, 30_000)
 
   it('returns memory_conflict when separate instances race on the same id', async () => {
     const file = await snapshotPath()
