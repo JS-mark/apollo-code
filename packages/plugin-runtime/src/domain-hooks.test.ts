@@ -271,7 +271,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
       veto: true,
       reason: 'gone soon',
     }))
-    disposable.dispose()
+    await disposable.dispose()
     expect(await runtime.runDomainHooks('preToolUse', {})).toBeUndefined()
   })
 

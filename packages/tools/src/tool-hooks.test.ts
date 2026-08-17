@@ -39,7 +39,7 @@ function context(): ToolContext {
 
 function hookedExecutor(
   dispatch: ToolHookDispatcher | undefined,
-  invokeCalls: unknown[],
+  _invokeCalls: unknown[],
 ): { executor: ToolExecutor; prompts: ReturnType<typeof vi.fn> } {
   const manager = new PermissionManager()
   const prompts = vi.fn(async () => ({ kind: 'allow-once' as const }))
