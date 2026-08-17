@@ -4,7 +4,13 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { canonicalizePath, canonicalizePattern, matchPath, PathPatternError } from './path-pattern'
+import {
+  canonicalizePath,
+  canonicalizePattern,
+  matchPath,
+  PathPatternError,
+  toPosixSeparators,
+} from './path-pattern'
 
 /**
  * Spec §4.4 「路径模式语义」(r13-I2) 强制点用例：
@@ -163,5 +169,23 @@ describe('canonicalizePattern / canonicalizePath', () => {
     expect(canonicalizePath('docs/ghost.md', { cwd: fakeHome })).toBe(
       join(fakeHome, 'docs', 'ghost.md'),
     )
+  })
+})
+
+describe('toPosixSeparators — Windows 分隔符归一（CI ts (windows) 修复）', () => {
+  // mock process.platform 只影响 toPosixSeparators 自身分支；node:path 的平台行为不变，
+  // 因此跨 canonicalize 的集成语义由 CI 的真 Windows runner 上的既有 14 个用例验证。
+  it('win32 分支把反斜杠归一为 picomatch 的 `/` 方言', () => {
+    const realPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      expect(toPosixSeparators('C:\\Users\\mark\\docs\\*.md')).toBe('C:/Users/mark/docs/*.md')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+    }
+  })
+  it('POSIX 分支不改动含反斜杠的路径（反斜杠是合法文件名字符）', () => {
+    if (process.platform === 'win32') return
+    expect(toPosixSeparators('/tmp/a\\b/*.ts')).toBe('/tmp/a\\b/*.ts')
   })
 })

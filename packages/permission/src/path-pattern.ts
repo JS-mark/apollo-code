@@ -57,6 +57,14 @@ function expandHome(path: string): string {
   return path
 }
 
+/**
+ * Windows 上 `resolve()` / `realpathSync()` 产出反斜杠分隔符，而 picomatch 方言以 `/` 匹配——
+ * canonicalize 末尾统一归一为 POSIX 分隔符；POSIX 上反斜杠是合法文件名字符，**不做**替换。
+ */
+export function toPosixSeparators(path: string): string {
+  return process.platform === 'win32' ? path.replaceAll('\\', '/') : path
+}
+
 /** 规则 4 + 5：模式必须带锚点（`/`、`~/`、`./`、`../`），且不允许否定。 */
 function assertSupportedPattern(pattern: string): void {
   if (pattern.startsWith('!'))
@@ -91,15 +99,21 @@ function realpathBestEffort(path: string): string {
 /** 模式侧 canonicalize：锚点校验 + `~` 展开 + resolve 绝对化（保持词法形态，不做 realpath）。 */
 export function canonicalizePattern(pattern: string, options: PathPatternOptions = {}): string {
   assertSupportedPattern(pattern)
-  return resolve(options.cwd ?? process.cwd(), expandHome(pattern))
+  return toPosixSeparators(resolve(options.cwd ?? process.cwd(), expandHome(pattern)))
 }
 
 /** 被检路径侧 canonicalize：`~` 展开 + resolve 绝对化 + best-effort realpath（规则 3）。 */
 export function canonicalizePath(path: string, options: PathPatternOptions = {}): string {
-  return realpathBestEffort(resolve(options.cwd ?? process.cwd(), expandHome(path)))
+  return toPosixSeparators(
+    realpathBestEffort(resolve(options.cwd ?? process.cwd(), expandHome(path))),
+  )
 }
 
 /** 按钉死的方言判断被检路径是否命中权限模式。非法模式抛 {@link PathPatternError}。 */
-export function matchPath(pattern: string, path: string, options: PathPatternOptions = {}): boolean {
+export function matchPath(
+  pattern: string,
+  path: string,
+  options: PathPatternOptions = {},
+): boolean {
   return matcherFor(canonicalizePattern(pattern, options))(canonicalizePath(path, options))
 }
