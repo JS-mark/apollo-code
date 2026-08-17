@@ -145,9 +145,15 @@ describe('DefaultMemoryService', () => {
 
   it('merges concurrent writes from separate service instances across scopes', async () => {
     const file = await snapshotPath()
+    // LL-7: this hammer relies on the real cross-process file lock. Loaded
+    // Windows runners need a retry budget wider than a single round (and
+    // transient lock access errors retried) or the write fails as memory_io.
+    // Production defaults stay 10s/10ms; only this test widens the budget.
+    const repository = () =>
+      new LocalMemoryRepository(file, { lockTimeoutMs: 30_000, lockRetryMs: 25 })
     for (let round = 0; round < 20; round++) {
-      const first = new DefaultMemoryService(new LocalMemoryRepository(file))
-      const second = new DefaultMemoryService(new LocalMemoryRepository(file))
+      const first = new DefaultMemoryService(repository())
+      const second = new DefaultMemoryService(repository())
       await Promise.all([first.start(), second.start()])
 
       await Promise.all([
