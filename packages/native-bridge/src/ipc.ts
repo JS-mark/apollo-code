@@ -38,7 +38,9 @@ export class RpcPeer {
   ) {
     this.maxLineBytes = options.maxLineBytes ?? DEFAULT_IPC_MAX_LINE_BYTES
     this.telemetry = options.telemetry
-    input.on('data', (chunk: string | Buffer) => this.onData(typeof chunk === 'string' ? Buffer.from(chunk) : chunk))
+    input.on('data', (chunk: string | Buffer) =>
+      this.onData(typeof chunk === 'string' ? Buffer.from(chunk) : chunk),
+    )
   }
 
   request(method: string, params: unknown): Promise<unknown> {

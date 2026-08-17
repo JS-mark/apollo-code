@@ -93,9 +93,7 @@ describe('RpcPeer', () => {
     const output = new PassThrough()
     const peer = new RpcPeer(input, output, { maxLineBytes: 64 })
     const response = peer.requestWithId(1, 'fs.diff', {})
-    input.write(
-      `{"no_id_field":"${'x'.repeat(200)}"}\n{"jsonrpc":"2.0","id":1,"result":"ok"}\n`,
-    )
+    input.write(`{"no_id_field":"${'x'.repeat(200)}"}\n{"jsonrpc":"2.0","id":1,"result":"ok"}\n`)
     await expect(response).resolves.toBe('ok')
     const errorFrame = JSON.parse(
       readOutput(output)
