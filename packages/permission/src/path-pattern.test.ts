@@ -21,16 +21,20 @@ import {
  */
 let root: string
 let home: string | undefined
+let userProfile: string | undefined
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'apollo-path-pattern-')))
   home = process.env.HOME
+  userProfile = process.env.USERPROFILE
 })
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })
   if (home === undefined) delete process.env.HOME
   else process.env.HOME = home
+  if (userProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = userProfile
 })
 
 describe('matchPath — dialect rule 2 (globstar + case sensitivity)', () => {
@@ -85,7 +89,9 @@ describe('matchPath — literal vs glob', () => {
 describe('matchPath — rule 3 (canonicalize + realpath)', () => {
   it('expands `~` on both sides', () => {
     const fakeHome = mkdtempSync(join(root, 'home-'))
+    // os.homedir() 在 POSIX 读 HOME、Windows 读 USERPROFILE——两处都设才能跨平台生效
     process.env.HOME = fakeHome
+    process.env.USERPROFILE = fakeHome
     mkdirSync(join(fakeHome, 'docs'), { recursive: true })
     expect(matchPath('~/docs/**', '~/docs/a.md')).toBe(true)
     expect(matchPath(`${fakeHome}/docs/**`, '~/docs/a.md')).toBe(true)
@@ -156,18 +162,22 @@ describe('canonicalizePattern / canonicalizePath', () => {
   it('canonicalizePattern anchors, expands `~` and stays lexical (no realpath)', () => {
     const fakeHome = mkdtempSync(join(root, 'home-'))
     process.env.HOME = fakeHome
-    expect(canonicalizePattern('~/docs/**')).toBe(join(fakeHome, 'docs') + '/**')
-    expect(canonicalizePattern('./src/*.ts', { cwd: root })).toBe(join(root, 'src', '*.ts'))
-    expect(canonicalizePattern('/abs/x')).toBe('/abs/x')
+    process.env.USERPROFILE = fakeHome
+    expect(canonicalizePattern('~/docs/**')).toBe(toPosixSeparators(join(fakeHome, 'docs')) + '/**')
+    expect(canonicalizePattern('./src/*.ts', { cwd: root })).toBe(
+      toPosixSeparators(join(root, 'src', '*.ts')),
+    )
+    expect(canonicalizePattern('/abs/x')).toBe(toPosixSeparators('/abs/x'))
     expect(() => canonicalizePattern('src/**')).toThrow(PathPatternError)
   })
   it('canonicalizePath anchors, expands `~` and applies best-effort realpath', () => {
     const fakeHome = mkdtempSync(join(root, 'home-'))
     process.env.HOME = fakeHome
+    process.env.USERPROFILE = fakeHome
     mkdirSync(join(fakeHome, 'docs'), { recursive: true })
-    expect(canonicalizePath('~/docs')).toBe(join(fakeHome, 'docs'))
+    expect(canonicalizePath('~/docs')).toBe(toPosixSeparators(realpathSync(join(fakeHome, 'docs'))))
     expect(canonicalizePath('docs/ghost.md', { cwd: fakeHome })).toBe(
-      join(fakeHome, 'docs', 'ghost.md'),
+      toPosixSeparators(join(realpathSync(fakeHome), 'docs', 'ghost.md')),
     )
   })
 })
