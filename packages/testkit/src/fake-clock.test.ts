@@ -20,7 +20,8 @@ describe('fakeClock', () => {
       let observed = ''
       setTimeout(() => {
         observed += 'timer:'
-        Promise.resolve().then(() => {
+        // 悬浮微任务是本用例的被测对象：advance() 必须把它 flush 掉
+        void Promise.resolve().then(() => {
           observed += 'microtask'
         })
       }, 100)
