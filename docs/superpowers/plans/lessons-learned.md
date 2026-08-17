@@ -35,3 +35,17 @@
 - 根因：存在性检查（符号在不在）与行为验证（调用路径通不通）是两个层次，前者廉价后者昂贵，偷懒会全部停在前者。
 - 规则：验收必须含至少一条动态证据（运行测试/命令的真实输出）或调用链证据（调用方 grep 非空）；只有静态存在性证据时 verdict 最高只能给 PARTIAL。
 - 状态：active
+
+### LL-5 worktree 不能放 /tmp：macOS realpath 守卫会让部分测试预存失败
+- 类别：环境陷阱｜日期：2026-08-16｜来源：r13 批次 1（REM-54 验收发现）
+- 问题：git worktree 建在 `/tmp/apollo-rem/*` 时，`packages/shared/path-guard` 与 `apps/cli` 共 37 例测试预存失败（干净 base 上可复现），易被误判为 REM 引入的回归。
+- 根因：macOS `/tmp` 是 `/private/tmp` 的 symlink，`fs.realpath(PWD)` 与字符串 cwd 不一致，触发仓库的 path-guard 安全守卫（`--cwd` 归一化规则 W6）。
+- 规则：并行执行用的 worktree 一律放真实路径目录（如 `~/apollo-worktrees/`），禁用 `/tmp`；验收时若见 path-guard/cli 失败，先在干净 base 复现排除环境因素再定性。
+- 状态：active
+
+### LL-6 执行 agent 的 DoD 必须含仓库 CI 等价命令（format/lint/跨平台），且 lint error 提取要用 `x` 标记
+- 类别：流程缺口｜日期：2026-08-17｜来源：r13 批次 1 CI 修复（4/5 PR 首轮 check 失败）
+- 问题：批次 1 五个 PR 中四个首轮 CI 失败：① 全部挂 quality 第一步 `pnpm format:check`（agent 没跑 oxfmt）；② #111 挂 ts (windows)（实现只验了 mac：win32 分隔符/USERPROFILE/盘符 resolve 差异）；③ #112/#113 挂 lint 真错误（悬浮 Promise / 未用参数）。
+- 根因：执行 agent 的任务卡 DoD 只写了「test + typecheck 绿」，未含 `pnpm format`、`pnpm lint`，也没有 Windows 语义意识；本地验证 lint error 时误把 warning 帮助文本当 error（oxlint 输出中 `x` 才是 error、`!` 是 warning）。
+- 规则：① 执行 agent 任务卡 DoD 固定加：`pnpm format && pnpm turbo run build && pnpm lint`（type-aware lint 依赖先 build 出 dist 声明）+ 受影响包 test；② 路径/权限/IPC 类代码必须考虑 win32 差异（分隔符、HOME vs USERPROFILE、无盘符绝对路径的 resolve、8.3 短名）；③ lint 结果判定以 `grep "^  x "` 提取，CI 为最终裁决；④ 重负载并发类测试（如 storage 的 20 轮文件锁合并）在满载 Windows runner 上需显式 `it(..., 30_000)` 超时。
+- 状态：active
