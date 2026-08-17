@@ -488,7 +488,9 @@ describe('runCli', () => {
       }),
     )
     // The probe result arrives asynchronously and backfills the badge.
-    const renderArg = testPorts.ui?.renderInteractiveApp.mock.calls[0]?.[0] as {
+    // ports 接口声明的是普通函数类型；运行时是 vi.fn —— 用 vi.mocked 收窄拿 .mock
+    const renderMock = vi.mocked(testPorts.ui!.renderInteractiveApp)
+    const renderArg = renderMock.mock.calls[0]?.[0] as {
       sandboxProbe: () => Promise<{ sandbox: { status: string; tier?: string }; status: string }>
     }
     await expect(renderArg.sandboxProbe()).resolves.toEqual({
