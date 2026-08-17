@@ -1,9 +1,20 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
-    "//#check:typescript-config": { "outputs": [] },
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".vitepress/dist/**"] },
-    "test": { "dependsOn": ["^build"], "outputs": [] },
+    "//#check:typescript-config": {
+      "outputs": []
+    },
+    "//#verify:error-codes": {
+      "outputs": []
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".vitepress/dist/**"]
+    },
+    "test": {
+      "dependsOn": ["^build", "//#verify:error-codes"],
+      "outputs": []
+    },
     "typecheck": {
       "dependsOn": ["build", "^build", "//#check:typescript-config"],
       "outputs": []
