@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Duplex, PassThrough } from 'node:stream'
 
-import { createSession, DefaultPromptComposer, updateSession } from '@apollo-code/core'
-import type { EventBus, Runner, SessionState } from '@apollo-code/core'
+import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
+import type { Runner, SessionState } from '@apollo-code/core'
 import type { PluginHost } from '@apollo-code/native-bridge'
 import { DefaultMemoryService, LocalMemoryRepository, MemoryError } from '@apollo-code/storage'
 import type { ToolContext } from '@apollo-code/tool-kit'
@@ -20,6 +20,7 @@ import {
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
   registerRuntimeMemoryPrompts,
+  requestPermission,
   RuntimeSessionPort,
 } from './runtime'
 
@@ -33,6 +34,7 @@ function fakeFactory(
 ): (state: SessionState, events: EventBus) => Runner {
   return (initial, events) => {
     let state = initial
+    let runs = 0
     const fake = {
       get state() {
         return state
@@ -44,16 +46,35 @@ function fakeFactory(
         })
       }),
       run: vi.fn(async (text: string) => {
+        runs += 1
+        const turnId = `turn-${runs}`
+        const messageId = `user-${runs}`
+        // 与真实 Runner 对齐的附录 D 事件（r13-I8）：JSONL 只落事件，
+        // resume 由 replaySessionState 重建（§8.2 D1-1；session.snapshot 已移除）。
+        await events.emit({
+          type: 'turn.started',
+          version: state.version,
+          sessionId: state.id,
+          turnId,
+          payload: { turnId },
+        })
+        await events.emit({
+          type: 'message.appended',
+          version: state.version,
+          sessionId: state.id,
+          turnId,
+          payload: { messageId, role: 'user', content: [{ type: 'text', text }] },
+        })
         state = updateSession(state, (draft) => {
           draft.messages = [
             ...draft.messages,
-            { id: 'user-1', role: 'user', content: [{ type: 'text', text }], createdAt: 1 },
+            { id: messageId, role: 'user', content: [{ type: 'text', text }], createdAt: 1 },
           ]
           draft.turns = [
             ...draft.turns,
-            { id: 'turn-1', startMessageId: 'user-1', status: 'streaming', parentDepth: 0 },
+            { id: turnId, startMessageId: messageId, status: 'streaming', parentDepth: 0 },
           ]
-          draft.activeTurn = 'turn-1'
+          draft.activeTurn = turnId
         })
         return state
       }),
@@ -188,7 +209,7 @@ function memoryPolicyPluginHost(events: Array<{ event: string; payload: any }>) 
 }
 
 describe('RuntimeSessionPort', () => {
-  it('runs through a real session port and persists append-only snapshots', async () => {
+  it('runs through a real session port and persists appendix D events (no session.snapshot)', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
     const runtime = new RuntimeSessionPort(root, fakeFactory())
@@ -197,12 +218,21 @@ describe('RuntimeSessionPort', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as { type: string; payload: any })
-    expect(lines.map((line) => line.type)).toContain('session.started')
-    expect(lines.at(-1)?.type).toBe('session.snapshot')
-    expect(lines.at(-1)?.payload.messages[0].content[0].text).toBe('hello')
+    const types = lines.map((line) => line.type)
+    // REM-74（§8.2 D1-1）：JSONL 只落事件——session.started 开场、message.appended
+    // 携带 ★messageId ★role ★content 可 replay 重建，session.snapshot 快照行被移除。
+    expect(types).toContain('session.started')
+    expect(types).not.toContain('session.snapshot')
+    expect(types).toContain('turn.started')
+    const appended = lines.find((line) => line.type === 'message.appended')
+    expect(appended?.payload).toEqual({
+      messageId: 'user-1',
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+    })
   })
 
-  it('resumes the last snapshot, aborts an incomplete turn, and emits session.resumed', async () => {
+  it('resumes via event replay, aborts an incomplete turn, and emits session.resumed', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
     const first = new RuntimeSessionPort(root, fakeFactory())
@@ -252,6 +282,35 @@ describe('RuntimeSessionPort', () => {
 
     expect(await readFile(join(root, `${current.id}.jsonl`), 'utf8')).toContain('still current')
     expect(await readFile(join(root, `${target.id}.jsonl`), 'utf8')).not.toContain('still current')
+  })
+
+  it('emits appendix D tool.permission_asked before prompting (r13-I8)', async () => {
+    const events = new EventBus()
+    const seen: Array<{ type: string; payload: unknown }> = []
+    events.subscribe((event) => {
+      seen.push({ type: event.type, payload: event.payload })
+    })
+    const decision = await requestPermission({
+      events,
+      interactivePermissionPrompt: async () => ({ kind: 'allow-once' }),
+      version: 1,
+      request: {
+        toolName: 'Bash',
+        spec: { bash: { command: 'ls' } },
+        input: { command: 'ls' },
+        session: { id: 'session-1', cwd: '/repo' },
+        attempt: 1,
+        toolUseId: 'toolu_1',
+      },
+    })
+    expect(decision).toEqual({ kind: 'allow-once' })
+    expect(seen).toEqual([
+      {
+        type: 'tool.permission_asked',
+        // 附录 D.2：★toolUseId（真实 tool_use id 透传）★tool ★spec（摘要）。
+        payload: { toolUseId: 'toolu_1', tool: 'Bash', spec: { bash: { command: 'ls' } } },
+      },
+    ])
   })
 })
 

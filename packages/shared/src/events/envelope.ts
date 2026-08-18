@@ -39,7 +39,9 @@ export const uuidV7Schema = z
 
 /**
  * 公共 envelope（§2.3 / 附录 D.1）：
- * id（UUIDv7）/ type / version / sessionId / turnId? / at / payload。
+ * id（UUIDv7）/ type / version / sessionId / turnId? / at / payload，
+ * 外加附录 D.3 subagent 冒泡 tag（parentTurnId? / parentDepth?——只在事件从子总线
+ * 冒泡到父总线时出现，payload 不动）。
  * 本 schema 只校验 envelope 骨架；payload 按 type 收紧用 index.ts 的 eventEnvelopeFor。
  */
 export const eventEnvelopeSchema = z.strictObject({
@@ -48,6 +50,8 @@ export const eventEnvelopeSchema = z.strictObject({
   version: z.number().int().nonnegative(),
   sessionId: z.string().min(1),
   turnId: z.string().min(1).optional(),
+  parentTurnId: z.string().min(1).optional(),
+  parentDepth: z.number().int().nonnegative().optional(),
   at: z.number().int().nonnegative(),
   payload: jsonValueSchema,
 })

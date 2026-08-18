@@ -12,7 +12,7 @@ import {
 } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
@@ -26,6 +26,7 @@ import {
   EventBus,
   MachineEventFormatter,
   EvolutionEngine,
+  replaySessionState,
   Runner,
   updateSession,
   wrapUntrusted,
@@ -302,7 +303,6 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
 export class RuntimeSessionPort implements SessionPort {
   #runner: Runner | undefined
   #events: EventBus | undefined
-  #store: SessionStore | undefined
   #output?: { json: boolean; write: (value: string) => void }
   #lastExitCode = 0
   constructor(
@@ -331,7 +331,6 @@ export class RuntimeSessionPort implements SessionPort {
     const session = await this.startInteractive({ cwd: input.cwd })
     if (input.prompt !== undefined) {
       await this.#runner!.run(input.prompt)
-      await this.snapshot()
     } else {
       if (!isInteractiveTerminal()) throw new Error('Interactive chat requires a TTY or a prompt')
       for (;;) {
@@ -341,9 +340,7 @@ export class RuntimeSessionPort implements SessionPort {
         if (!trimmed) continue
         if (trimmed === 'exit' || trimmed === 'quit') break
         await this.#runner!.run(prompt)
-        await this.snapshot()
       }
-      await this.snapshot()
       await session.end()
     }
     return { id: session.id, exitCode: session.exitCode() }
@@ -389,7 +386,6 @@ export class RuntimeSessionPort implements SessionPort {
           prompt,
           submitOptions?.model ? { explicitModel: submitOptions.model } : undefined,
         )
-        await this.snapshot()
       },
       end: async () => {
         await this.end()
@@ -404,19 +400,31 @@ export class RuntimeSessionPort implements SessionPort {
   async resume(id: string): Promise<{ id: string }> {
     if (!sessionIdPattern.test(id)) throw new Error('Invalid session id')
     const store = new SessionStore(this.path(id))
-    const entries = await store.resume(20)
-    const snapshot = entries.findLast((entry) => entry.type === 'session.snapshot')
-    if (!snapshot) throw new Error(`Session not found or has no resumable snapshot: ${id}`)
-    const restored = snapshot.payload as unknown as SessionState
-    const state = updateSession(restored, (draft) => {
+    // §8.2 D1-1（REM-74）：resume 一律走事件 replay（附录 D 形状；legacy session.snapshot
+    // 行作为旧数据的基线兜底），禁止再写全量快照。
+    const all = await store.load()
+    const turnStarts = all.map((entry, index) => (entry.type === 'turn.started' ? index : -1))
+    const tailTurns = 20
+    const from = turnStarts.filter((index) => index >= 0).at(-tailTurns) ?? 0
+    const entries = all.slice(from)
+    const replayedTurns = entries.filter((entry) => entry.type === 'turn.started').length
+    const skippedTurns = Math.max(
+      0,
+      turnStarts.filter((index) => index >= 0).length - replayedTurns,
+    )
+    const replay = replaySessionState(id, entries, {
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'builtin:l1',
+    })
+    if (!replay.found) throw new Error(`Session not found or has no resumable events: ${id}`)
+    const state = updateSession(replay.state, (draft) => {
       draft.activeTurn = null
       draft.pendingInterrupt = false
       draft.turns = draft.turns.map((turn) =>
         terminalStatuses.has(turn.status) ? turn : { ...turn, status: 'aborted' },
       )
     })
-    await this.activate(state, true)
-    await this.snapshot()
+    await this.activate(state, { tailTurns: replayedTurns, skippedTurns })
     return { id }
   }
   async list(): Promise<readonly SessionCandidate[]> {
@@ -424,16 +432,23 @@ export class RuntimeSessionPort implements SessionPort {
     for await (const path of glob(join(this.sessionsDir, '*.jsonl'))) {
       try {
         const entries = await new SessionStore(path).load()
-        const snapshot = entries.findLast((entry) => entry.type === 'session.snapshot')
-        if (!snapshot) continue
-        const state = snapshot.payload as unknown as SessionState
+        if (entries.length === 0) continue
+        // REM-74：候选不再依赖 session.snapshot，事件 replay（附录 D）直接派生；
+        // 旧 session 的 snapshot 行由 replaySessionState 作为基线兜底。文件名是
+        // session id 的唯一真相（bubbled 子事件带子 sessionId，不参与）。
+        const id = basename(path, '.jsonl')
+        const replay = replaySessionState(id, entries, {
+          maxTokens: 200_000,
+          toolRegistrySnapshot: 'builtin:l1',
+        })
+        const state = replay.state
         if (!sessionIdPattern.test(state.id) || typeof state.cwd !== 'string') continue
         const firstUser = state.messages.find((message) => message.role === 'user')
         const summary = firstUser ? messageText(firstUser.content) : undefined
         candidates.push({
           id: state.id,
           cwd: state.cwd,
-          updatedAt: snapshot.at,
+          updatedAt: entries.at(-1)?.at ?? new Date().toISOString(),
           title: summary?.slice(0, 72) || `Session in ${state.cwd}`,
           ...(summary ? { summary } : {}),
         })
@@ -447,28 +462,29 @@ export class RuntimeSessionPort implements SessionPort {
   }
   async interrupt(): Promise<void> {
     this.#runner?.interrupt()
-    await this.snapshot()
   }
   async end(): Promise<void> {
     if (!this.#runner || !this.#events) return
     const sessionId = this.#runner.state.id
+    // 附录 D.2 session.ended：★reason（exit|signal|error） ?exitCode。
     await this.#events.emit({
       type: 'session.ended',
       version: this.#runner.state.version,
       sessionId: this.#runner.state.id,
-      payload: {},
+      payload: { reason: 'exit', exitCode: this.#lastExitCode },
     })
-    await this.snapshot()
     await this.onEnd?.(sessionId)
     this.onPermissionPromptHandler?.(undefined)
     this.#runner = undefined
     this.#events = undefined
-    this.#store = undefined
   }
   private path(id: string): string {
     return join(this.sessionsDir, `${id}.jsonl`)
   }
-  private async activate(state: SessionState, resumed: boolean): Promise<void> {
+  private async activate(
+    state: SessionState,
+    resumed?: { tailTurns: number; skippedTurns: number },
+  ): Promise<void> {
     const events = new EventBus()
     const store = new SessionStore(this.path(state.id))
     store.attach(events)
@@ -476,8 +492,9 @@ export class RuntimeSessionPort implements SessionPort {
     let lastExitCode = 0
     events.subscribe((event) => {
       if (event.type !== 'turn.aborted') return
-      const exitCode = (event.payload as { exitCode?: unknown }).exitCode
-      lastExitCode = typeof exitCode === 'number' ? exitCode : 130
+      // 附录 D.2 turn.aborted：{turnId, reason}——exitCode 由 reason 派生（130=用户中断）。
+      const reason = (event.payload as { reason?: unknown }).reason
+      lastExitCode = reason === 'user_interrupt' ? 130 : 1
       if (this.#events === events) this.#lastExitCode = lastExitCode
     })
     if (this.#output?.json) {
@@ -488,26 +505,17 @@ export class RuntimeSessionPort implements SessionPort {
       })
     }
     this.#events = events
-    this.#store = store
     this.#runner = runner
     this.#lastExitCode = lastExitCode
+    // 附录 D.2：冷启动 session.started {cwd}；恢复 session.resumed {tailTurns, skippedTurns}
+    // 替代 session.started（W10）。
     await events.emit({
       type: resumed ? 'session.resumed' : 'session.started',
       version: state.version,
       sessionId: state.id,
-      payload: resumed ? { tailTurns: 20 } : { cwd: state.cwd },
-    })
-  }
-  private async snapshot(): Promise<void> {
-    if (!this.#runner || !this.#store) return
-    const state = JSON.parse(JSON.stringify(this.#runner.state)) as JsonValue
-    await this.#store.append({
-      v: 1,
-      id: uuidv7(),
-      type: 'session.snapshot',
-      sessionId: this.#runner.state.id,
-      at: new Date().toISOString(),
-      payload: state,
+      payload: resumed
+        ? { tailTurns: resumed.tailTurns, skippedTurns: resumed.skippedTurns }
+        : { cwd: state.cwd },
     })
   }
 }
@@ -667,7 +675,7 @@ async function permissionPrompt(request: PermissionRequest): Promise<PermissionD
   return { kind: answer === 's' ? 'allow-session' : answer === 'a' ? 'allow-once' : 'deny' }
 }
 
-async function requestPermission(input: {
+export async function requestPermission(input: {
   events: EventBus
   interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
@@ -676,6 +684,18 @@ async function requestPermission(input: {
   version: number
 }): Promise<PermissionDecision> {
   const id = uuidv7()
+  // 附录 D.2 tool.permission_asked：{toolUseId, tool, spec}——toolUseId 优先用真实
+  // tool_use id（ToolExecutor 透传），非模型路径回退本次弹窗请求 id。
+  await input.events.emit({
+    type: 'tool.permission_asked',
+    version: input.version,
+    sessionId: input.request.session.id,
+    payload: {
+      toolUseId: input.request.toolUseId ?? id,
+      tool: input.request.toolName,
+      spec: sanitize(input.request.spec as JsonValue),
+    },
+  })
   const uiRequest: InteractivePermissionRequest = {
     id,
     attempt: input.request.attempt,
@@ -683,12 +703,6 @@ async function requestPermission(input: {
     spec: sanitize(input.request.spec as JsonValue),
     toolName: input.request.toolName,
   }
-  await input.events.emit({
-    type: 'tool.permission_asked',
-    version: input.version,
-    sessionId: input.request.session.id,
-    payload: uiRequest as unknown as JsonValue,
-  })
   if (!input.interactivePermissionPrompt) return permissionPrompt(input.request)
   const decision = await input.interactivePermissionPrompt(uiRequest)
   return { kind: decision.kind }
@@ -1363,7 +1377,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
             version: state.version,
             sessionId: state.id,
             ...(runner?.state.activeTurn ? { turnId: runner.state.activeTurn } : {}),
-            payload: { code: signal.code, hook: signal.hook, event: signal.event },
+            payload: { code: signal.code, context: { hook: signal.hook, event: signal.event } },
           })
           .catch(() => undefined)
         return

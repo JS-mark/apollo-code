@@ -326,19 +326,19 @@ describe('renderInteractiveApp', () => {
     await new Promise<void>((resolve) => setImmediate(resolve))
 
     await events.emit({
-      payload: {},
+      payload: { messageId: 'm-1' },
       sessionId: 'session-1234567890',
       type: 'stream.started',
       version: 1,
     })
     await events.emit({
-      payload: { chunk: { kind: 'text.delta', text: 'pong' } },
+      payload: { messageId: 'm-1', kind: 'text', fragment: 'pong' },
       sessionId: 'session-1234567890',
       type: 'stream.delta',
       version: 1,
     })
     await events.emit({
-      payload: {},
+      payload: { messageId: 'm-1' },
       sessionId: 'session-1234567890',
       type: 'stream.completed',
       version: 1,
@@ -799,19 +799,19 @@ describe('renderInteractiveApp', () => {
     )
 
     await events.emit({
-      payload: {},
+      payload: { messageId: 'm-1' },
       sessionId: 'session-1',
       type: 'stream.started',
       version: 1,
     })
     await events.emit({
-      payload: { chunk: { kind: 'text.delta', text: 'a' } },
+      payload: { messageId: 'm-1', kind: 'text', fragment: 'a' },
       sessionId: 'session-1',
       type: 'stream.delta',
       version: 1,
     })
     await events.emit({
-      payload: { chunk: { kind: 'text.delta', text: 'b' } },
+      payload: { messageId: 'm-1', kind: 'text', fragment: 'b' },
       sessionId: 'session-1',
       type: 'stream.delta',
       version: 1,

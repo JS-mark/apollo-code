@@ -26,6 +26,8 @@ export interface PermissionRequest {
   input: unknown
   session: { id: string; cwd: string }
   attempt: number
+  /** 触发本次请求的 tool_use id（附录 D.2 tool.permission_asked ★toolUseId）；非模型路径可缺省。 */
+  toolUseId?: string
 }
 export type PermissionDecision = {
   kind: 'allow-once' | 'allow-session' | 'allow-project' | 'allow-forever' | 'deny' | 'deny-forever'

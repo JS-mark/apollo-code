@@ -751,12 +751,12 @@ function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): In
   }
 
   if (event.type === 'tool.started') {
-    const toolName = payloadField(event.payload, 'toolName') || 'tool'
+    const toolName = payloadField(event.payload, 'tool') || 'tool'
     return { ...state, status: `running ${toolName}`, statusLevel: 'active' }
   }
 
   if (event.type === 'tool.completed') {
-    const toolName = payloadField(event.payload, 'toolName') || 'tool'
+    const toolName = payloadField(event.payload, 'tool') || 'tool'
     return { ...state, status: `${toolName} completed`, statusLevel: 'muted' }
   }
 
@@ -765,9 +765,10 @@ function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): In
   }
 
   if (event.type === 'error.raised') {
+    // 附录 D.2 error.raised：★code（附录 B） ?context——状态行优先展示 code。
     return {
       ...state,
-      status: payloadText(event.payload) || 'error',
+      status: payloadField(event.payload, 'code') || payloadText(event.payload) || 'error',
       statusLevel: 'error',
     }
   }
@@ -790,15 +791,29 @@ function payloadText(payload: CoreEvent['payload']): string {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return ''
 
   const objectPayload = payload as Record<string, unknown>
+  // 附录 D.2 stream.delta：★fragment（string）只传增量片段。
+  const fragment = objectPayload.fragment
+  if (typeof fragment === 'string') return fragment
   const chunk = objectPayload.chunk
   if (chunk && typeof chunk === 'object' && !Array.isArray(chunk)) {
     const chunkText = (chunk as Record<string, unknown>).text
     if (typeof chunkText === 'string') return chunkText
   }
 
-  for (const key of ['text', 'content', 'message']) {
+  for (const key of ['text', 'message']) {
     const value = objectPayload[key]
     if (typeof value === 'string') return value
+  }
+  // 附录 D.2 message.appended：★content（引用式 ContentPart[]）取 text part 拼接。
+  const content = objectPayload.content
+  if (Array.isArray(content)) {
+    return content
+      .filter(
+        (part): part is { type: string; text: string } =>
+          !!part && typeof part === 'object' && !Array.isArray(part),
+      )
+      .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+      .join('')
   }
   return ''
 }

@@ -1,4 +1,4 @@
-import type { ProviderChunk, ProviderClient } from '@apollo-code/provider-kit'
+import type { ContextPolicy, ProviderChunk, ProviderClient } from '@apollo-code/provider-kit'
 import type { RouterPolicy } from '@apollo-code/router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -133,7 +133,10 @@ describe('Runner', () => {
       }),
     )
     expect(raised).toContainEqual(
-      expect.objectContaining({ code: 'subagent_budget_exhausted', dimension: 'token' }),
+      expect.objectContaining({
+        code: 'subagent_budget_exhausted',
+        context: expect.objectContaining({ dimension: 'token' }),
+      }),
     )
     expect(final.turns.at(-1)?.status).toBe('aborted')
   })
@@ -172,7 +175,10 @@ describe('Runner', () => {
     expect(state.activeTurn).toBeNull()
     expect(state.turns.at(-1)?.status).toBe('aborted')
     expect(raised).toContainEqual(
-      expect.objectContaining({ code: 'runner_error', message: 'provider failed' }),
+      expect.objectContaining({
+        code: 'runner_error',
+        context: expect.objectContaining({ message: 'provider failed' }),
+      }),
     )
   })
   it('fails closed on partial tool_use without consulting retry routing or executing it', async () => {
@@ -272,12 +278,8 @@ describe('Runner', () => {
     })
     const state = await new Runner(context(), policy, composer, tools, bus).run('hi')
     expect(policy.pick).toHaveBeenCalledTimes(1)
-    expect(switched).toContainEqual({
-      from: 'first',
-      to: 'second',
-      reason: 'fallback',
-      category: 'stream_truncated',
-    })
+    // 附录 D.2 router.switched：{from, to?, reason}（category 移出契约）。
+    expect(switched).toContainEqual({ from: 'first', to: 'second', reason: 'fallback' })
     expect(state.messages.at(-1)?.content).toContainEqual({ type: 'text', text: 'kept' })
   })
 
@@ -354,13 +356,16 @@ describe('Runner', () => {
       expect.any(AbortSignal),
     )
     expect(started).toEqual(['ok'])
-    const expected = `Invalid JSON arguments for tool broken (stream truncated?): ${brokenRaw.slice(0, 200)}...`
+    // 附录 D.2 tool.completed：{toolUseId, tool, isError, durationMs?}（content 移出事件，
+    // 完整 tool_result 内容走 message.appended）。
     expect(completed).toContainEqual({
       toolUseId: 'bad',
-      toolName: 'broken',
-      content: [{ type: 'text', text: expected }],
+      tool: 'broken',
       isError: true,
     })
+    expect(completed).toContainEqual(
+      expect.objectContaining({ toolUseId: 'ok', tool: 'fine', isError: false }),
+    )
     const badResult = state.messages.find((message) =>
       message.content.some((part) => part.type === 'tool_result' && part.toolUseId === 'bad'),
     )
@@ -370,6 +375,7 @@ describe('Runner', () => {
       isError?: boolean
       content: { type: string; text: string }[]
     }
+    const expected = `Invalid JSON arguments for tool broken (stream truncated?): ${brokenRaw.slice(0, 200)}...`
     expect(badPart.type).toBe('tool_result')
     expect(badPart.isError).toBe(true)
     expect(badPart.content[0]?.type).toBe('text')
@@ -407,6 +413,114 @@ describe('Runner', () => {
       state.messages.some((message) => message.content.some((part) => part.type === 'tool_result')),
     ).toBe(false)
     expect(state.turns.at(-1)?.status).toBe('aborted')
+  })
+
+  it('emits appendix D payload shapes through the whole turn (r13-I8)', async () => {
+    const client = provider([
+      [
+        { kind: 'text.delta', text: 'hi ' },
+        { kind: 'text.delta', text: 'there' },
+        { kind: 'usage', usage: { input: 3, output: 4, costUSD: 0.02 } },
+        { kind: 'tool_use.start', id: 't1', name: 'Read' },
+        { kind: 'tool_use.delta', id: 't1', argsFragment: '{"path":"a"}' },
+        { kind: 'tool_use.end', id: 't1' },
+        { kind: 'message.stop', stopReason: 'tool_use' },
+      ],
+      [
+        { kind: 'text.delta', text: 'done' },
+        { kind: 'message.stop', stopReason: 'end_turn' },
+      ],
+    ])
+    const byType = new Map<string, unknown[]>()
+    const bus = new EventBus()
+    bus.subscribe((event) => {
+      const list = byType.get(event.type) ?? []
+      list.push(event.payload)
+      byType.set(event.type, list)
+    })
+    await new Runner(context(), router(client), composer, tools, bus).run('hi')
+    // message.appended：★messageId ★role ★content（引用式）
+    expect(byType.get('message.appended')).toEqual(
+      expect.arrayContaining([
+        { messageId: expect.any(String), role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        {
+          messageId: expect.any(String),
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'hi there' },
+            { type: 'tool_use', id: 't1', name: 'Read', input: { path: 'a' } },
+          ],
+        },
+      ]),
+    )
+    // tool.requested：★toolUseId ★tool ★input（执行/权限判定之前）
+    expect(byType.get('tool.requested')).toEqual([
+      { toolUseId: 't1', tool: 'Read', input: { path: 'a' } },
+    ])
+    // tool.started：{toolUseId, tool}；tool.completed：含 durationMs
+    expect(byType.get('tool.started')).toEqual([{ toolUseId: 't1', tool: 'Read' }])
+    expect(byType.get('tool.completed')).toEqual([
+      expect.objectContaining({ toolUseId: 't1', tool: 'Read', isError: false }),
+    ])
+    // stream.delta：只传增量片段
+    expect(byType.get('stream.delta')).toEqual([
+      { messageId: expect.any(String), kind: 'text', fragment: 'hi ' },
+      { messageId: expect.any(String), kind: 'text', fragment: 'there' },
+      { messageId: expect.any(String), kind: 'tool_use', fragment: '{"path":"a"}' },
+      { messageId: expect.any(String), kind: 'text', fragment: 'done' },
+    ])
+    // turn.completed：★turnId ★usage ?stopReason
+    expect(byType.get('turn.completed')).toEqual([
+      {
+        turnId: expect.any(String),
+        usage: {
+          input: 3,
+          output: 4,
+          cacheRead: 0,
+          cacheWrite: 0,
+          costUSD: 0.02,
+        },
+        stopReason: 'end_turn',
+      },
+    ])
+  })
+
+  it('emits appendix D context.compacted with before/after tokens (r13-I8)', async () => {
+    const client = provider([
+      [
+        { kind: 'text.delta', text: 'ok' },
+        { kind: 'message.stop', stopReason: 'end_turn' },
+      ],
+    ])
+    const bus = new EventBus()
+    const compacted: unknown[] = []
+    bus.subscribe((event) => {
+      if (event.type === 'context.compacted') compacted.push(event.payload)
+    })
+    const policy: ContextPolicy = {
+      name: 'stub',
+      shouldCompact: () => true,
+      estimateTokens: () => 1,
+      buildPrompt: (ctx) => ({
+        messages: ctx.session.messages,
+        removedMessageIds: [],
+        estimatedTokens: 1,
+        hasSummary: false,
+      }),
+      compact: async () => ({
+        messages: [],
+        compactedMessageIds: ['m0'],
+        beforeTokens: 100,
+        afterTokens: 10,
+        strategy: 'truncate',
+        hookIntercepted: false,
+      }),
+    }
+    await new Runner(context(), router(client), composer, tools, bus, {}, policy).run('hi')
+    // 附录 D.2：★before ★after（token 数）?strategy ?removedMessageIds
+    expect(compacted).toEqual([
+      { before: 100, after: 10, strategy: 'truncate', removedMessageIds: ['m0'] },
+    ])
   })
 
   it('derives role hints from built-in subagent types while preserving explicit hints', async () => {

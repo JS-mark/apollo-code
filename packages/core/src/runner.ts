@@ -10,7 +10,7 @@ import type {
   Usage,
 } from '@apollo-code/provider-kit'
 import type { RouterDecision, RouterHint, RouterPolicy } from '@apollo-code/router'
-import type { JsonValue } from '@apollo-code/shared'
+import type { EventContent, JsonValue } from '@apollo-code/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 import { EventBus } from './event-bus'
@@ -22,6 +22,7 @@ export interface ToolExecution {
   toolName?: string
   content: ContentPart[]
   isError?: boolean
+  durationMs?: number
 }
 export interface RunnerToolPort {
   schemas(provider: ProviderClient): ToolSchema[]
@@ -54,6 +55,26 @@ interface InProgress {
   invalidTools: Set<string> // parse 失败的 toolUseId（§3.2 rule 2：不执行）
   usage?: Usage
   stopReason?: StopReason
+}
+
+/**
+ * 附录 D.2 `message.appended` 的引用式 content：provider-kit ContentPart 中 inline 二进制
+ * 附件（附录 D.1「大 payload 不进事件，只传引用」）递归替换为占位 text part（tool_result
+ * 内容可嵌套），其余结构原样透传（text/thinking/tool_use/tool_result 与引用式 image/file）。
+ */
+export function toEventContent(parts: readonly ContentPart[]): EventContent[] {
+  return parts.map((part): EventContent => {
+    if (part.type === 'tool_result') return { ...part, content: toEventContent(part.content) }
+    if (part.type !== 'image' && part.type !== 'file') return part
+    if (part.source.kind === 'inline')
+      return {
+        type: 'text',
+        text: `[Attachment omitted from event: inline ${part.type} (${part.mime}) not referenceable]`,
+      }
+    // 引用式附件原样透传（TS 对负向判别的窄化不足，显式重构）。
+    if (part.type === 'image') return { type: 'image', source: part.source, mime: part.mime }
+    return { type: 'file', source: part.source, mime: part.mime, filename: part.filename }
+  })
 }
 
 export class Runner {
@@ -100,13 +121,23 @@ export class Runner {
         },
       ]
     })
-    await this.emit('turn.started', turnId, {})
+    await this.emit('turn.started', turnId, {
+      turnId,
+      ...(this.#state.lineage?.parentTurnId
+        ? { parentTurnId: this.#state.lineage.parentTurnId }
+        : {}),
+      ...(this.#state.lineage?.agentType ? { agentType: this.#state.lineage.agentType } : {}),
+    })
     const user = this.message(
       'user',
       typeof input === 'string' ? [{ type: 'text', text: input }] : [...input],
     )
     this.append(user)
-    await this.emit('message.appended', turnId, { messageId: user.id })
+    await this.emit('message.appended', turnId, {
+      messageId: user.id,
+      role: user.role,
+      content: toEventContent(user.content),
+    })
     let sticky: ProviderClient | undefined
     let decision: RouterDecision | undefined
     let retryDecision: RouterDecision | undefined
@@ -114,6 +145,10 @@ export class Runner {
     let loops = 0
     let toolCalls = 0
     let failed = false
+    // 附录 D.2 turn.aborted reason（user_interrupt | error | stream_interrupted）
+    let abortReason: 'user_interrupt' | 'error' | 'stream_interrupted' | undefined
+    const turnUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUSD: 0 }
+    let lastStopReason: StopReason | undefined
     const turnStartedAt = Date.now()
     const agentType = this.#state.lineage?.agentType
     const lineageRole: RouterHint['role'] =
@@ -127,21 +162,27 @@ export class Runner {
         if (exhausted) {
           await this.emit('error.raised', turnId, {
             code: 'subagent_budget_exhausted',
-            dimension: exhausted,
-            consumed: {
-              input: this.#state.cumulativeUsage.input,
-              output: this.#state.cumulativeUsage.output,
-              costUSD: this.#state.cumulativeUsage.costUSD,
-              timeMs: Date.now() - turnStartedAt,
-              toolCalls,
+            context: {
+              dimension: exhausted,
+              consumed: {
+                input: this.#state.cumulativeUsage.input,
+                output: this.#state.cumulativeUsage.output,
+                costUSD: this.#state.cumulativeUsage.costUSD,
+                timeMs: Date.now() - turnStartedAt,
+                toolCalls,
+              },
+              budget: this.options.budget ?? this.#state.resourceBudget ?? {},
             },
-            budget: this.options.budget ?? this.#state.resourceBudget ?? {},
           })
+          abortReason = 'error'
           this.#turnAbort.abort('budget')
           break
         }
         if (loops >= (this.options.maxToolLoopsPerTurn ?? 25)) {
-          await this.emit('error.raised', turnId, { code: 'tool_loop_exhausted', loopCount: loops })
+          await this.emit('error.raised', turnId, {
+            code: 'tool_loop_exhausted',
+            context: { loopCount: loops },
+          })
           break
         }
         loops += 1
@@ -187,11 +228,10 @@ export class Runner {
               if (turn) turn.status = 'streaming'
             })
             await this.emit('context.compacted', turnId, {
+              before: snapshot.beforeTokens,
+              after: snapshot.afterTokens,
               strategy: snapshot.strategy,
-              beforeTokens: snapshot.beforeTokens,
-              afterTokens: snapshot.afterTokens,
-              compactedCount: snapshot.compactedMessageIds.length,
-              hookIntercepted: snapshot.hookIntercepted,
+              removedMessageIds: snapshot.compactedMessageIds,
             })
           }
           requestMessages = this.contextPolicy.buildPrompt({
@@ -204,7 +244,11 @@ export class Runner {
           decision.provider.name,
           decision.provider.capabilities,
         )
+        // 附录 D.2 stream.started/delta/completed 共用的 messageId：在流发起前生成，
+        // assistant message 定稿时复用（事件流与消息 id 对齐）。
+        const messageId = uuidv7()
         await this.emit('stream.started', turnId, {
+          messageId,
           provider: decision.provider.name,
           model: decision.model,
         })
@@ -235,14 +279,14 @@ export class Runner {
             current.invalidTools.clear()
             await this.emit('error.raised', turnId, {
               code: 'stream_interrupted',
-              reason: chunk.reason,
-              hadPartialToolUse,
+              context: { reason: chunk.reason, hadPartialToolUse },
             })
             if (hadPartialToolUse) {
               failed = true
+              abortReason = 'stream_interrupted'
               await this.emit('error.raised', turnId, {
                 code: 'stream_resume_unsafe_partial_tool_use',
-                reason: 'partial tool_use cannot be resumed or replayed safely',
+                context: { reason: 'partial tool_use cannot be resumed or replayed safely' },
               })
               break outer
             }
@@ -258,13 +302,15 @@ export class Runner {
             )
             if (next === 'give-up') {
               failed = true
+              abortReason = 'stream_interrupted'
               break outer
             }
             if (sticky && next.provider !== sticky) {
               failed = true
+              abortReason = 'stream_interrupted'
               await this.emit('error.raised', turnId, {
                 code: 'provider_sticky_violation',
-                reason: 'tool_use already in flight, cannot switch provider',
+                context: { reason: 'tool_use already in flight, cannot switch provider' },
               })
               break outer
             }
@@ -273,13 +319,19 @@ export class Runner {
                 from: decision.provider.name,
                 to: next.provider.name,
                 reason: next.reason,
-                category: error.category,
               })
             retryDecision = next
             continue outer
           }
           this.merge(current, chunk)
-          await this.emit('stream.delta', turnId, { chunk: chunk as unknown as JsonValue })
+          // 附录 D.2 stream.delta：只传增量片段（kind + fragment），不塞整 chunk。
+          const fragment = deltaFragment(chunk)
+          if (fragment)
+            await this.emit('stream.delta', turnId, {
+              messageId,
+              kind: fragment.kind,
+              fragment: fragment.text,
+            })
         }
         if (interrupted) continue
         if (signal.aborted) break
@@ -287,9 +339,14 @@ export class Runner {
           decision,
           this.routerContext(turnId, attempts, turnStartedAt, signal, sticky?.name),
         )
-        const assistant = this.finish(current, decision)
+        const assistant = this.finish(current, decision, messageId)
         this.append(assistant)
-        if (current.usage)
+        if (current.usage) {
+          turnUsage.input += current.usage.input
+          turnUsage.output += current.usage.output
+          turnUsage.cacheRead += current.usage.cacheRead ?? 0
+          turnUsage.cacheWrite += current.usage.cacheWrite ?? 0
+          turnUsage.costUSD += current.usage.costUSD ?? 0
           this.#state = updateSession(this.#state, (draft) => {
             draft.cumulativeUsage.input += current.usage!.input
             draft.cumulativeUsage.output += current.usage!.output
@@ -299,36 +356,53 @@ export class Runner {
               (draft.cumulativeUsage.cacheWrite ?? 0) + (current.usage!.cacheWrite ?? 0)
             draft.cumulativeUsage.costUSD += current.usage!.costUSD ?? 0
           })
-        await this.emit('stream.completed', turnId, { messageId: assistant.id })
-        await this.emit('message.appended', turnId, { messageId: assistant.id })
+        }
+        if (current.stopReason) lastStopReason = current.stopReason
+        await this.emit('stream.completed', turnId, {
+          messageId: assistant.id,
+          ...(current.usage ? { usage: current.usage } : {}),
+        })
+        await this.emit('message.appended', turnId, {
+          messageId: assistant.id,
+          role: assistant.role,
+          content: toEventContent(assistant.content),
+        })
         const toolUses = assistant.content.filter(
           (part): part is Extract<ContentPart, { type: 'tool_use' }> => part.type === 'tool_use',
         )
         if (toolUses.length === 0) break
         toolCalls += toolUses.length
+        // 附录 D.2 tool.requested（§2.3 触发时机：assistant 输出 tool_use）——
+        // 在任何执行/权限判定之前 emit，ui / hooks(PreToolUse) 订阅者可见。
+        for (const tool of toolUses)
+          await this.emit('tool.requested', turnId, {
+            toolUseId: tool.id,
+            tool: tool.name,
+            input: tool.input,
+          })
+        const toolNames = new Map(toolUses.map((tool) => [tool.id, tool.name]))
         const results = await Promise.all(
           toolUses.map(async (tool) => {
             if (current.invalidTools.has(tool.id)) {
               // §3.2 rule 2：parse 失败的 tool_use 不执行，直接以固定格式的 error tool_result 返模型。
               const raw = current.tools.get(tool.id)?.raw ?? ''
-              return {
+              const invalid: ToolExecution = {
                 toolUseId: tool.id,
                 toolName: tool.name,
                 content: [
                   {
-                    type: 'text' as const,
+                    type: 'text',
                     text: `Invalid JSON arguments for tool ${tool.name} (stream truncated?): ${raw.slice(0, 200)}...`,
                   },
                 ],
                 isError: true,
-              } satisfies ToolExecution
+              }
+              return invalid
             }
-            await this.emit('tool.started', turnId, {
-              toolUseId: tool.id,
-              toolName: tool.name,
-              input: tool.input as unknown as JsonValue,
-            })
-            return this.tools.execute(tool, signal)
+            await this.emit('tool.started', turnId, { toolUseId: tool.id, tool: tool.name })
+            const startedAt = Date.now()
+            const execution = await this.tools.execute(tool, signal)
+            return { ...execution, durationMs: Date.now() - startedAt }
           }),
         )
         for (const result of results) {
@@ -347,24 +421,26 @@ export class Runner {
           this.append(message)
           await this.emit('tool.completed', turnId, {
             toolUseId: result.toolUseId,
-            toolName: result.toolName ?? 'unknown',
-            content: result.content as unknown as JsonValue,
+            tool: toolNames.get(result.toolUseId) ?? result.toolName ?? 'unknown',
             isError: result.isError ?? false,
+            ...(result.durationMs === undefined ? {} : { durationMs: result.durationMs }),
           })
-          await this.emit('message.appended', turnId, { messageId: message.id })
+          await this.emit('message.appended', turnId, {
+            messageId: message.id,
+            role: message.role,
+            content: toEventContent(message.content),
+          })
         }
       }
     } catch (error) {
       failed = true
+      abortReason = 'error'
       await this.emit('error.raised', turnId, {
         code: 'runner_error',
-        message: error instanceof Error ? error.message : String(error),
-        ...(decision
-          ? {
-              provider: decision.provider.name,
-              model: decision.model,
-            }
-          : {}),
+        context: {
+          message: error instanceof Error ? error.message : String(error),
+          ...(decision ? { provider: decision.provider.name, model: decision.model } : {}),
+        },
       })
     }
     const aborted = failed || signal.aborted || this.#state.pendingInterrupt
@@ -373,10 +449,28 @@ export class Runner {
       const turn = draft.turns.find((item) => item.id === turnId)
       if (turn) turn.status = aborted ? 'aborted' : 'done'
     })
-    await this.emit(aborted ? 'turn.aborted' : 'turn.completed', turnId, {
-      status: failed ? 'error' : aborted ? 'cancelled' : 'completed',
-      exitCode: failed ? 1 : aborted ? 130 : 0,
-    })
+    if (aborted)
+      await this.emit('turn.aborted', turnId, {
+        turnId,
+        reason:
+          abortReason === 'stream_interrupted'
+            ? 'stream_interrupted'
+            : failed
+              ? 'error'
+              : 'user_interrupt',
+      })
+    else
+      await this.emit('turn.completed', turnId, {
+        turnId,
+        usage: {
+          input: turnUsage.input,
+          output: turnUsage.output,
+          cacheRead: turnUsage.cacheRead,
+          cacheWrite: turnUsage.cacheWrite,
+          costUSD: turnUsage.costUSD,
+        },
+        ...(lastStopReason ? { stopReason: lastStopReason } : {}),
+      })
     return this.#state
   }
   private exhaustedBudget(
@@ -431,17 +525,21 @@ export class Runner {
       draft.messages = [...draft.messages, message]
     })
   }
+  /**
+   * 附录 D.2 payload 出口。payload 以普通对象传入（结构由 EventBus 出口的
+   * EVENT_SCHEMAS[type].parse 强制，r13-I8：schema 为唯一裁判）。
+   */
   private async emit(
     type: Parameters<EventBus['emit']>[0]['type'],
     turnId: string,
-    payload: JsonValue,
+    payload: object,
   ): Promise<void> {
     await this.events.emit({
       type,
       version: this.#state.version,
       sessionId: this.#state.id,
       turnId,
-      payload,
+      payload: payload as JsonValue,
     })
   }
   private merge(current: InProgress, chunk: ProviderChunk): void {
@@ -467,7 +565,7 @@ export class Runner {
       current.invalidTools.add(tool.id)
     }
   }
-  private finish(current: InProgress, decision: RouterDecision): Message {
+  private finish(current: InProgress, decision: RouterDecision, messageId: string): Message {
     const content: ContentPart[] = []
     if (current.thinking) content.push({ type: 'thinking', text: current.thinking })
     if (current.text) content.push({ type: 'text', text: current.text })
@@ -481,7 +579,7 @@ export class Runner {
         input: tool.input !== undefined ? tool.input : { parseError: true, raw: tool.raw ?? '' },
       })
     }
-    const message = this.message('assistant', content)
+    const message: Message = { id: messageId, role: 'assistant', content, createdAt: Date.now() }
     message.meta = {
       provider: decision.provider.name,
       model: decision.model,
@@ -490,6 +588,20 @@ export class Runner {
     }
     return message
   }
+}
+
+/**
+ * 附录 D.2 stream.delta 的增量片段提取：只有 text/thinking/tool_use 三类 chunk 产生
+ * delta 事件，其余 chunk（message.start/stop、usage、tool_use.start/end、interrupted、
+ * error）不产生增量片段。
+ */
+function deltaFragment(
+  chunk: ProviderChunk,
+): { kind: 'text' | 'thinking' | 'tool_use'; text: string } | undefined {
+  if (chunk.kind === 'text.delta') return { kind: 'text', text: chunk.text }
+  if (chunk.kind === 'thinking.delta') return { kind: 'thinking', text: chunk.text }
+  if (chunk.kind === 'tool_use.delta') return { kind: 'tool_use', text: chunk.argsFragment }
+  return undefined
 }
 
 export function messagesForCapabilities(
