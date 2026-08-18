@@ -134,7 +134,7 @@ describe('minimalEnv (r13-I11)', () => {
 })
 
 describe('quoteShellArgument', () => {
-  it('posix-quoting survives a round trip through /bin/sh -c as one argument', async () => {
+  itUnix('posix-quoting survives a round trip through /bin/sh -c as one argument', async () => {
     const command = "echo 'apollo && $HOME' | tr a-z A-Z"
     const quoted = quoteShellArgument(command, 'posix')
     const { stdout } = await run('/bin/sh', ['-c', `/usr/bin/printf '%s' ${quoted}`])
@@ -193,39 +193,42 @@ describe('BashTool shell + env inheritance contract (r13-I11)', () => {
     return stdout
   }
 
-  it('hands the pinned shell, quoted command, and minimal env to the native bridge', async () => {
-    const calls: Array<{
-      command: string
-      args: string[]
-      env: Record<string, string> | undefined
-    }> = []
-    const tool = new BashTool({ platform: 'darwin' })
-    const original = process.env.APOLLO_REM57_JUNK
-    process.env.APOLLO_REM57_JUNK = 'host-secret'
-    try {
-      await tool.invoke(
-        { command: 'echo hi' },
-        toolContext(async (command, args, env) => {
-          calls.push({ command, args, env })
-          return ''
-        }),
-      )
-    } finally {
-      if (original === undefined) delete process.env.APOLLO_REM57_JUNK
-      else process.env.APOLLO_REM57_JUNK = original
-    }
-    expect(calls).toHaveLength(1)
-    expect(calls[0]!.command).toBe(PINNED_UNIX_SHELL)
-    expect(calls[0]!.args[0]).toBe('-c')
-    expect(quoteShellArgument('echo hi', 'posix')).toBe(calls[0]!.args[1])
-    expect(calls[0]!.env).toBeDefined()
-    expect(calls[0]!.env!.HOME).toBe(process.env.HOME)
-    expect(calls[0]!.env!.PATH).toBe(process.env.PATH)
-    expect(calls[0]!.env).not.toHaveProperty('APOLLO_REM57_JUNK')
-    expect(calls[0]!.env).not.toHaveProperty('SHELL')
-  })
+  itUnix(
+    'hands the pinned shell, quoted command, and minimal env to the native bridge',
+    async () => {
+      const calls: Array<{
+        command: string
+        args: string[]
+        env: Record<string, string> | undefined
+      }> = []
+      const tool = new BashTool({ platform: 'darwin' })
+      const original = process.env.APOLLO_REM57_JUNK
+      process.env.APOLLO_REM57_JUNK = 'host-secret'
+      try {
+        await tool.invoke(
+          { command: 'echo hi' },
+          toolContext(async (command, args, env) => {
+            calls.push({ command, args, env })
+            return ''
+          }),
+        )
+      } finally {
+        if (original === undefined) delete process.env.APOLLO_REM57_JUNK
+        else process.env.APOLLO_REM57_JUNK = original
+      }
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.command).toBe(PINNED_UNIX_SHELL)
+      expect(calls[0]!.args[0]).toBe('-c')
+      expect(quoteShellArgument('echo hi', 'posix')).toBe(calls[0]!.args[1])
+      expect(calls[0]!.env).toBeDefined()
+      expect(calls[0]!.env!.HOME).toBe(process.env.HOME)
+      expect(calls[0]!.env!.PATH).toBe(process.env.PATH)
+      expect(calls[0]!.env).not.toHaveProperty('APOLLO_REM57_JUNK')
+      expect(calls[0]!.env).not.toHaveProperty('SHELL')
+    },
+  )
 
-  it('forwards the pass_through_env whitelist into the inherited env', async () => {
+  itUnix('forwards the pass_through_env whitelist into the inherited env', async () => {
     const calls: Array<{ env: Record<string, string> | undefined }> = []
     const tool = new BashTool({ platform: 'linux', passThroughEnv: ['APOLLO_PASS_ME'] })
     process.env.APOLLO_PASS_ME = 'passed'
