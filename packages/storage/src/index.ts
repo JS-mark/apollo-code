@@ -34,6 +34,10 @@ export interface StoredEvent {
   id: string
   type: string
   sessionId: string
+  /** envelope 字段（附录 D.1）：turn 边界 + subagent 冒泡 tag（D.3）随事件一起落盘。 */
+  turnId?: string
+  parentTurnId?: string
+  parentDepth?: number
   at: string
   payload: JsonValue
 }
@@ -51,6 +55,9 @@ export class SessionStore {
       id: event.id,
       type: event.type,
       sessionId: event.sessionId,
+      ...(event.turnId ? { turnId: event.turnId } : {}),
+      ...(event.parentTurnId ? { parentTurnId: event.parentTurnId } : {}),
+      ...(event.parentDepth === undefined ? {} : { parentDepth: event.parentDepth }),
       at: new Date().toISOString(),
       payload: event.payload,
     })

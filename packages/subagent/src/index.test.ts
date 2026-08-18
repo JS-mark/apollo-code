@@ -21,23 +21,35 @@ function fakeRunner(run: Runner['run']): Runner {
 }
 
 describe('SubagentDispatcher', () => {
-  it('creates an isolated child and bubbles tagged events', async () => {
+  it('creates an isolated child and bubbles envelope-tagged events with the original id (D.3)', async () => {
     let childState: ReturnType<typeof createSession> | undefined
-    const seen: unknown[] = []
+    const seen: Array<{
+      id: string
+      payload: unknown
+      parentTurnId?: string
+      parentDepth?: number
+    }> = []
     const p = parent()
     p.events.subscribe((event) => {
-      seen.push(event.payload)
+      seen.push({
+        id: event.id,
+        payload: event.payload,
+        ...(event.parentTurnId ? { parentTurnId: event.parentTurnId } : {}),
+        ...(event.parentDepth === undefined ? {} : { parentDepth: event.parentDepth }),
+      })
     })
     const dispatcher = new SubagentDispatcher({
       runnerFactory(state, events) {
         childState = state
         return fakeRunner(async () => {
-          await events.emit({
+          const emitted = await events.emit({
             type: 'turn.started',
             version: 1,
             sessionId: state.id,
-            payload: { safe: true },
+            payload: { turnId: 'child-turn' },
           })
+          // r13-D1：冒泡保留原 event.id；payload 不被 childPayload 包装（附录 D.3）。
+          seen.push({ id: `original:${emitted.id}`, payload: emitted.payload })
           return {
             ...state,
             messages: [
@@ -58,7 +70,11 @@ describe('SubagentDispatcher', () => {
     expect(childState?.messages).toEqual([])
     expect(childState?.id).not.toBe(p.state.id)
     expect(childState?.lineage).toMatchObject({ depth: 1, parentSessionId: p.state.id })
-    expect(seen).toContainEqual(expect.objectContaining({ parentTurnId: 'parent-turn', depth: 1 }))
+    const bubbled = seen.find((event) => event.parentTurnId === 'parent-turn')
+    expect(bubbled).toBeDefined()
+    expect(bubbled).toMatchObject({ parentDepth: 1, payload: { turnId: 'child-turn' } })
+    expect(seen.some((event) => event.id === `original:${bubbled!.id}`)).toBe(true)
+    expect(JSON.stringify(seen)).not.toContain('childPayload')
   })
 
   it('allows depths one through three and rejects depth four', async () => {

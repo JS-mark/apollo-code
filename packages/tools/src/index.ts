@@ -706,6 +706,8 @@ export class ToolExecutor {
           input,
           session: { id: session.id, cwd: session.cwd },
           attempt: 1,
+          // 附录 D.2 tool.permission_asked ★toolUseId：权限弹窗事件对齐 tool_use id。
+          ...(toolUseId === undefined ? {} : { toolUseId }),
         },
         () => tool.invoke(input, this.context(signal)),
       )

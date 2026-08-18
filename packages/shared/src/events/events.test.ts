@@ -75,6 +75,18 @@ describe('envelope (附录 D.1)', () => {
     )
     expect(eventEnvelopeSchema.safeParse({ ...envelope, extra: true }).success).toBe(false)
   })
+
+  it('accepts appendix D.3 subagent bubbling tags on the envelope (payload untouched)', () => {
+    expect(
+      eventEnvelopeSchema.parse({
+        ...envelope,
+        parentTurnId: 'parent-turn-1',
+        parentDepth: 1,
+      }),
+    ).toMatchObject({ parentTurnId: 'parent-turn-1', parentDepth: 1 })
+    // D.3：冒泡 tag 只有 parentTurnId/parentDepth，其余未知 envelope 字段仍拒绝。
+    expect(eventEnvelopeSchema.safeParse({ ...envelope, isSubagent: true }).success).toBe(false)
+  })
 })
 
 describe('per-event payload schemas', () => {

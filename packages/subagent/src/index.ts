@@ -60,21 +60,10 @@ export class SubagentDispatcher {
       )
     if (parent.signal.aborted) return { sessionId: '', status: 'cancelled', text: '' }
     const events = new EventBus()
+    // 附录 D.3 / r13-D1：冒泡保留原 event.id 与 payload，只在 envelope 加
+    // parentTurnId / parentDepth tag——seen-set 去重与 JSONL 重放幂等以 event.id 为键。
     const unsubscribe = events.subscribe(async (event) => {
-      const original = event.payload
-      await parent.events.emit({
-        type: event.type,
-        version: event.version,
-        sessionId: event.sessionId,
-        ...(event.turnId ? { turnId: event.turnId } : {}),
-        payload: {
-          childPayload: original,
-          parentSessionId: parent.state.id,
-          parentTurnId: parent.turnId,
-          depth,
-          isSubagent: true,
-        },
-      })
+      await parent.events.forward(event, { parentTurnId: parent.turnId, parentDepth: depth })
     })
     const state = createSession({
       id: uuidv7(),
