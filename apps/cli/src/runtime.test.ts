@@ -666,6 +666,39 @@ describe('status configuration adapter', () => {
     )
     expect(JSON.stringify(updated)).not.toContain('sk-secret-value')
   })
+
+  it('health fails on known-key type errors and warns on unknown keys (r13-I4 §8.3)', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.status-health-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({
+      apolloHome: root,
+      identity: { version: '1.2.3-test' },
+    })
+    const configPath = join(root, 'config.toml')
+
+    // 已知 key 类型错 → fail：报错含 文件 + key + 期望类型（附录 C.1）
+    await writeFile(configPath, '[context]\nmax_tokens = "180000"\n', 'utf8')
+    const invalid = await ports.config.health(process.cwd())
+    expect(invalid.valid).toBe(false)
+    expect(invalid.detail).toContain(configPath)
+    expect(invalid.detail).toContain("key 'context.max_tokens'")
+    expect(invalid.detail).toContain('expected number')
+
+    // 未知 key → warn + 忽略：valid 保持 true，detail 携带 key 全名 + 文件
+    await writeFile(
+      configPath,
+      '[contex]\npolicy = "sliding"\n\n[ui]\ntheme = "dark"\ncolour = false\n',
+      'utf8',
+    )
+    const warned = await ports.config.health(process.cwd())
+    expect(warned.valid).toBe(true)
+    expect(warned.detail).toContain(`unknown config key 'contex' in ${configPath}`)
+    expect(warned.detail).toContain(`unknown config key 'ui.colour' in ${configPath}`)
+
+    await rm(configPath, { force: true })
+    const clean = await ports.config.health(process.cwd())
+    expect(clean).toEqual({ valid: true, detail: 'valid' })
+  })
 })
 
 describe('production memory plugin policy composition', () => {

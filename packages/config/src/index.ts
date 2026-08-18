@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
-import type { JsonValue } from '@apollo-code/shared'
+import {
+  ApolloError,
+  ConfigSchema,
+  isProjectOverrideForbidden,
+  type JsonValue,
+} from '@apollo-code/shared'
 export type Config = Record<string, JsonValue>
 export type TrustDecision = 'allow-project' | 'allow-once' | 'deny'
 export interface ConfigLayerOptions {
@@ -16,13 +21,8 @@ export interface ConfigLayerOptions {
   promptTrust?: (input: { hash: string; keys: string[] }) => Promise<TrustDecision>
   warning?: (key: string) => void
 }
-const forbidden = (key: string) =>
-  /^provider\..*\.(?:baseurl|endpoint)$/i.test(key) ||
-  /(?:^|\.)(?:baseurl|endpoint)$/i.test(key) ||
-  /^telemetry\.(?:sink|otel\.endpoint)$/i.test(key) ||
-  /^router(?:\.|$)/i.test(key) ||
-  /^auth(?:\.|$)/i.test(key) ||
-  /_api_key$/i.test(key)
+/** §8.3.1 数据流向门：附录 C.2 `projectOverride` 标注 + 通用 baseUrl/endpoint/api_key 模式。 */
+const forbidden = (key: string) => isProjectOverrideForbidden(key)
 function flatten(
   input: Config,
   prefix = '',
@@ -106,4 +106,80 @@ export async function parseTomlFile(path: string): Promise<Config> {
     assign(out, [...section, pair[1]!].join('.'), value)
   }
   return out
+}
+
+export interface ConfigValidationOptions {
+  /** 用于警告与报错定位的来源文件路径。 */
+  file: string
+}
+export interface ConfigValidationResult {
+  /** 仅含 schema 已知 key 的配置（未知 key 已忽略剔除）。 */
+  config: Config
+  /** 未知 key 警告（含 key 全名与所在文件），§8.3 / 附录 C.1。 */
+  warnings: string[]
+}
+
+/**
+ * r13-I4 未知 key 策略（§8.3 / 附录 C.1）：
+ * - 未知 key（顶层未知 section 与已知 section 内未知 key）→ warn + 忽略（向前兼容）；
+ * - 已知 key 类型错 → 抛 `config_invalid`（ApolloError，含文件 + key + 期望类型）。
+ */
+export function validateConfig(
+  input: Config,
+  options: ConfigValidationOptions,
+): ConfigValidationResult {
+  const result = ConfigSchema.safeParse(input)
+  if (result.success) return { config: result.data as Config, warnings: [] }
+  const warnings: string[] = []
+  const typeErrors: string[] = []
+  const unknownDeletions: { path: PropertyKey[]; keys: PropertyKey[] }[] = []
+  for (const issue of result.error.issues) {
+    if (issue.code === 'unrecognized_keys') {
+      const prefix = issue.path.map(String).join('.')
+      for (const key of issue.keys) {
+        warnings.push(
+          `unknown config key '${prefix ? `${prefix}.${String(key)}` : String(key)}' in ${options.file} ignored`,
+        )
+      }
+      unknownDeletions.push({ path: [...issue.path], keys: [...issue.keys] })
+    } else {
+      const key = issue.path.map(String).join('.') || '(root)'
+      const detail =
+        'expected' in issue && 'received' in issue
+          ? `expected ${String(issue.expected)}, received ${String(issue.received)}`
+          : issue.message
+      typeErrors.push(`key '${key}': ${detail}`)
+    }
+  }
+  if (typeErrors.length > 0)
+    throw new ApolloError(
+      'config_invalid',
+      `invalid config in ${options.file}: ${typeErrors.join('; ')}`,
+    )
+  const cleaned = structuredClone(input)
+  for (const { path, keys } of unknownDeletions) {
+    let cursor: Record<string, JsonValue> | undefined = cleaned
+    for (const segment of path) {
+      const next: JsonValue | undefined = cursor?.[String(segment)]
+      cursor =
+        next && typeof next === 'object' && !Array.isArray(next)
+          ? (next as Record<string, JsonValue>)
+          : undefined
+    }
+    if (cursor) for (const key of keys) delete cursor[String(key)]
+  }
+  return { config: cleaned, warnings }
+}
+
+export interface TomlLoadOptions {
+  /** 未知 key 警告回调（如 logger.warn / 控制台 stderr）。 */
+  onWarning?: (message: string) => void
+}
+
+/** 解析 + 校验单个 TOML 文件：未知 key warn + 忽略，类型错抛错（§8.3 / 附录 C.1）。 */
+export async function loadTomlFile(path: string, options: TomlLoadOptions = {}): Promise<Config> {
+  const raw = await parseTomlFile(path)
+  const { config, warnings } = validateConfig(raw, { file: path })
+  for (const warning of warnings) options.onWarning?.(warning)
+  return config
 }
