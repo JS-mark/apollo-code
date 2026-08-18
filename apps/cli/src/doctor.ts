@@ -1,18 +1,77 @@
+import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access } from 'node:fs/promises'
+import { delimiter, join } from 'node:path'
+import { promisify } from 'node:util'
 
 import type { ApolloPorts } from './ports'
+
+const execFileAsync = promisify(execFile)
+const GH_VERSION_TIMEOUT_MS = 5000
+/** r13-G6: hint mirrors CONTRIBUTING "Recommended" deps — gh only powers the PR workflow. */
+export const GH_CLI_MISSING_HINT = 'PR 工作流需要 gh（CONTRIBUTING 推荐依赖）'
+
+export interface GhCliHealth {
+  installed: boolean
+  path?: string
+  version?: string
+}
 export interface DoctorCheck {
   detail: string
+  /** Structured gh CLI availability for --json consumers (r13-G6). */
+  gh?: GhCliHealth
   name: string
   ok: boolean
+  /** Warn-only check: rendered ⚠️ and never trips --strict (r13-G6). */
+  warn?: boolean
 }
-export async function runDoctor(cwd: string, ports: ApolloPorts): Promise<DoctorCheck[]> {
-  const [native, auth, config, telemetry] = await Promise.all([
+export async function detectGhCli(env: NodeJS.ProcessEnv = process.env): Promise<GhCliHealth> {
+  const path = await resolveExecutablePath('gh', env)
+  if (!path) return { installed: false }
+  try {
+    const { stdout } = await execFileAsync(path, ['--version'], {
+      env,
+      timeout: GH_VERSION_TIMEOUT_MS,
+      windowsHide: true,
+    })
+    const version = /gh version (\S+)/.exec(stdout)?.[1]
+    return version ? { installed: true, path, version } : { installed: false }
+  } catch {
+    return { installed: false }
+  }
+}
+async function resolveExecutablePath(
+  name: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const searchPath = env.PATH ?? env.Path
+  if (!searchPath) return undefined
+  const candidates = process.platform === 'win32' ? [`${name}.exe`, name] : [name]
+  for (const directory of searchPath.split(delimiter)) {
+    if (!directory) continue
+    for (const candidate of candidates) {
+      const full = join(directory, candidate)
+      try {
+        await access(full, constants.X_OK)
+        return full
+      } catch {
+        // Keep scanning the PATH entries.
+      }
+    }
+  }
+  return undefined
+}
+export async function runDoctor(
+  cwd: string,
+  ports: ApolloPorts,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<DoctorCheck[]> {
+  const [native, auth, config, telemetry, gh] = await Promise.all([
     ports.native.health(),
     ports.auth.health(),
     ports.config.health(cwd),
     ports.telemetry.health(),
+    detectGhCli(env),
   ])
   let writable = true
   try {
@@ -41,6 +100,14 @@ export async function runDoctor(cwd: string, ports: ApolloPorts): Promise<Doctor
     { name: 'auth', ok: auth.configured === true, detail: auth.detail },
     { name: 'config', ok: config.valid === true, detail: config.detail },
     { name: 'cwd writable', ok: writable, detail: cwd },
+    {
+      detail: gh.installed ? `${gh.version} (${gh.path})` : GH_CLI_MISSING_HINT,
+      gh,
+      name: 'gh CLI',
+      // Warn-only (r13-G6): a missing gh never fails doctor, not even with --strict.
+      ok: true,
+      ...(gh.installed ? {} : { warn: true }),
+    },
     {
       name: 'local telemetry',
       ok: telemetry.writable && telemetry.corruptLines === 0,

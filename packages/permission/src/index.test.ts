@@ -8,6 +8,13 @@ const req = (toolName = 'Write') => ({
   session: { id: 's', cwd: process.cwd() },
   attempt: 1,
 })
+const bashReq = (command: string) => ({
+  toolName: 'Bash',
+  spec: { bash: { command } },
+  input: {},
+  session: { id: 's', cwd: process.cwd() },
+  attempt: 1,
+})
 describe('PermissionManager', () => {
   it('uses strict decision order', async () => {
     const prompt = vi.fn()
@@ -44,6 +51,20 @@ describe('PermissionManager', () => {
         })
       ).kind,
     ).toBe('allow-session')
+  })
+  it('keeps gh pr commands out of the silent Bash whitelist (r13-G6)', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    // gh pr create/view/checks carry outbound semantics (spec §4.4 r13-G6):
+    // never silently allowed, always prompt — even the read-only subcommands,
+    // because SAFE_BASH only grants allow-once, looser than the spec's
+    // optional allow-session for `gh pr view` / `gh pr checks`.
+    for (const command of ['gh pr create', 'gh pr view 123', 'gh pr checks 123']) {
+      expect((await manager.request(bashReq(command))).kind).toBe('deny')
+    }
+    expect(prompt).toHaveBeenCalledTimes(3)
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
   })
   it('caches network grants by canonical origin, not secret-bearing paths', async () => {
     const prompt = vi.fn(async () => ({ kind: 'allow-session' as const }))

@@ -327,6 +327,72 @@ describe('runCli', () => {
     expect(result.stdout).toContain('native fs unavailable')
   })
 
+  it('reports gh CLI availability as a structured doctor check', async () => {
+    const result = await runCli(['doctor', '--json'], ports())
+    const checks = JSON.parse(result.stdout) as Array<{
+      detail: string
+      gh?: { installed: boolean; path?: string; version?: string }
+      name: string
+      ok: boolean
+      warn?: boolean
+    }>
+    const gh = checks.find((check) => check.name === 'gh CLI')
+    // CI runners and CONTRIBUTING-recommended setups install gh (PR workflow dep).
+    expect(gh).toMatchObject({ ok: true, gh: { installed: true } })
+    expect(gh?.warn).toBeUndefined()
+    expect(gh?.gh?.version).toMatch(/^\d+\.\d+/)
+    expect(gh?.gh?.path).toContain('gh')
+    expect(gh?.detail).toBe(`${gh?.gh?.version} (${gh?.gh?.path})`)
+  })
+
+  it('warns without failing doctor when gh CLI is unavailable', async () => {
+    const noGhPath = await mkdtemp(join(process.cwd(), '.cli-gh-missing-'))
+    fixtures.push(noGhPath)
+    const healthyPorts = ports({
+      native: {
+        probe: vi.fn(async () => ({
+          tier: 'full' as const,
+          mechanism: 'test sandbox',
+          features: { filesystem: true, network: true },
+          degradationReasons: [],
+        })),
+        health: vi.fn(async () => ({ sandbox: true, search: true, fs: true })),
+      },
+      auth: {
+        health: vi.fn(async () => ({
+          configured: true,
+          detail: 'anthropic credential available',
+        })),
+        login: vi.fn(async () => ({ detail: 'stored' })),
+        logout: vi.fn(async () => ({ detail: 'removed' })),
+      },
+    })
+    vi.stubEnv('PATH', noGhPath)
+    try {
+      const strict = await runCli(['doctor', '--strict', '--json'], healthyPorts)
+      expect(strict.exitCode).toBe(0)
+      const checks = JSON.parse(strict.stdout) as Array<{
+        detail: string
+        gh?: { installed: boolean; path?: string; version?: string }
+        name: string
+        ok: boolean
+        warn?: boolean
+      }>
+      expect(checks.find((check) => check.name === 'gh CLI')).toEqual({
+        detail: 'PR 工作流需要 gh（CONTRIBUTING 推荐依赖）',
+        gh: { installed: false },
+        name: 'gh CLI',
+        ok: true,
+        warn: true,
+      })
+      const text = await runCli(['doctor'], healthyPorts)
+      expect(text.stdout).toContain('⚠️ gh CLI: PR 工作流需要 gh（CONTRIBUTING 推荐依赖）')
+      expect(text.stdout).not.toContain('✗ gh CLI')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('normalizes --cwd before starting a session', async () => {
     const root = await mkdtemp(join(process.cwd(), '.cli-cwd-'))
     fixtures.push(root)
