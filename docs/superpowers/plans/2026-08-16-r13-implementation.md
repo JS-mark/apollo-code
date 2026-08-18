@@ -1,6 +1,6 @@
 # r13 功能设计修正 · 实现执行计划（2026-08-16）
 
-> **状态**：批次 1（5/5）与批次 2（4/4：#114 ad0e7b5 / #115 7d1147e / #116 60322c1 / #117 e20c788）均已合并。批次 3a 启动：REM-57/61/64/74/75 并行（REM-62/63/65 因文件冲突面排 3b）。累计实现进度：9/24 REM 合并。
+> **状态**：批次 1（5/5）与批次 2（4/4：#114 ad0e7b5 / #115 7d1147e / #116 60322c1 / #117 e20c788）均已合并。批次 3a：REM-57(#120)/64(#121)/75(#119) 已合并；REM-61/74 跑中（两度撞用量限额后续跑）。累计 12/25 REM 合并。
 > **输入**：[REVIEW-r13](../specs/2026-07-31-apollo-code-design/REVIEW-r13.md) 修正任务清单 25 项，spec 已于 `fb3158c` 落地（docs(superpowers/specs) 为冻结契约，本计划只改代码）
 > **编号**：延续 [2026-08-15-design-remediation.md](./2026-08-15-design-remediation.md) 的 REM 编号（r11: REM-1~25，r12: REM-26~50），本计划从 **REM-51** 起
 > **执行方式**：并行 worktree + 每 REM 一分支一 PR；验收走 [agents 监督体系](./agents/README.md)；每项完成后回写 [16-capability-traceability](../specs/2026-07-31-apollo-code-design/16-capability-traceability.md)
