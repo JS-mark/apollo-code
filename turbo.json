@@ -4,6 +4,9 @@
     "//#check:typescript-config": {
       "outputs": []
     },
+    "//#verify:config-docs": {
+      "outputs": []
+    },
     "//#verify:error-codes": {
       "outputs": []
     },
@@ -12,7 +15,7 @@
       "outputs": ["dist/**", ".vitepress/dist/**"]
     },
     "test": {
-      "dependsOn": ["^build", "//#verify:error-codes"],
+      "dependsOn": ["^build", "//#verify:config-docs", "//#verify:error-codes"],
       "outputs": []
     },
     "typecheck": {

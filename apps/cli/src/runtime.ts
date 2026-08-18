@@ -17,7 +17,7 @@ import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
 import { AuthManager, EncryptedCredentialStore } from '@apollo-code/auth'
-import { parseTomlFile } from '@apollo-code/config'
+import { loadTomlFile, parseTomlFile } from '@apollo-code/config'
 import { SlidingWindowPolicy } from '@apollo-code/context'
 import {
   builtinPromptFragment,
@@ -1198,13 +1198,20 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     let evolutionEnabled = true
     let userConfig: Record<string, JsonValue> = {}
     try {
-      userConfig = await parseTomlFile(join(home, 'config.toml'))
+      // r13-I4 §8.3：未知 key warn + 忽略（key 全名 + 文件）；类型错的 fail 面在 config.health
+      userConfig = await loadTomlFile(join(home, 'config.toml'), {
+        onWarning: (message) => logger.warn(message),
+      })
       const section = userConfig.evolution
       if (section && typeof section === 'object' && !Array.isArray(section))
         evolutionEnabled = section.enabled !== false
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        logger.warn('Unable to read evolution config')
+        logger.warn(
+          error instanceof Error && error.message
+            ? error.message
+            : 'Unable to read evolution config',
+        )
     }
     const tuned = await new EvolutionEngine(evolution, { enabled: evolutionEnabled }).values()
     const contextPolicy = new SlidingWindowPolicy({
@@ -1749,15 +1756,21 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     config: {
       async health(cwd) {
         try {
+          const warnings: string[] = []
           for (const path of [join(home, 'config.toml'), join(cwd, '.apollo', 'config.toml')]) {
             try {
               await access(path)
-              await parseTomlFile(path)
+              // r13-I4 §8.3：未知 key warn + 忽略；已知 key 类型错 → fail（file + key + 期望类型）
+              await loadTomlFile(path, {
+                onWarning: (message) => warnings.push(message),
+              })
             } catch (error) {
               if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
             }
           }
-          return { valid: true, detail: 'valid' }
+          return warnings.length > 0
+            ? { valid: true, detail: warnings.join('; ') }
+            : { valid: true, detail: 'valid' }
         } catch (error) {
           return { valid: false, detail: error instanceof Error ? error.message : String(error) }
         }
