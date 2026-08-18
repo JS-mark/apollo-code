@@ -56,3 +56,10 @@
 - 根因：该用例依赖真实文件锁的 3×1s 重试预算，慢 runner 上预算不足即抛应用级错误；且它在 ts matrix 里与其它包测试并行跑，负载不可控。
 - 规则：① 遇 `memory-runtime` 测试失败先看失败形态（timeout vs MemoryError）并在干净基线判断是否 flaky，flaky 则 rerun + 记录；② 该测试的根治（重试预算可测控 / 串行化 / 减轮数+断言不变式）应排专门 REM，不再逐 PR 打补丁；③ 新写并发类测试必须给重试预算留测试钩子（env 或注入），禁止裸依赖真实时序。
 - 状态：active
+
+### LL-8 触碰平台二进制（/bin/sh、pwsh 等）的测试必须显式平台守卫；agent 本地 DoD 验不了异平台
+- 类别：测试可移植性｜日期：2026-08-17｜来源：r13 批次 3a（#120 ts windows `spawn /bin/sh ENOENT`）
+- 问题：REM-57 的三个用例走真实 `/bin/sh` 往返，mac 本地全绿，Windows runner 全挂 ENOENT——agent 的本地 DoD（test/typecheck/lint）天然无法发现异平台失败。
+- 根因：平台专属二进制的测试没有 `it.skipIf(process.platform === 'win32')` 守卫；守卫粒度必须到「用例级」而非 describe 级（同一 describe 里可能混着 win32 必跑用例）。
+- 规则：① 测试里 spawn 平台二进制（/bin/*、pwsh、sandbox bin）→ 用例级 `itUnix`/`itWin` 守卫，且反向平台的对应用例必须存在（不是全跳）；② 主会话核验 PR 时把「ts matrix 三平台」当作预期失败面预判（LL-6 补充）；③ GitHub action 下载 429 限流失败（checkout/tar.gz 下载失败）判 infra flake 直接 rerun，不计入修复项。
+- 状态：active
