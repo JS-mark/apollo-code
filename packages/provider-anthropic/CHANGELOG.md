@@ -1,5 +1,15 @@
 # @apollo-code/provider-anthropic
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [ad0e7b5]
+- Updated dependencies [7d1147e]
+- Updated dependencies [4ac2411]
+  - @apollo-code/shared@0.2.0
+  - @apollo-code/provider-kit@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

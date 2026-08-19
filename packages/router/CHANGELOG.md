@@ -1,5 +1,11 @@
 # @apollo-code/router
 
+## 0.1.1
+
+### Patch Changes
+
+- @apollo-code/provider-kit@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
