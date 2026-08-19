@@ -329,6 +329,10 @@ export interface RouterDecision {
 
 **Router 实现者义务**：`FallbackRouter` / `RoleRouter` 等在 `pick` / `onError` 时须查 `ctx.session.turn.stickyProvider`；若已锁定，直接返回锁定 provider（无视 hint / cost 偏好）。Runner 会兜底校验，但 Router 应主动尊重语义以获得更好 telemetry。
 
+#### 3.7.2 RouterHint 补注（r13-G5 / B7）
+
+\`RouterHint\` 增可选字段 \`preferredProvider?: string\`——上一 turn 的 provider 名。B7 截断续写场景：上一条回复以 \`max_tokens\` 截断时，Runner 对下一条消息（典型：用户输入 \`continue\`）注入该 hint，Router **应优先沿用**同 provider（防续写换 provider 造成风格断裂）；调用方显式 \`explicitModel\` 优先于 B7 推断。hint 是偏好不是硬约束（Router 可因 provider 不可用忽略）。
+
 ### 3.8 Router 策略实现
 
 #### 3.8.1 SingleProviderRouter（MVP 必备）
