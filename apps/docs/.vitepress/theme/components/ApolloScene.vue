@@ -240,7 +240,7 @@ async function initScene(hostEl, canvasEl, markReady, isReducedMotion) {
   window.addEventListener('pointermove', onPointerMove)
 
   // --- 帧循环 ---
-  const clock = new THREE.Clock()
+  const timer = new THREE.Timer()
   let rafId = 0
   let smoothed = { x: 0, y: 0 }
   let firstFrame = true
@@ -269,7 +269,8 @@ async function initScene(hostEl, canvasEl, markReady, isReducedMotion) {
   }
 
   const tick = () => {
-    renderFrame(clock.getElapsedTime())
+    timer.update()
+    renderFrame(timer.getElapsed())
     rafId = requestAnimationFrame(tick)
   }
 
@@ -279,7 +280,7 @@ async function initScene(hostEl, canvasEl, markReady, isReducedMotion) {
       cancelAnimationFrame(rafId)
       rafId = 0
     } else if (!rafId) {
-      clock.getDelta()
+      timer.update()
       rafId = requestAnimationFrame(tick)
     }
   }
