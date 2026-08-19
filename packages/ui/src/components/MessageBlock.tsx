@@ -16,6 +16,12 @@ export function MessageBlock({ entry }: MessageBlockProps) {
         <Box borderColor="gray" borderStyle="single" flexDirection="column" paddingX={1}>
           <Text wrap="wrap">{entry.text}</Text>
         </Box>
+        {entry.truncated ? (
+          <Box flexDirection="column">
+            <Text color="yellow">[truncated: max_tokens reached]</Text>
+            <Text color="gray">输入 continue 可继续</Text>
+          </Box>
+        ) : null}
       </Box>
     )
   }

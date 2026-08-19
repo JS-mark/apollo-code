@@ -19,6 +19,8 @@ export interface RouterHint {
   explicitModel?: string
   role?: 'planner' | 'coder' | 'reviewer' | 'chat'
   costPreference?: 'cheap' | 'balanced' | 'quality'
+  /** B7 截断续写（r13-G5）：上一 turn 的 provider 名，续写优先沿用（防风格断裂） */
+  preferredProvider?: string
 }
 export interface RouterDecision {
   provider: ProviderClient

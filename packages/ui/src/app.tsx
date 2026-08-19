@@ -28,6 +28,8 @@ export interface TranscriptEntry {
   id: string
   role: 'assistant' | 'system' | 'user'
   text: string
+  /** B7（r13-G5）：该 assistant 消息因 max_tokens 截断，UI 渲染续写提示 */
+  truncated?: boolean
 }
 
 export interface SlashCommandInput {
@@ -117,7 +119,7 @@ export interface InteractiveAppOptions {
   welcome?: WelcomePanelData
 }
 
-interface InteractiveAppState {
+export interface InteractiveAppState {
   pendingAssistantText: string
   sessionId: string
   status: string
@@ -692,7 +694,10 @@ function slashHelpText(commands: readonly SlashCommand[]) {
     .join('\n')
 }
 
-function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): InteractiveAppState {
+export function applyInteractiveEvent(
+  state: InteractiveAppState,
+  event: CoreEvent,
+): InteractiveAppState {
   if (event.type === 'session.started') {
     return {
       ...state,
@@ -743,6 +748,19 @@ function applyInteractiveEvent(state: InteractiveAppState, event: CoreEvent): In
   }
 
   if (event.type === 'turn.completed') {
+    // B7（r13-G5）：turn 以 max_tokens 截断 → 标记最后一条 assistant 消息，渲染续写提示
+    if (payloadField(event.payload, 'stopReason') === 'max_tokens') {
+      const lastAssistant = [...state.transcript].reverse().find((e) => e.role === 'assistant')
+      if (lastAssistant)
+        return {
+          ...state,
+          status: 'ready',
+          statusLevel: 'muted',
+          transcript: state.transcript.map((e) =>
+            e.id === lastAssistant.id ? { ...e, truncated: true } : e,
+          ),
+        }
+    }
     return { ...state, status: 'ready', statusLevel: 'muted' }
   }
 

@@ -80,6 +80,10 @@ export function toEventContent(parts: readonly ContentPart[]): EventContent[] {
 export class Runner {
   #state: SessionState
   #turnAbort?: AbortController
+  // r13-G5（B7）：上一 turn 的 provider/model 与 stopReason——上一条回复被 max_tokens
+  // 截断时，下一条消息（典型：用户输入 continue）的 router hint 优先沿用同 provider，
+  // 防止续写换 provider 造成风格断裂。turn 边界 sticky 已清空（§3.7.1 规则 4），故走 hint。
+  #lastTurn?: { provider: string; model: string; stopReason?: StopReason }
   constructor(
     state: SessionState,
     readonly router: RouterPolicy,
@@ -155,7 +159,17 @@ export class Runner {
       agentType === 'planner' || agentType === 'coder' || agentType === 'reviewer'
         ? agentType
         : undefined
-    const routerHint = lineageRole ? { role: lineageRole, ...hint } : hint
+    // B7：上一 turn 以 max_tokens 截断 → 本条消息优先沿用其 provider/model
+    //（调用方显式指定的 explicitModel / hint 优先于 B7 推断）
+    const b7 = this.#lastTurn?.stopReason === 'max_tokens' ? this.#lastTurn : undefined
+    const hasB7Preference = b7 !== undefined && hint?.explicitModel === undefined
+    const b7Preference = hasB7Preference
+      ? { preferredProvider: b7.provider, explicitModel: b7.model }
+      : {}
+    const routerHint: RouterHint | undefined =
+      hasB7Preference || lineageRole !== undefined || hint !== undefined
+        ? { ...b7Preference, ...(lineageRole ? { role: lineageRole } : {}), ...hint }
+        : undefined
     try {
       outer: while (!signal.aborted) {
         const exhausted = this.exhaustedBudget(turnStartedAt, toolCalls)
@@ -459,7 +473,13 @@ export class Runner {
               ? 'error'
               : 'user_interrupt',
       })
-    else
+    else {
+      if (decision)
+        this.#lastTurn = {
+          provider: decision.provider.name,
+          model: decision.model,
+          ...(lastStopReason ? { stopReason: lastStopReason } : {}),
+        }
       await this.emit('turn.completed', turnId, {
         turnId,
         usage: {
@@ -471,6 +491,7 @@ export class Runner {
         },
         ...(lastStopReason ? { stopReason: lastStopReason } : {}),
       })
+    }
     return this.#state
   }
   private exhaustedBudget(
