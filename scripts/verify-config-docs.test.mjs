@@ -180,3 +180,15 @@ void test('implementationOnlyKeys only exempts keys that exist in the registry',
     assert.ok(reason.length > 0, `exemption '${id}' must document a real source`)
   }
 })
+
+test('wildcard registry entries cover same-section appendix rows in both directions', () => {
+  const errors = auditConfigDocs({
+    registryEntries: [{ key: 'preferences.*', override: 'allowed' }],
+    appendixRows: [
+      { section: 'preferences', key: '`outputStyle`', override: 'allowed' },
+      { section: 'preferences', key: '`language`', override: 'allowed' },
+    ],
+    exempt: new Map(),
+  })
+  assert.deepEqual(errors, [])
+})

@@ -61,8 +61,8 @@ export const configKeyRegistry = {
   'evolution.*': 'allowed',
   // [auth] 段全部（§8.3.1）
   'auth.*': 'forbidden',
-  // 实现内建段：apps/cli 状态面板本地偏好（附录 C 未登记，
-  // scripts/verify-config-docs.mjs 的 implementationOnlyKeys 豁免，待附录补录）
+  // 实现内建段：apps/cli 状态面板本地偏好（附录 C 已补录 outputStyle / language 两行，
+  // 整段开放 JSON 值，registry 以 preferences.* 通配登记）
   'preferences.*': 'allowed',
 } as const satisfies Record<string, ProjectOverride>
 

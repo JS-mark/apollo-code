@@ -13,9 +13,7 @@ const appendixRelativePath =
  * schema 已登记、但附录 C.2 尚无对应行的实现内建 key。每一项必须给出真实来源，
  * 否则等同于绕过附录 C 登记制——verify 会对豁免项本身做"必须在 registry"校验。
  */
-export const implementationOnlyKeys = new Map([
-  ['preferences.*', 'apps/cli 状态面板本地偏好段（附录 C 未登记；待附录 C 补录后移除本豁免）'],
-])
+export const implementationOnlyKeys = new Map([])
 
 /** 从 config-schema.ts 源文本解析 `export const configKeyRegistry = { ... } as const` 的条目。 */
 export function parseKeyRegistry(source) {
@@ -89,21 +87,30 @@ export function auditConfigDocs({ registryEntries, appendixRows, exempt }) {
       appendix.set(id, row.override)
     }
   }
+  // 通配登记（如 'preferences.*'）覆盖同段任意 appendix 行——开放段的 registry 以通配表达
+  const wildcardOf = (id) => `${id.slice(0, id.indexOf('.'))}.*`
   for (const [id, override] of appendix) {
-    if (!registry.has(id))
+    const wildcard = wildcardOf(id)
+    const covered = registry.has(id) || registry.has(wildcard)
+    const registeredOverride = registry.has(id) ? registry.get(id) : registry.get(wildcard)
+    if (!covered)
       errors.push(
         `appendix C.2 key '${id}' is missing from ${registryRelativePath} (configKeyRegistry)`,
       )
-    else if (registry.get(id) !== override)
+    else if (registeredOverride !== override)
       errors.push(
         `appendix C.2 key '${id}' is '${override}' but configKeyRegistry says '${registry.get(id)}'`,
       )
   }
-  for (const id of registry.keys())
-    if (!appendix.has(id) && !exempt.has(id))
+  for (const id of registry.keys()) {
+    // 通配条目（'段.*'）被该段任意 appendix 行覆盖即视为 documented
+    const coveredByWildcard =
+      id.endsWith('.*') && [...appendix.keys()].some((a) => wildcardOf(a) === id)
+    if (!appendix.has(id) && !coveredByWildcard && !exempt.has(id))
       errors.push(
         `configKeyRegistry key '${id}' is not documented in appendix C.2 (add a row, or exempt with a real source)`,
       )
+  }
   for (const id of exempt.keys())
     if (!registry.has(id))
       errors.push(`exemption '${id}' is not in the registry (stale or misspelled exemption)`)
