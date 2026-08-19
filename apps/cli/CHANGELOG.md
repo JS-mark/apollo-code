@@ -1,5 +1,32 @@
 # apollo-code
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [ad0e7b5]
+- Updated dependencies [7d1147e]
+- Updated dependencies [4ac2411]
+- Updated dependencies [4b83a10]
+  - @apollo-code/shared@0.2.0
+  - @apollo-code/config@0.2.0
+  - @apollo-code/core@0.2.0
+  - @apollo-code/auth@0.1.1
+  - @apollo-code/permission@0.1.1
+  - @apollo-code/provider-anthropic@0.1.1
+  - @apollo-code/provider-kit@0.1.1
+  - @apollo-code/skills-runtime@0.1.1
+  - @apollo-code/storage@0.1.1
+  - @apollo-code/subagent@0.1.1
+  - @apollo-code/telemetry@0.1.1
+  - @apollo-code/tool-kit@0.1.1
+  - @apollo-code/tools@0.1.1
+  - @apollo-code/ui@0.1.1
+  - @apollo-code/context@0.1.1
+  - @apollo-code/plugin-runtime@0.1.1
+  - @apollo-code/plugin-sdk@0.1.1
+  - @apollo-code/router@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,5 +1,21 @@
 # @apollo-code/core
 
+## 0.2.0
+
+### Minor Changes
+
+- 4b83a10: Migrate every EventBus emit point to the appendix D payload contract (r13-I8): the emit/forward exits now validate payloads against `EVENT_SCHEMAS[type]` and throw on violation, `stream.delta` carries incremental `{messageId, kind, fragment}` shapes, `tool.requested` is emitted before permission/execution, subagent bubbles keep the original `event.id` with envelope-only `parentTurnId`/`parentDepth` tags, and `replaySessionState` rebuilds `SessionState` from JSONL events (legacy `session.snapshot` rows are consumed read-only as a baseline; no new snapshots are written).
+
+### Patch Changes
+
+- Updated dependencies [ad0e7b5]
+- Updated dependencies [7d1147e]
+- Updated dependencies [4ac2411]
+  - @apollo-code/shared@0.2.0
+  - @apollo-code/provider-kit@0.1.1
+  - @apollo-code/tool-kit@0.1.1
+  - @apollo-code/router@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

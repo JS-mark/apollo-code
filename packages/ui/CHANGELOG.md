@@ -1,5 +1,12 @@
 # @apollo-code/ui
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [4b83a10]
+  - @apollo-code/core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
