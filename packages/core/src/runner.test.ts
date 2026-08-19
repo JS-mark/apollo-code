@@ -541,3 +541,59 @@ describe('Runner', () => {
     })
   })
 })
+
+describe('Runner B7 truncation continuation (r13-G5)', () => {
+  const textTurn = (stopReason: 'end_turn' | 'max_tokens'): ProviderChunk[][] => [
+    [
+      { kind: 'message.start', messageId: 'm1' },
+      { kind: 'text.delta', text: 'partial answer' },
+      { kind: 'message.stop', stopReason },
+    ],
+  ]
+
+  it('passes preferredProvider + explicitModel hint after a max_tokens-truncated turn', async () => {
+    const client = provider(textTurn('max_tokens'), 'truncator')
+    const policy = router(client)
+    const runner = new Runner(context(), policy, composer, tools)
+    await runner.run('write a long answer')
+    expect(policy.pick).toHaveBeenLastCalledWith(expect.anything(), undefined)
+    await runner.run('continue')
+    expect(policy.pick).toHaveBeenLastCalledWith(expect.anything(), {
+      preferredProvider: 'truncator',
+      explicitModel: 'm',
+    })
+  })
+
+  it('does not inject B7 preference after a normally completed turn', async () => {
+    const client = provider(textTurn('end_turn'), 'normal')
+    const policy = router(client)
+    const runner = new Runner(context(), policy, composer, tools)
+    await runner.run('hi')
+    await runner.run('continue')
+    expect(policy.pick).toHaveBeenLastCalledWith(expect.anything(), undefined)
+  })
+
+  it('caller-provided explicitModel wins over the B7 preference', async () => {
+    const client = provider([...textTurn('max_tokens'), ...textTurn('end_turn')], 'truncator')
+    const policy = router(client)
+    const runner = new Runner(context(), policy, composer, tools)
+    await runner.run('write a long answer')
+    await runner.run('continue', { explicitModel: 'other-model' })
+    expect(policy.pick).toHaveBeenLastCalledWith(expect.anything(), {
+      explicitModel: 'other-model',
+    })
+  })
+
+  it('continue is a normal new turn — no special-cased turn semantics', async () => {
+    const client = provider([...textTurn('max_tokens'), ...textTurn('end_turn')], 'truncator')
+    const bus = new EventBus()
+    bus.subscribe(() => {})
+    const runner = new Runner(context(), router(client), composer, tools, bus)
+    await runner.run('long')
+    const turnsBefore = runner.state.turns.length
+    await runner.run('continue')
+    // 恰好新增一个 turn（普通 sendUserMessage 语义，无隐式续传分支）
+    expect(runner.state.turns.length).toBe(turnsBefore + 1)
+    expect(runner.state.messages.filter((m) => m.role === 'user')).toHaveLength(2)
+  })
+})
