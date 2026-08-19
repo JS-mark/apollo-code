@@ -181,7 +181,7 @@ void test('implementationOnlyKeys only exempts keys that exist in the registry',
   }
 })
 
-test('wildcard registry entries cover same-section appendix rows in both directions', () => {
+void test('wildcard registry entries cover same-section appendix rows in both directions', () => {
   const errors = auditConfigDocs({
     registryEntries: [{ key: 'preferences.*', override: 'allowed' }],
     appendixRows: [
