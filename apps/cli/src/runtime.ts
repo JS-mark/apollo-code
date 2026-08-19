@@ -349,7 +349,6 @@ export class RuntimeSessionPort implements SessionPort {
     const id = uuidv7()
     await this.activate(
       createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
-      false,
     )
     return this.interactiveSession()
   }
