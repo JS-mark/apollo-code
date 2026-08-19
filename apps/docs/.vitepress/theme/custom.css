@@ -916,3 +916,34 @@ html:not(.dark) .apollo-footer {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --- ApolloScene（Three.js 轨道场）层叠 ---
+   CSS 光环是静态兜底层：场景首帧渲染完成后淡出；
+   减少动画偏好 / WebGL 不可用时 ApolloScene 不初始化，兜底层保持可见。 */
+.apollo-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.apollo-scene canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.apollo-scene.scene-ready canvas {
+  opacity: 1;
+}
+
+.apollo-scene.scene-ready .orbital-ring {
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+

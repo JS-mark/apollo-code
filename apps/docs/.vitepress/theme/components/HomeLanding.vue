@@ -2,6 +2,8 @@
 import { withBase } from 'vitepress'
 import { computed } from 'vue'
 
+import ApolloScene from './ApolloScene.vue'
+
 const props = defineProps({ locale: { type: String, default: 'en' } })
 const isZh = computed(() => props.locale === 'zh')
 const localizedPath = (path) => withBase(`${isZh.value ? '/zh' : ''}${path}`)
@@ -124,8 +126,7 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
       </div>
 
       <div class="hero-visual" aria-label="Apollo terminal session preview">
-        <div class="orbital-ring ring-one"></div>
-        <div class="orbital-ring ring-two"></div>
+        <ApolloScene />
         <div class="terminal-shell">
           <div class="terminal-bar">
             <div class="terminal-controls" aria-hidden="true"><i></i><i></i><i></i></div>
