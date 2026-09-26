@@ -11,7 +11,7 @@ import type {
 } from '@volund/plugin-sdk'
 
 import { PluginBridgeServer, PluginCallbackRef, PluginBridgeError } from './bridge-server'
-import { BRIDGE_PERMISSIONS, createRpcGuard, PluginError } from './index'
+import { BRIDGE_PERMISSIONS, createRpcGuard, matchesHost, PluginError } from './index'
 import { sandboxProfile, validateManifest, verifyBundle } from './index'
 
 /** 插件贡献的 /status 页签；render 经 callback.invoke 回到沙箱内的插件进程取值。 */
@@ -96,6 +96,20 @@ export interface PromptContribution {
 }
 
 /**
+ * WebSearch provider 贡献（webSearch.provide，volund-plugin-web-search）：插件
+ * 注册搜索后端，宿主适配成 WebSearchProvider（search 经 callback.invoke 回到
+ * 沙箱执行，[web_search] 配置快照由宿主每次调用注入）。搜索的权限门/限长/
+ * 〈untrusted〉 包裹仍归内置 WebSearch 工具——插件只提供数据源。
+ */
+export interface WebSearchProviderContribution {
+  /** 贡献插件的 manifest 名（卸载/禁用时按名摘除）。 */
+  readonly plugin: string
+  /** provider 标识（进权限请求与执行日志）。 */
+  readonly id: string
+  invoke(request: unknown, config: unknown): Promise<unknown>
+}
+
+/**
  * 本地（dev / 内置 / 市场）插件可用的宿主侧服务集。刻意保持最小：日志、会话
  * 用量快照、[env] 生效快照、装载清单与市场管理、/status 贡献注册。其余 bridge
  * 方法一律 unknown-method 拒绝。
@@ -107,7 +121,7 @@ export interface LocalPluginServices {
   getEffectiveEnv?(): Promise<readonly EffectiveEnvEntry[]> | readonly EffectiveEnvEntry[]
   /** 装载清单（内置 / dev / 市场三源 + 市场索引，宿主侧计算）。 */
   listPlugins?(): Promise<PluginInventory>
-  /** 从市场安装（宿主侧拉取 + digest 校验 + 落盘；不批准、不激活）。 */
+  /** 从市场安装（宿主拉取 + digest 校验 + 落盘；不批准、不激活）。 */
   installMarketPlugin?(name: string): Promise<PluginInstallResult>
   inspectPlugin?(name: string): Promise<PluginInventoryEntry>
   approvePlugin?(name: string, permissionHash: string): Promise<PluginInventoryEntry>
@@ -115,6 +129,20 @@ export interface LocalPluginServices {
   disablePlugin?(name: string): Promise<PluginInventoryEntry>
   /** 卸载市场插件（停用 + 删目录）。 */
   uninstallMarketPlugin?(name: string): Promise<{ name: string }>
+  /** `[web_search]` 配置 presence（不含 api key 明文；/web-search 面板数据源）。 */
+  webSearchConfigStatus?(): unknown
+  /**
+   * manifest net allowlist 之外的动态放行主机名（如 [web_search] custom_url——
+   * 用户在用户级 config.toml 里亲自配置的端点即视为授权）。每次 http.fetch
+   * 调用重取；返回的每一项按精确主机名比对。
+   */
+  extraAllowedHosts?(): Promise<readonly string[]> | readonly string[]
+  /**
+   * 沙箱插件的受控网络出口（宿主侧执行；沙箱自身无网络）。分发器先做
+   * HTTPS-only + permissions.net allowlist 门，再交本服务。返回必须可 JSON：
+   * { status, headers, body }（body 为文本）。
+   */
+  httpFetch?(url: string, init: unknown): Promise<unknown>
 }
 
 export interface ActivatedLocalPlugin {
@@ -125,6 +153,7 @@ export interface ActivatedLocalPlugin {
   readonly tools: readonly ToolContribution[]
   readonly hooks: readonly HookContribution[]
   readonly prompts: readonly PromptContribution[]
+  readonly webSearchProviders: readonly WebSearchProviderContribution[]
   deactivate(): Promise<void>
 }
 
@@ -160,6 +189,7 @@ export function createLocalPluginDispatch(options: {
     tools: ToolContribution[]
     hooks: HookContribution[]
     prompts: PromptContribution[]
+    webSearchProviders: WebSearchProviderContribution[]
   }
 }): (method: string, params: unknown) => unknown {
   const { manifest, invokeCallback, services, contributions } = options
@@ -307,6 +337,52 @@ export function createLocalPluginDispatch(options: {
         )
       return services.uninstallMarketPlugin?.(params)
     }
+    if (short === 'webSearch.provide') {
+      const spec = readWebSearchProviderSpec(params)
+      // 同名重注册 = 插件侧热更新语义：先摘旧再挂新。
+      const existing = contributions.webSearchProviders.findIndex(
+        (provider) => provider.plugin === manifest.name && provider.id === spec.id,
+      )
+      if (existing >= 0) contributions.webSearchProviders.splice(existing, 1)
+      contributions.webSearchProviders.push({
+        plugin: manifest.name,
+        id: spec.id,
+        invoke: (request, config) => invokeCallback(spec.search, [request, config]),
+      })
+      return null
+    }
+    if (short === 'webSearch.configStatus') return services.webSearchConfigStatus?.() ?? {}
+    if (short === 'http.fetch') {
+      if (typeof params !== 'string' && !Array.isArray(params))
+        throw new PluginError('plugin_rpc_params_invalid', 'http.fetch requires (url, init?)')
+      const [url, init] = Array.isArray(params) ? params : [params, undefined]
+      if (typeof url !== 'string')
+        throw new PluginError('plugin_rpc_params_invalid', 'http.fetch requires a URL string')
+      // 与 legacy BridgeRuntime 同门：HTTPS-only + permissions.net allowlist
+      // （hostname 匹配）；manifest 名单之外再放行 extraAllowedHosts（宿主侧
+      // 用户级配置亲自点名的端点，如 [web_search] custom_url）。本地通道的
+      // 插件一律经宿主出口联网，沙箱自身无网络。
+      let hostname: string
+      try {
+        const parsed = new URL(url)
+        hostname = parsed.hostname
+      } catch {
+        throw new PluginError('plugin_net_denied', '(unparseable URL)')
+      }
+      if (!url.startsWith('https:')) throw new PluginError('plugin_net_denied', hostname)
+      const netRules = manifest.permissions.net ? manifest.permissions.net.allowlist : undefined
+      const netAllowed = async (): Promise<boolean> => {
+        if (netRules?.some((rule) => matchesHost(hostname, rule))) return true
+        const extra = (await services.extraAllowedHosts?.()) ?? []
+        return extra.includes(hostname)
+      }
+      return netAllowed().then((allowed) => {
+        if (!allowed) throw new PluginError('plugin_net_denied', hostname)
+        if (!services.httpFetch)
+          throw new Error('this host does not expose the plugin http.fetch egress')
+        return services.httpFetch(url, init ?? {})
+      })
+    }
     if (['log.debug', 'log.info', 'log.warn', 'log.error'].includes(short)) {
       const level = short.slice('log.'.length)
       const args = Array.isArray(params) ? params : [params]
@@ -352,6 +428,7 @@ export async function activateLocalPlugin(
     tools: [] as ToolContribution[],
     hooks: [] as HookContribution[],
     prompts: [] as PromptContribution[],
+    webSearchProviders: [] as WebSearchProviderContribution[],
   }
   server.onRequest = createLocalPluginDispatch({
     manifest,
@@ -388,6 +465,9 @@ export async function activateLocalPlugin(
     },
     get prompts() {
       return contributions.prompts
+    },
+    get webSearchProviders() {
+      return contributions.webSearchProviders
     },
     deactivate: async () => {
       process.off('exit', onExit)
@@ -526,4 +606,16 @@ function readToolSpec(
     inputSchema,
     handler: spec.handler,
   }
+}
+
+function readWebSearchProviderSpec(params: unknown): { id: string; search: PluginCallbackRef } {
+  const spec = (params ?? {}) as { id?: unknown; search?: unknown }
+  if (typeof spec.id !== 'string' || !spec.id)
+    throw new PluginBridgeError('plugin_web_search_invalid', 'webSearch.provide requires an id')
+  if (!(spec.search instanceof PluginCallbackRef))
+    throw new PluginBridgeError(
+      'plugin_web_search_invalid',
+      'webSearch.provide requires a search function',
+    )
+  return { id: spec.id, search: spec.search }
 }

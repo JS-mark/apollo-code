@@ -159,6 +159,41 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     // §8.3.1 通用模式：*_api_key 结尾的名字只能来自用户级 config
     expect(isProjectOverrideForbidden('env.MY_SERVICE_API_KEY')).toBe(true)
   })
+
+  it('accepts [web_search] backend/keys and keeps api keys project-forbidden (volund-plugin-web-search)', () => {
+    expect(
+      ConfigSchema.safeParse({
+        web_search: { backend: 'tavily', max_results: 5, tavily_api_key: 'tvly-x' },
+      }).success,
+    ).toBe(true)
+    expect(ConfigSchema.safeParse({ web_search: { backend: 'brave' } }).success).toBe(true)
+    // custom 后端：http(s) URL；非 http(s) / 裸 host 拒绝
+    expect(
+      ConfigSchema.safeParse({
+        web_search: {
+          backend: 'custom',
+          custom_url: 'https://search.internal.example/query',
+          custom_api_key: 'k',
+        },
+      }).success,
+    ).toBe(true)
+    expect(
+      ConfigSchema.safeParse({ web_search: { backend: 'custom', custom_url: 'search.internal' } })
+        .success,
+    ).toBe(false)
+    // backend 只认登记的三个后端；类型错 fail
+    expect(ConfigSchema.safeParse({ web_search: { backend: 'duckduckgo' } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ web_search: { max_results: 0 } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ web_search: { max_results: 11 } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ web_search: { tavily_api_key: 42 } }).success).toBe(false)
+    // 凭据与流量去向只允许用户级；非凭据键项目级可覆盖
+    expect(isProjectOverrideForbidden('web_search.tavily_api_key')).toBe(true)
+    expect(isProjectOverrideForbidden('web_search.brave_api_key')).toBe(true)
+    expect(isProjectOverrideForbidden('web_search.custom_api_key')).toBe(true)
+    expect(isProjectOverrideForbidden('web_search.custom_url')).toBe(true)
+    expect(isProjectOverrideForbidden('web_search.backend')).toBe(false)
+    expect(isProjectOverrideForbidden('web_search.max_results')).toBe(false)
+  })
 })
 describe('[permissions] mode (§4.4 three session modes)', () => {
   it('accepts ask/auto/full and rejects other values as config_invalid', () => {

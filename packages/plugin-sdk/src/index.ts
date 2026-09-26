@@ -412,6 +412,18 @@ export interface VolundBridge {
     uninstall(name: string): Promise<{ name: string }>
   }
   readonly prompt: { contribute(fragment: PromptFragment): Disposable; revoke(id: string): void }
+  /**
+   * WebSearch provider 贡献（volund-plugin-web-search）：插件注册搜索后端，
+   * 宿主把它适配进内置 WebSearch 工具（权限门/限长/〈untrusted〉 包裹不变），
+   * 工具从 fail-closed 变为可用。需要 manifest `permissions.volund` 包含
+   * `'webSearch.provide'`（deny-by-default；configStatus 同门）。仅本地
+   * （内置 / dev / 市场）通道提供；插件侧应判空降级。
+   */
+  readonly webSearch?: {
+    provide(spec: WebSearchProviderSpec): Disposable
+    /** `[web_search]` 配置 presence（不含 api key 明文），/web-search 面板数据源。 */
+    configStatus(): Promise<Record<string, unknown>>
+  }
   readonly session: {
     readonly id: string
     readonly cwd: string
@@ -488,6 +500,29 @@ export const defineTool = <T extends VolundToolDefinition>(tool: T): T => tool
 
 // ── 远程控制渠道契约（REM-r1 契约先行；R3 微信/企微等第三方渠道按此实现） ──────
 
+/**
+ * WebSearch 搜索结果项（volund-plugin-web-search 的 provider 契约）。宿主侧
+ * 再做长度截断与 〈untrusted〉 包裹，插件只需返回干净的结构化数据。
+ */
+export interface WebSearchItem {
+  readonly title: string
+  readonly url: string
+  readonly snippet: string
+  readonly publishedAt?: string
+}
+/**
+ * WebSearch provider 贡献（volund.webSearch.provide 的 spec）。search 每次调用
+ * 收到宿主侧重读的 `[web_search]` 配置快照（api key 已含在内；不过桥回传、
+ * 不落沙箱外），返回结构化结果数组——失败就抛错，宿主转成工具错误。
+ */
+export interface WebSearchProviderSpec {
+  /** provider 标识（进权限请求与执行日志，如 `volund-plugin-web-search/tavily`）。 */
+  readonly id: string
+  search(
+    request: { query: string; limit: number },
+    config: Readonly<Record<string, unknown>>,
+  ): Promise<readonly WebSearchItem[]>
+}
 /** 渠道能力位：决定远程控制页展示哪些入口与移动端的交互面。 */
 export type ChannelCapability = 'chat' | 'approvals' | 'files'
 

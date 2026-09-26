@@ -59,7 +59,11 @@ export interface FileBackupPort {
 export interface BuiltinToolsOptions {
   backups?: FileBackupPort
   task?: { dispatcher: SubagentDispatcher; parent: (signal: AbortSignal) => DispatchParent }
-  webSearch?: { provider?: WebSearchProvider }
+  webSearch?: {
+    provider?: WebSearchProvider
+    /** 跨会话共享实例（插件 provider 热接线到全部活会话）；给出时域装配复用而非新建。 */
+    tool?: WebSearchTool
+  }
   webFetch?: WebFetchOptions
   /** REM-57 (r13-I11): shell selection + env inheritance knobs ([tools] config). */
   bash?: BashToolOptions
@@ -858,7 +862,7 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new GrepTool(),
   new GlobTool(),
   new TodoTool(),
-  new WebSearchTool(options.webSearch?.provider),
+  options.webSearch?.tool ?? new WebSearchTool(options.webSearch?.provider),
   new WebFetchTool(options.webFetch),
   ...(options.task ? [new TaskTool(options.task.dispatcher, options.task.parent)] : []),
 ]
@@ -888,7 +892,7 @@ export function builtinToolDomains(options: BuiltinToolsOptions = {}): BuiltinTo
         new GrepTool(),
         new GlobTool(),
         new TodoTool(),
-        new WebSearchTool(options.webSearch?.provider),
+        options.webSearch?.tool ?? new WebSearchTool(options.webSearch?.provider),
         new WebFetchTool(options.webFetch),
       ],
     },

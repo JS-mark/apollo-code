@@ -114,10 +114,10 @@ export class WebSearchTool implements Tool<WebSearchInput> {
     required: ['query'],
   } as never
   readonly #limits: Required<WebSearchOptions>
-  constructor(
-    readonly provider?: WebSearchProvider,
-    options: WebSearchOptions = {},
-  ) {
+  /** 可变：插件 provider 经 setProvider 热接线（见下）。 */
+  provider: WebSearchProvider | undefined
+  constructor(provider?: WebSearchProvider, options: WebSearchOptions = {}) {
+    this.provider = provider
     this.#limits = {
       maxResults: options.maxResults ?? 5,
       maxQueryCharacters: options.maxQueryCharacters ?? 2_000,
@@ -125,6 +125,14 @@ export class WebSearchTool implements Tool<WebSearchInput> {
       maxTotalCharacters: options.maxTotalCharacters ?? 10_000,
       maxRetries: options.maxRetries ?? 1,
     }
+  }
+  /**
+   * 热接线插件 provider（volund-plugin-web-search 经 plugin hub 注入/摘除）：
+   * 跨会话共享同一 WebSearchTool 实例的装配下，插件启用/禁用即时生效于全部
+   * 活会话；undefined = 回到 fail-closed（no provider configured）。
+   */
+  setProvider(provider: WebSearchProvider | undefined): void {
+    this.provider = provider
   }
   permissionSpec(input: WebSearchInput) {
     return {
@@ -167,8 +175,10 @@ export class WebSearchTool implements Tool<WebSearchInput> {
             !(error instanceof WebSearchProviderError) ||
             !error.retryable ||
             attempt === this.#limits.maxRetries
-          )
-            throw new Error('WebSearch provider failed', { cause: error })
+          ) {
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new Error(`WebSearch provider failed: ${detail}`, { cause: error })
+          }
         }
       }
       const normalized = (results ?? []).slice(0, limit).map((item) => {

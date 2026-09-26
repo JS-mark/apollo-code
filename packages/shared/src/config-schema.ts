@@ -85,6 +85,15 @@ export const configKeyRegistry = {
   'plugins.market': 'forbidden',
   // builtin_disabled（F1 插件一等公民）：禁用的第一方工具域 id（volund.exec 等）
   'plugins.builtin_disabled': 'allowed',
+  // [web_search]（volund-plugin-web-search）：WebSearch 工具的搜索后端与凭据。
+  // api key 是凭据 → 项目级 forbidden（§8.3.1 通用模式同族）；custom_url 决定
+  // 搜索流量（query + key）流向，与 provider.*.baseUrl 同门 → 项目级 forbidden。
+  'web_search.backend': 'allowed',
+  'web_search.max_results': 'allowed',
+  'web_search.tavily_api_key': 'forbidden',
+  'web_search.brave_api_key': 'forbidden',
+  'web_search.custom_url': 'forbidden',
+  'web_search.custom_api_key': 'forbidden',
   // [web] §22 W-01：TUI 进入时 Web 控制台的静默自启开关与固定端口（默认开、随机端口）
   'web.enabled': 'allowed',
   'web.port': 'allowed',
@@ -280,6 +289,23 @@ export const ConfigSchema = z.strictObject({
     .strictObject({
       market: z.string().optional(),
       builtin_disabled: z.array(z.string()).optional(),
+    })
+    .optional(),
+  // [web_search]（volund-plugin-web-search）：WebSearch 工具的搜索后端。
+  // backend 未设置时插件 provider 仍在，但每次搜索 fail-closed 并给出配置指引；
+  // api key 一律项目级 forbidden（凭据只允许用户级 config）；custom_url 是
+  // 搜索流量的去向（query + key 都会发过去），项目级不得改指第三方。
+  web_search: z
+    .strictObject({
+      backend: z.enum(['tavily', 'brave', 'custom']).optional(),
+      max_results: z.number().int().min(1).max(10).optional(),
+      tavily_api_key: z.string().optional(),
+      brave_api_key: z.string().optional(),
+      custom_url: z
+        .string()
+        .refine((value) => /^https?:\/\//.test(value), 'custom_url must be an http(s) URL')
+        .optional(),
+      custom_api_key: z.string().optional(),
     })
     .optional(),
   // [web]（§22 W-01）：TUI 进入时静默自启 Web 控制台；port=0 随机空闲端口

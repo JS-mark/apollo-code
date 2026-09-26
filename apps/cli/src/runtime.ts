@@ -76,7 +76,11 @@ import {
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge } from '@volund/tool-kit'
-import { BackgroundShells, builtinToolDomains } from '@volund/tools'
+import {
+  BackgroundShells,
+  builtinToolDomains,
+  WebSearchTool,
+} from '@volund/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
@@ -732,10 +736,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // localPluginState / localPluginHub 等共享句柄经解构取用，F1 工具域名单同源。
   const pluginDomain = createPluginDomain({
     home,
+  const webSearchTool = new WebSearchTool()
     volundVersion: options.identity.version,
     logger,
     emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
     slashCommands,
+  // volund-plugin-web-search：跨会话共享的 WebSearch 工具实例——插件贡献的
+  // provider 经 setProvider 热接线，启用/禁用即时生效于全部活会话。
+  const webSearchTool = new WebSearchTool()
     getAppliedEnv: () => configDomain.appliedEnv(),
     liveToolServices,
     resolveBuiltinPluginRoot: builtinPluginRoot,
@@ -747,6 +755,36 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
   const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
   const memoryStack = createMemoryStack(home)
+    webSearchTool,
+    httpFetch: async (url, init) => {
+      const request = (init ?? {}) as {
+        method?: string
+        headers?: Record<string, string>
+        body?: unknown
+      }
+      const method = request.method === 'POST' ? 'POST' : 'GET'
+      const response = await http.request({
+        url,
+        method,
+        headers: request.headers ?? {},
+        body: request.body,
+        signal: AbortSignal.timeout(9_000),
+      })
+      const chunks: Buffer[] = []
+      let size = 0
+      for await (const chunk of response.body) {
+        size += chunk.length
+        // fd3 桥帧上限 1MB（plugin_host.mjs MAX_FRAME）：响应体整体作为 JSON 帧
+        // 回传，必须留在帧限以内。
+        if (size > 900_000) throw new Error('plugin http.fetch response exceeds 900KB')
+        chunks.push(Buffer.from(chunk))
+      }
+      return {
+        status: response.status,
+        headers: response.headers ?? {},
+        body: Buffer.concat(chunks).toString('utf8'),
+      }
+    },
   const memory = memoryStack.memory
   const memoryRecall = memoryStack.memoryRecall
   const memoryMaintenance = memoryStack.memoryMaintenance
@@ -969,6 +1007,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       for (const tool of domain.tools) names.add(tool.name)
     }
     if (!builtinToolsDisabled.has('volund.orchestration')) {
+      webSearch: { tool: webSearchTool },
       for (const tool of createMemoryTools(memory)) names.add(tool.name)
       names.add(SKILL_TOOL_NAME)
     }
@@ -1434,6 +1473,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           turnId: runner.state.activeTurn ?? '',
           signal,
         }),
+      webSearch: { tool: webSearchTool },
       },
     })) {
       if (builtinToolsDisabled.has(domain.id)) continue
@@ -1455,6 +1495,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // 已注册工具保留到会话结束（invoke 经已关闭的桥会以错误收场，不会静默）。
     for (const loaded of loadedPluginEntries) {
       if (!loaded.handle) continue
+      // AskUserQuestion：工具本体在 @volund/tools（零依赖，交互走 ToolUiPort
       for (const tool of loaded.handle.tools) {
         kernel.tools.registerPluginTool(loaded.name, {
           name: tool.name,

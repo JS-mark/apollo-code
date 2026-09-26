@@ -319,6 +319,13 @@ export interface PluginDomainOptions {
   readonly liveToolServices: Set<import('@volund/kernel').ToolsService>
   /** 内置插件根目录解析（锚点在宿主包，P1-04d part1）。 */
   readonly resolveBuiltinPluginRoot: () => string | undefined
+  /**
+   * 跨会话共享的 WebSearch 工具实例（runtime 装配根创建）：插件贡献的搜索
+   * provider 经 setProvider 热接线，启用/禁用即时生效于全部活会话。
+   */
+  readonly webSearchTool?: import('@volund/tools').WebSearchTool
+  /** 沙箱插件的受控网络出口（webSearch http.fetch 桥的宿主侧执行体；带代理栈）。 */
+  readonly httpFetch?: (url: string, init: unknown) => Promise<unknown>
 }
 
 export interface PluginDomain {
@@ -344,6 +351,7 @@ import type { StatusTabContribution } from '@volund/plugin-runtime'
 import type { PluginInstallResult, PluginInventory, PluginInventoryEntry } from '@volund/plugin-sdk'
 import { productIdentity } from '@volund/shared'
 import type { Logger } from '@volund/shared'
+import type { WebSearchProvider } from '@volund/tools'
 import { builtinToolDomains } from '@volund/tools'
 
 import { builtinDisabledFrom, updateConfigBuiltinDisabled } from './config-edit'
@@ -361,6 +369,12 @@ import type { MarketIndex } from './plugin-market'
 import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
 import type { LocalPluginStateEntry } from './plugin-state'
 import { readEffectiveEnv } from './plugins-domain-env'
+import {
+  pluginWebSearchProvider,
+  readWebSearchConfig,
+  webSearchConfigStatus,
+  webSearchExtraAllowedHosts,
+} from './plugins-domain-web-search'
 import type { LocalPluginPort, PluginPort } from './ports'
 import type { StatusPanelData } from './status-view'
 
@@ -404,6 +418,15 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     readonly unsubscribes: readonly (() => void)[]
   }
   const loadedPluginEntries: LoadedPluginEntry[] = []
+  // WebSearch provider hub（volund-plugin-web-search）：插件名 → 适配后的
+  // provider。activateLocal 挂新、unloadPlugin 摘旧，每次变动把首个存活
+  // provider 热接进共享 WebSearch 工具（undefined = 回到 fail-closed）。
+  const pluginWebSearchProviders = new Map<string, WebSearchProvider>()
+  const syncWebSearchProvider = (): void => {
+    if (!options.webSearchTool) return
+    const first = pluginWebSearchProviders.values().next()
+    options.webSearchTool.setProvider(first.done ? undefined : first.value)
+  }
   // 插件 render 回调里 volund.session.getUsage() 读到的值：最近一次 /status 组装的
   // 会话用量（同一轮 refresh 内先算 usage 再调 render，数据同源）。
   let lastSessionUsage: StatusPanelData['usage']
@@ -482,8 +505,31 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
         enablePlugin: (name: string) => enablePlugin(name),
         disablePlugin: (name: string) => disablePlugin(name),
         uninstallMarketPlugin: (name: string) => uninstallMarketPlugin(name),
+        // volund-plugin-web-search 的数据源与网络出口（宿主侧；沙箱内无网络）。
+        webSearchConfigStatus: async () =>
+          webSearchConfigStatus(await readWebSearchConfig(options.home)),
+        extraAllowedHosts: () => webSearchExtraAllowedHosts(options.home),
+        httpFetch: (url, init) => {
+          if (!options.httpFetch)
+            throw new Error('this host does not expose the plugin http.fetch egress')
+          return options.httpFetch(url, init)
+        },
       },
     })
+    // 插件贡献的 WebSearch provider 挂进 hub 并热接线（后激活者不覆盖：首个
+    // 存活贡献者胜出；卸载时按次序回落到下一个）。
+    for (const contribution of activated.webSearchProviders) {
+      pluginWebSearchProviders.set(
+        `${activated.manifest.name}/${contribution.id}`,
+        pluginWebSearchProvider({
+          plugin: activated.manifest.name,
+          id: contribution.id,
+          invoke: contribution.invoke,
+          readConfig: () => readWebSearchConfig(options.home),
+        }),
+      )
+    }
+    if (activated.webSearchProviders.length > 0) syncWebSearchProvider()
     loadedPluginEntries.push({
       source,
       name: activated.manifest.name,
@@ -509,6 +555,10 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     await entry?.handle?.deactivate()
     // H2：对每个活会话内核摘除该插件的贡献工具（下会话自然不再注册）。
     if (entry) for (const tools of options.liveToolServices) tools.unregisterPlugin(entry.name)
+    // 该插件贡献的 WebSearch provider 同步摘除并热接线（回落到下一个或 fail-closed）。
+    for (const key of pluginWebSearchProviders.keys())
+      if (key.startsWith(`${name}/`)) pluginWebSearchProviders.delete(key)
+    syncWebSearchProvider()
     return entry
   }
   async function inventoryEntry(entry: LocalPluginStateEntry): Promise<PluginInventoryEntry> {

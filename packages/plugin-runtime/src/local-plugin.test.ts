@@ -9,6 +9,7 @@ import {
   type ToolContribution,
   type HookContribution,
   type PromptContribution,
+  type WebSearchProviderContribution,
 } from './local-plugin'
 
 function manifest(permissions: string[]): PluginManifest {
@@ -22,7 +23,7 @@ function manifest(permissions: string[]): PluginManifest {
   }
 }
 
-function dispatchFixture(permissions: string[]) {
+function dispatchFixture(permissions: string[], net?: PluginManifest['permissions']['net']) {
   const contributions = {
     statusTabs: [] as StatusTabContribution[],
     statusSections: [] as { id: string; title: string; render(): Promise<unknown> }[],
@@ -30,6 +31,7 @@ function dispatchFixture(permissions: string[]) {
     tools: [] as ToolContribution[],
     hooks: [] as HookContribution[],
     prompts: [] as PromptContribution[],
+    webSearchProviders: [] as WebSearchProviderContribution[],
   }
   const invocations: { callbackId: string; args: readonly unknown[] }[] = []
   const managed: { method: string; value: unknown }[] = []
@@ -48,7 +50,10 @@ function dispatchFixture(permissions: string[]) {
     },
   }
   const dispatch = createLocalPluginDispatch({
-    manifest: manifest(permissions),
+    manifest: {
+      ...manifest(permissions),
+      ...(net ? { permissions: { ...manifest(permissions).permissions, net } } : {}),
+    },
     invokeCallback: async (ref, args = []) => {
       invocations.push({ callbackId: ref.callbackId, args })
       return { kind: 'rows', sections: [] }
@@ -84,6 +89,11 @@ function dispatchFixture(permissions: string[]) {
       disablePlugin: async (name) => {
         managed.push({ method: 'disable', value: name })
         return inventoryEntry
+      },
+      webSearchConfigStatus: () => ({ backend: 'tavily', tavily: { configured: true } }),
+      httpFetch: async (url, init) => {
+        managed.push({ method: 'httpFetch', value: { url, init } })
+        return { status: 200, headers: {}, body: 'ok' }
       },
     },
     contributions,
@@ -233,6 +243,118 @@ describe('createLocalPluginDispatch', () => {
   it('denies session.getUsage without session.read', () => {
     const { dispatch } = dispatchFixture(['ui.status'])
     expect(() => dispatch('volund.session.getUsage', undefined)).toThrow(/session\.read/)
+  })
+
+  it('registers a WebSearch provider and routes search through the bridge callback with (request, config)', async () => {
+    const { contributions, dispatch, invocations } = dispatchFixture(['webSearch.provide'])
+    dispatch('volund.webSearch.provide', {
+      id: 'web-search',
+      search: new PluginCallbackRef('callback-search'),
+    })
+    expect(contributions.webSearchProviders).toHaveLength(1)
+    const provider = contributions.webSearchProviders[0]!
+    expect(provider.plugin).toBe('volund-plugin-test')
+    expect(provider.id).toBe('web-search')
+    await provider.invoke({ query: 'weather', limit: 5 }, { backend: 'tavily' })
+    expect(invocations).toEqual([
+      {
+        callbackId: 'callback-search',
+        args: [{ query: 'weather', limit: 5 }, { backend: 'tavily' }],
+      },
+    ])
+  })
+
+  it('replaces a same-id WebSearch provider registration (hot update)', () => {
+    const { contributions, dispatch } = dispatchFixture(['webSearch.provide'])
+    for (const callbackId of ['callback-1', 'callback-2'])
+      dispatch('volund.webSearch.provide', {
+        id: 'web-search',
+        search: new PluginCallbackRef(callbackId),
+      })
+    expect(contributions.webSearchProviders).toHaveLength(1)
+    expect(contributions.webSearchProviders.map((provider) => provider.id)).toEqual(['web-search'])
+  })
+
+  it('denies webSearch.provide without the webSearch.provide permission', () => {
+    const { dispatch, contributions } = dispatchFixture(['session.read'])
+    expect(() =>
+      dispatch('volund.webSearch.provide', {
+        id: 'web-search',
+        search: new PluginCallbackRef('callback-1'),
+      }),
+    ).toThrow(/denied/)
+    expect(contributions.webSearchProviders).toHaveLength(0)
+  })
+
+  it('rejects a webSearch.provide spec without a search callback', () => {
+    const { dispatch } = dispatchFixture(['webSearch.provide'])
+    expect(() => dispatch('volund.webSearch.provide', { id: 'web-search' })).toThrow(
+      /search function/,
+    )
+  })
+
+  it('serves webSearch.configStatus from host services', () => {
+    const { dispatch } = dispatchFixture(['webSearch.provide'])
+    expect(dispatch('volund.webSearch.configStatus', undefined)).toEqual({
+      backend: 'tavily',
+      tavily: { configured: true },
+    })
+  })
+
+  it('routes allowlisted HTTPS http.fetch through the host service', async () => {
+    const { managed, dispatch } = dispatchFixture(['http.fetch'], {
+      allowlist: ['api.tavily.com', '*.example.com'],
+    })
+    const response = (await dispatch('volund.http.fetch', [
+      'https://api.tavily.com/search',
+      { method: 'POST', body: { query: 'q' } },
+    ])) as { status: number }
+    expect(response.status).toBe(200)
+    expect(managed.at(-1)).toEqual({
+      method: 'httpFetch',
+      value: {
+        url: 'https://api.tavily.com/search',
+        init: { method: 'POST', body: { query: 'q' } },
+      },
+    })
+    await dispatch('volund.http.fetch', ['https://sub.example.com/v1', {}])
+    expect(() => dispatch('volund.http.fetch', ['http://api.tavily.com/search', {}])).toThrow(
+      /denied/,
+    )
+    await expect(dispatch('volund.http.fetch', ['https://evil.example.net/x', {}])).rejects.toThrow(
+      /denied/,
+    )
+  })
+
+  it('allows extra hosts beyond the manifest allowlist via extraAllowedHosts (custom backend)', async () => {
+    const contributions = {
+      statusTabs: [] as StatusTabContribution[],
+      statusSections: [] as { id: string; title: string; render(): Promise<unknown> }[],
+      commands: [] as CommandContribution[],
+      tools: [] as ToolContribution[],
+      hooks: [] as HookContribution[],
+      prompts: [] as PromptContribution[],
+      webSearchProviders: [] as WebSearchProviderContribution[],
+    }
+    const fetched: string[] = []
+    // manifest allowlist 只有 tavily；custom 搜索端点（用户级配置点名）走动态放行。
+    const dispatch = createLocalPluginDispatch({
+      manifest: manifest(['http.fetch']),
+      invokeCallback: async () => null,
+      services: {
+        extraAllowedHosts: () => ['search.internal.example'],
+        httpFetch: async (url) => {
+          fetched.push(url)
+          return { status: 200, headers: {}, body: '[]' }
+        },
+      },
+      contributions,
+    })
+    await dispatch('volund.http.fetch', ['https://search.internal.example/q', {}])
+    expect(fetched).toEqual(['https://search.internal.example/q'])
+    await expect(
+      dispatch('volund.http.fetch', ['https://other.internal.example/q', {}]),
+    ).rejects.toThrow(/denied/)
   })
 
   it('rejects unknown methods', () => {

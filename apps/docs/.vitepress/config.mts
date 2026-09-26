@@ -127,6 +127,11 @@ export default withMermaid(
               },
               { text: 'API reference', link: '/api/README' },
               { text: 'CLI reference', link: '/docs/reference/cli' },
+              { text: 'Error codes', link: '/docs/reference/error-codes' },
+              {
+                text: 'Web Search custom backend',
+                link: '/docs/reference/web-search-custom-backend',
+              },
               {
                 text: 'Troubleshooting',
                 items: [
@@ -212,6 +217,8 @@ export default withMermaid(
               },
               { text: 'API 参考', link: '/zh/api/README' },
               { text: 'CLI 参考', link: '/zh/docs/reference/cli' },
+              { text: '错误码参考', link: '/zh/docs/reference/error-codes' },
+              { text: 'Web 搜索自定义后端', link: '/zh/docs/reference/web-search-custom-backend' },
               {
                 text: '故障排查',
                 items: [

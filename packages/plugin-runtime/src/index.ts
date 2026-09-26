@@ -626,6 +626,27 @@ export const VOLUND_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
     test: 'apps/cli/src/builtin-plugins.test.ts#volund-plugin-manager',
   },
   {
+    method: 'webSearch.provide',
+    status: 'supported' as const,
+    reason:
+      'Local (builtin/dev/market) channel only; the host adapts the contribution into the builtin WebSearch tool.',
+    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+  },
+  {
+    method: 'webSearch.configStatus',
+    status: 'supported' as const,
+    reason:
+      'Local (builtin/dev/market) channel only; [web_search] presence for the /web-search panel.',
+    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+  },
+  {
+    method: 'http.fetch (local channel)',
+    status: 'supported' as const,
+    reason:
+      'Local (builtin/dev/market) channel only; HTTPS + permissions.net allowlist enforced by the dispatcher before the host service runs.',
+    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+  },
+  {
     method: 'call',
     status: 'unsupported' as const,
     reason: 'Low-level calls are transport-only; there is no direct in-process handler.',
@@ -858,6 +879,9 @@ export const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freez
   'plugins.enable': 'plugins.manage',
   'plugins.disable': 'plugins.manage',
   'plugins.uninstall': 'plugins.manage',
+  // WebSearch provider 贡献（本地通道；configStatus 面板数据源同门）
+  'webSearch.provide': 'webSearch.provide',
+  'webSearch.configStatus': 'webSearch.provide',
   'log.write': 'log.write',
   'log.debug': 'log.write',
   'log.info': 'log.write',
@@ -1003,7 +1027,8 @@ const isWithin = (root: string, candidate: string) => {
   const rel = relative(root, candidate)
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
-const matchesHost = (host: string, rule: string) =>
+/** hostname allowlist 匹配：精确或 `*.suffix` 通配（legacy 与本地插件桥共用）。 */
+export const matchesHost = (host: string, rule: string) =>
   host === rule || (rule.startsWith('*.') && host.endsWith(rule.slice(1)))
 const matchesCommand = (command: string, rule: string) =>
   rule.endsWith(' *')

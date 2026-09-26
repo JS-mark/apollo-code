@@ -1,0 +1,13 @@
+{
+  "name": "volund-plugin-web-search",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "index.ts",
+  "engines": { "volund": "^0.2.0" },
+  "permissions": {
+    "net": {
+      "allowlist": ["api.tavily.com", "api.search.brave.com"]
+    },
+    "volund": ["webSearch.provide", "http.fetch", "commands.register", "log.write"]
+  }
+}

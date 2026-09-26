@@ -5,11 +5,12 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
+import { createPluginDomain } from '@volund/app-runtime'
 import { probeSandbox, resolveBinary } from '@volund/native-bridge'
 import { PermissionManager } from '@volund/permission'
 import { activateLocalPlugin, type ActivatedLocalPlugin } from '@volund/plugin-runtime'
 import type { Tool } from '@volund/tool-kit'
-import { ToolExecutor } from '@volund/tools'
+import { ToolExecutor, WebSearchTool } from '@volund/tools'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
@@ -102,6 +103,7 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
         'volund-plugin-manager',
       ])
     } finally {
+        'volund-plugin-web-search',
       await ports.localPlugins!.deactivateAll()
     }
   }, 30_000)
@@ -470,3 +472,193 @@ describe('plugin hooks e2e（H1：沙箱订阅 preToolUse → veto 真的拦下�
 })
       volundVersion: '0.2.0',
       volundVersion: '0.2.0',
+
+describe('volund-plugin-web-search（内置 WebSearch provider，沙箱端到端）', () => {
+  const webSearchPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-web-search')
+
+  function toolContext() {
+    return {
+      abortSignal: new AbortController().signal,
+      session: { id: 'session-1', cwd: process.cwd(), turnId: 'turn-1' },
+      native: { execute: async () => '' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      ui: { requestInput: async () => '' },
+    }
+  }
+
+  function domainFixture(home: string, webSearchTool: WebSearchTool) {
+    const httpCalls: { url: string; init: unknown }[] = []
+    const domain = createPluginDomain({
+      home,
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      emitTelemetry: () => undefined,
+      slashCommands: { register: () => () => {} },
+      getAppliedEnv: () => ({}),
+      liveToolServices: new Set(),
+      resolveBuiltinPluginRoot: () => undefined,
+      webSearchTool,
+      httpFetch: async (url, init) => {
+        httpCalls.push({ url, init })
+        return {
+          status: 200,
+          headers: {},
+          body: JSON.stringify({
+            results: [
+              {
+                title: 'Beijing weather',
+                url: 'https://example.com/beijing',
+                content: 'Sunny, 22°C',
+                published_date: '2026-09-25',
+              },
+            ],
+          }),
+        }
+      },
+    })
+    return { domain, httpCalls }
+  }
+
+  it('hot-wires the provider into the shared tool and searches through the bridge', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-web-search-'))
+    dirs.push(home)
+    await writeFile(
+      join(home, 'config.toml'),
+      '[web_search]\nbackend = "tavily"\ntavily_api_key = "tvly-e2e"\n',
+    )
+    const webSearchTool = new WebSearchTool()
+    const { domain, httpCalls } = domainFixture(home, webSearchTool)
+    try {
+      await domain.localPlugins.activateLocal(webSearchPluginDir)
+      expect(webSearchTool.provider?.id).toBe('volund-plugin-web-search/web-search')
+
+      // fail-closed → 可用：工具直接调用（权限门在 ToolExecutor 层，此处测工具本体）。
+      const out = await webSearchTool.invoke({ query: 'beijing weather' }, toolContext())
+      expect(out.isError).toBeUndefined()
+      expect(httpCalls).toHaveLength(1)
+      expect(httpCalls[0]!.url).toBe('https://api.tavily.com/search')
+      expect((httpCalls[0]!.init as { body: { api_key: string } }).body.api_key).toBe('tvly-e2e')
+      const text = (out.content[0] as { text: string }).text
+      expect(text).toContain('<untrusted source="web-search:volund-plugin-web-search/web-search">')
+      expect(text).toContain('Beijing weather')
+
+      // 配置即时生效：清掉 backend 后下一次搜索报配置指引。
+      await writeFile(join(home, 'config.toml'), '')
+      const unconfigured = await webSearchTool.invoke({ query: 'cats' }, toolContext())
+      expect(unconfigured.isError).toBe(true)
+      expect((unconfigured.content[0] as { text: string }).text).toContain(
+        'web search is not configured',
+      )
+    } finally {
+      await domain.localPlugins.deactivateAll()
+    }
+  }, 30_000)
+
+  it('unwires the provider on plugin disable (back to fail-closed)', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-web-search-disable-'))
+    dirs.push(home)
+    await writeFile(join(home, 'config.toml'), '[web_search]\nbackend = "tavily"\n')
+    const webSearchTool = new WebSearchTool()
+    const { domain } = domainFixture(home, webSearchTool)
+    try {
+      await domain.localPlugins.activateLocal(webSearchPluginDir)
+      expect(webSearchTool.provider).toBeDefined()
+      await domain.localPlugins.disablePlugin('volund-plugin-web-search')
+      expect(webSearchTool.provider).toBeUndefined()
+      const out = await webSearchTool.invoke({ query: 'cats' }, toolContext())
+      expect(out.isError).toBe(true)
+      expect((out.content[0] as { text: string }).text).toContain('no provider configured')
+    } finally {
+      await domain.localPlugins.deactivateAll()
+    }
+  }, 30_000)
+
+  it('supports the custom backend: dynamic host allowlist, POST contract, lenient parsing', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-web-search-custom-'))
+    dirs.push(home)
+    await writeFile(
+      join(home, 'config.toml'),
+      '[web_search]\nbackend = "custom"\ncustom_url = "https://search.internal.example/query"\ncustom_api_key = "sekrit"\n',
+    )
+    const webSearchTool = new WebSearchTool()
+    const httpCalls: {
+      url: string
+      init: { method?: string; headers?: Record<string, string> }
+    }[] = []
+    // POST 回 405、GET 才服务 SearXNG 形状 JSON（content/publishedDate 字段名）
+    // ——custom 的 GET 回退路径与宽松解析都应吃下。
+    const searxngBody = JSON.stringify({
+      results: [
+        {
+          title: 'Internal wiki hit',
+          url: 'https://wiki.internal.example/page',
+          content: 'body text',
+          publishedDate: '2026-09-01',
+        },
+      ],
+    })
+    const domain = createPluginDomain({
+      home,
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      emitTelemetry: () => undefined,
+      slashCommands: { register: () => () => {} },
+      getAppliedEnv: () => ({}),
+      liveToolServices: new Set(),
+      resolveBuiltinPluginRoot: () => undefined,
+      webSearchTool,
+      httpFetch: async (url, init) => {
+        const request = init as { method?: string; headers?: Record<string, string> }
+        httpCalls.push({ url, init: request })
+        // 第一次搜索：POST 405 → GET 回退吃 SearXNG 形状（content/publishedDate）。
+        if (httpCalls.length <= 2) {
+          const post = request.method === 'POST'
+          return {
+            status: post ? 405 : 200,
+            headers: {},
+            body: post ? 'method not allowed' : searxngBody,
+          }
+        }
+        // 第二次搜索：POST 200 直接回 Bing v7 形状（webPages.value + name/snippet）
+        // ——主流包装形状应被宽容解析吃下。
+        return {
+          status: 200,
+          headers: {},
+          body: JSON.stringify({
+            webPages: {
+              value: [
+                {
+                  name: 'Bing-shaped hit',
+                  url: 'https://wiki.internal.example/bing',
+                  snippet: 'crawled body',
+                  dateLastCrawled: '2026-08-30',
+                },
+              ],
+            },
+          }),
+        }
+      },
+    })
+    try {
+      await domain.localPlugins.activateLocal(webSearchPluginDir)
+      const out = await webSearchTool.invoke({ query: 'internal docs' }, toolContext())
+      expect(out.isError).toBeUndefined()
+      expect(httpCalls).toHaveLength(2)
+      expect(httpCalls[0]!.init.headers?.authorization).toBe('Bearer sekrit')
+      expect(httpCalls[1]!.init.method).toBe('GET')
+      expect(httpCalls[1]!.url).toContain('q=internal%20docs')
+      expect(httpCalls[1]!.url).toContain('format=json')
+      const text = (out.content[0] as { text: string }).text
+      expect(text).toContain('Internal wiki hit')
+      expect(text).toContain('2026-09-01')
+
+      const bingOut = await webSearchTool.invoke({ query: 'second query' }, toolContext())
+      expect(bingOut.isError).toBeUndefined()
+      const bingText = (bingOut.content[0] as { text: string }).text
+      expect(bingText).toContain('Bing-shaped hit')
+    } finally {
+      await domain.localPlugins.deactivateAll()
+    }
+  }, 30_000)
+})

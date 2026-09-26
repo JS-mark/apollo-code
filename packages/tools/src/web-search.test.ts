@@ -120,4 +120,18 @@ describe('WebSearch offline contract', () => {
     expect(out.isError).toBe(true)
     expect(provider.calls).toHaveLength(1)
   })
+
+  it('hot-swaps the provider via setProvider (plugin hub wiring)', async () => {
+    const tool = new WebSearchTool()
+    expect((await tool.invoke({ query: 'cats' }, context())).isError).toBe(true)
+
+    const attached = new MockWebSearchProvider('attached', [[result]])
+    tool.setProvider(attached)
+    expect(tool.permissionSpec({ query: 'cats' }).custom.webSearch.provider).toBe('attached')
+    const ok = await tool.invoke({ query: 'cats' }, context())
+    expect(ok.isError).toBeUndefined()
+
+    tool.setProvider(undefined)
+    expect((await tool.invoke({ query: 'cats' }, context())).isError).toBe(true)
+  })
 })

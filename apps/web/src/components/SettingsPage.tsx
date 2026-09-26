@@ -87,6 +87,7 @@ const SECTIONS = [
   { key: 'permission', label: '权限模式' },
   { key: 'reasoning', label: '模型与推理' },
   { key: 'behavior', label: '行为' },
+  { key: 'webSearch', label: 'Web 搜索' },
   { key: 'memory', label: '记忆' },
   { key: 'language', label: '语言' },
   { key: 'agents', label: 'Agent 预设' },
@@ -1275,6 +1276,61 @@ export function SettingsPage({
                   configKey="evolution.enabled"
                   title="Evolution"
                   hint="evolution.enabled：应用已有 context tuning（默认关）"
+                />
+              </Card>
+            </>
+          )}
+
+          {/* Web 搜索 */}
+          {configCapable && (
+            <>
+              <Typography.Title level={5} id="settings-websearch">
+                Web 搜索
+              </Typography.Title>
+              <Card size="small" style={{ marginBottom: 24 }}>
+                <EnumField
+                  ctx={ctx}
+                  configKey="web_search.backend"
+                  title="搜索后端"
+                  hint="web_search.backend（未设置时 WebSearch 工具不可用；改后即时生效）"
+                  options={[
+                    { value: 'tavily', label: 'tavily' },
+                    { value: 'brave', label: 'brave' },
+                    { value: 'custom', label: '自定义 API' },
+                  ]}
+                />
+                <CredentialField
+                  ctx={ctx}
+                  configKey="web_search.tavily_api_key"
+                  title="Tavily API Key"
+                  hint="backend=tavily 时必填（tavily.com 免费申请）"
+                />
+                <CredentialField
+                  ctx={ctx}
+                  configKey="web_search.brave_api_key"
+                  title="Brave API Key"
+                  hint="backend=brave 时必填（brave.com/search/api 免费申请）"
+                />
+                <TextField
+                  ctx={ctx}
+                  configKey="web_search.custom_url"
+                  title="自定义搜索 API 端点"
+                  hint="backend=custom 时必填；先 POST {query, max_results}，不行回退 GET ?q=&format=json；返回数组或 {results:[…]}（title/url + snippet|content|description），SearXNG 等直接可接"
+                  width={360}
+                />
+                <CredentialField
+                  ctx={ctx}
+                  configKey="web_search.custom_api_key"
+                  title="自定义 API Key（可选）"
+                  hint="backend=custom 时有则带 Authorization: Bearer"
+                />
+                <NumberField
+                  ctx={ctx}
+                  configKey="web_search.max_results"
+                  title="单次结果数上限"
+                  hint="web_search.max_results（1-10，默认 5）"
+                  min={1}
+                  max={10}
                 />
               </Card>
             </>

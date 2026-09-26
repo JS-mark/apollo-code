@@ -136,6 +136,7 @@ export const ErrorCodes = {
   skillCommandFailed: 'skill_command_failed',
   pluginsActionFailed: 'plugins_action_failed',
   pluginToolInvalid: 'plugin_tool_invalid',
+  pluginWebSearchInvalid: 'plugin_web_search_invalid',
   pluginHookInvalid: 'plugin_hook_invalid',
   pluginPromptInvalid: 'plugin_prompt_invalid',
   pluginMarketFetchFailed: 'plugin_market_fetch_failed',

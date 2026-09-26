@@ -358,6 +358,14 @@ function notifyRemoteConfigChange(
 /** 常量时间比较（nonce/CSRF/session id 全走这里）。 */
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a)
+  const webSearch = clone.web_search
+  if (webSearch && typeof webSearch === 'object' && !Array.isArray(webSearch)) {
+    for (const [key, value] of Object.entries(webSearch as Record<string, unknown>)) {
+      if (!/_api_key$/i.test(key) || typeof value !== 'string') continue
+      ;(webSearch as Record<string, unknown>)[key] = true
+      redacted.push(`web_search.${key}`)
+    }
+  }
   const right = Buffer.from(b)
   return left.length === right.length && timingSafeEqual(left, right)
 }
