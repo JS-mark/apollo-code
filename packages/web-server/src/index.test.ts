@@ -540,6 +540,27 @@ describe('web-server gateway', () => {
       method: 'POST',
       headers: {
         Cookie: cookie,
+        Origin: new URL(base).origin,
+        'X-Volund-Csrf': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cwd: '/tmp/web-server-test' }),
+    })
+
+    // 默认不带统计（列表面不加码）。
+    const plain = await fetch(`${base}api/v1/sessions/active/changes`, {
+      headers: { Cookie: cookie },
+    })
+    expect(plain.status).toBe(200)
+    // ?stats=1 → 端口收到 { stats: true }（每路径附净效果行统计）。
+    const stats = await fetch(`${base}api/v1/sessions/active/changes?stats=1`, {
+      headers: { Cookie: cookie },
+    })
+    expect(stats.status).toBe(200)
+    expect(seen).toEqual([undefined, { stats: true }])
+  })
+
+  it('changes per-file undo preview + execute (W-08+)', async () => {
     const fakeSession = {
       id: 'sess-undo-path',
       cwd: '/tmp/web-server-test',
@@ -1209,6 +1230,8 @@ describe('web-server remote control endpoints (REM-r1)', () => {
     expect(action.status).toBe(503)
   })
 })
+
+// ── 产物直出（工作台预览面板后端）：/api/v1/workbench/raw/<rel> ─────────────
 describe('workbench raw preview endpoint', () => {
   async function startWithWorkbench(): Promise<{
     base: string

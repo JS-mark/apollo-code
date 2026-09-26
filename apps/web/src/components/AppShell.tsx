@@ -417,6 +417,8 @@ export function AppShell() {
             sessions={loaded.sessions}
             groups={loaded.groupsView}
             groupingEnabled={bootstrap.capabilities.sessionGroups === true}
+            deleteEnabled={bootstrap.capabilities.mutations?.sessionDelete === true}
+            serverId={bootstrap.server.serverId}
             activeId={activeId}
             searchRef={sidebarSearchRef}
             onSelect={(id) => {
@@ -427,13 +429,18 @@ export function AppShell() {
               // 嵌入式同样允许切换：controller 激活后 TUI 经 onActivate 跟随。
               void resume(id)
             }}
-            deleteEnabled={bootstrap.capabilities.mutations?.sessionDelete === true}
-            serverId={bootstrap.server.serverId}
             onNewChat={() => {
               setActiveId(undefined)
               setRoute('chat')
             }}
             onGroupsChanged={() => void refreshGroups()}
+            onSessionDeleted={(id, next) => {
+              if (id === activeId) {
+                if (next) void resume(next)
+                else setActiveId(undefined)
+              }
+              void refreshSessions()
+            }}
           />
           <Typography.Text
             type="secondary"
@@ -444,13 +451,6 @@ export function AppShell() {
             }}
             ellipsis={{ tooltip: bootstrap.workspace.cwd }}
           >
-            onSessionDeleted={(id, next) => {
-              if (id === activeId) {
-                if (next) void resume(next)
-                else setActiveId(undefined)
-              }
-              void refreshSessions()
-            }}
             v{bootstrap.server.version} · {bootstrap.workspace.cwd}
           </Typography.Text>
         </div>
@@ -533,9 +533,10 @@ export function AppShell() {
         {rightPanel === 'workbench' && (
           <WorkbenchPanel
             api={loaded.api}
+            sessionId={activeId}
             terminalSignal={terminalSignal}
-            onClose={() => setRightPanel(null)}
             focusSignal={wbFocus}
+            onClose={() => setRightPanel(null)}
           />
         )}
       </div>

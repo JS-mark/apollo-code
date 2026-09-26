@@ -150,8 +150,6 @@ describe('L1 tools', () => {
     )
     expect(prompt).not.toHaveBeenCalled()
   })
-      executor.execute(new TodoTool(), input, new AbortController().signal)
-  it('middle-truncates long output', () => {
   it('repairs weak-model Todo spill: todos alias, stringified array, completed status', async () => {
     const manager = new PermissionManager()
     manager.setPromptHandler(async () => ({ kind: 'allow-once' as const }))
@@ -195,6 +193,7 @@ describe('L1 tools', () => {
       ])
     }
   })
+  it('middle-truncates long output', () => {
     const out = truncateToolResult([{ type: 'text', text: 'x'.repeat(100) }], 20)[0]
     expect(out?.type === 'text' && out.text).toContain('truncated')
   })

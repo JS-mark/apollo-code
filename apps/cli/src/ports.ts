@@ -76,6 +76,7 @@ export interface SessionPort {
   onActivate?(listener: (session: InteractiveSession) => void): () => void
   resume(id: string): Promise<{ id: string }>
   list?(): Promise<readonly SessionCandidate[]>
+  /**
    * 删除会话档案（`volund sessions delete` / Web / 移动端共用；活动会话先 end
    * 再删档并冷启动新会话）。缺省 = 该面未装配。
    */
@@ -219,7 +220,8 @@ export interface VolundPorts {
   ui?: UiPort
   /** W-08：会话文件变更聚合 + undo 预览/执行（BackupStore 背书）。 */
   changes?: {
-    list(sessionId: string): Promise<SessionChanges>
+    /** stats:true 时每路径附净效果行统计（Web 消息流变更卡片 / 移动端用）。 */
+    list(sessionId: string, opts?: { stats?: boolean }): Promise<SessionChanges>
     previewUndo(sessionId: string): Promise<UndoPreview>
     undoStep(sessionId: string): Promise<UndoStepResult>
     /** W-08+：单文件会话净效果 diff（Web 变更面板与 TUI /changes 共用）。 */
@@ -271,16 +273,16 @@ export interface VolundPorts {
    */
   permissionPrompts?: PermissionPromptController
   /**
+   * AskUserQuestion 工具的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
+   * 问答卡都订阅它——任一端作答，全端清卡。
+   */
+  askPrompts?: AskPromptController
+  /**
    * 进程收尾：关闭插件宿主 / MCP 连接等长驻资源（它们的子进程管道 ref 住事件
    * 循环，不关则 UI 退出后进程仍悬挂）。交互会话退出与信号处理都会调用；
    * 实现必须幂等、单项失败不阻塞其他项。
    */
   shutdown?(): Promise<void>
-  /**
-   * AskUserQuestion 工具的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
-   * 问答卡都订阅它——任一端作答，全端清卡。
-   */
-  askPrompts?: AskPromptController
 }
 export function unavailablePorts(): VolundPorts {
   return {

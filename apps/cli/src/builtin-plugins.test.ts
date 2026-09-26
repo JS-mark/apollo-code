@@ -103,9 +103,9 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
         'volund-plugin-ask',
         'volund-plugin-env',
         'volund-plugin-manager',
+        'volund-plugin-web-search',
       ])
     } finally {
-        'volund-plugin-web-search',
       await ports.localPlugins!.deactivateAll()
     }
   }, 30_000)
@@ -238,7 +238,6 @@ describe('volund-plugin-manager（内置 /plugins，沙箱端到端）', () => {
   const managerDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-manager')
 
   async function activateManager(
-      volundVersion: '0.2.0',
     home: string,
     services: Parameters<typeof activateLocalPlugin>[0]['services'],
   ) {
@@ -499,8 +498,6 @@ describe('plugin hooks e2e（H1：沙箱订阅 preToolUse → veto 真的拦下�
     expect(result.isError).toBeUndefined()
   }, 30_000)
 })
-      volundVersion: '0.2.0',
-      volundVersion: '0.2.0',
 
 describe('volund-plugin-web-search（内置 WebSearch provider，沙箱端到端）', () => {
   const webSearchPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-web-search')
@@ -519,6 +516,7 @@ describe('volund-plugin-web-search（内置 WebSearch provider，沙箱端到端
     const httpCalls: { url: string; init: unknown }[] = []
     const domain = createPluginDomain({
       home,
+      volundVersion: '0.2.0',
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       emitTelemetry: () => undefined,
       slashCommands: { register: () => () => {} },
@@ -630,6 +628,7 @@ describe('volund-plugin-web-search（内置 WebSearch provider，沙箱端到端
     })
     const domain = createPluginDomain({
       home,
+      volundVersion: '0.2.0',
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       emitTelemetry: () => undefined,
       slashCommands: { register: () => () => {} },

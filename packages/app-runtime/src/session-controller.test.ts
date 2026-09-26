@@ -1,16 +1,18 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { updateSession } from '@volund/core'
+import { updateSession, toEventContent } from '@volund/core'
 import type { EventBus, Runner, SessionState } from '@volund/core'
+import type { ContentPart } from '@volund/provider-kit'
+import type { JsonValue } from '@volund/shared'
 import { SessionStore } from '@volund/storage'
 import type { BackgroundShells } from '@volund/tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { isTranscriptToolEntry } from './contracts'
 import { Context, createAppKernel } from './index'
 import { SessionController } from './session-controller'
-import { isTranscriptToolEntry } from './contracts'
 import type { RunnerFactory } from './session-controller'
 
 const fixtures: string[] = []
@@ -84,8 +86,6 @@ describe('SessionController', () => {
     expect(app.sessions).toBeInstanceOf(SessionController)
   })
 
-  it('rejects a concurrent submit with session_turn_in_progress and recovers after the turn', async () => {
-    let release!: () => void
   it('transcript 快照携带 tool 条目：tool_use 导出 + tool_result 配对终态', async () => {
     const controller = new SessionController(new Context(), {
       sessionsDir: await sessionsRoot(),
@@ -188,6 +188,8 @@ describe('SessionController', () => {
     ).toEqual(['user-1', 'asst-1'])
   })
 
+  it('rejects a concurrent submit with session_turn_in_progress and recovers after the turn', async () => {
+    let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
@@ -318,7 +320,6 @@ describe('SessionController', () => {
     expect(resumed.model).toBe('anthropic/mimo-v2.5')
     await resumed.end()
   })
-})
 
   it('deletes an inactive session archive (events, attachments, backup hook)', async () => {
     const sessionsDir = await sessionsRoot()
@@ -424,3 +425,4 @@ describe('SessionController', () => {
       code: 'session_not_found',
     })
   })
+})

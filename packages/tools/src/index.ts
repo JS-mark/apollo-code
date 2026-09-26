@@ -770,7 +770,6 @@ export class TodoTool implements Tool<{
   permissionSpec(): PermissionSpec {
     return {}
   }
-  async invoke(i: { items: Array<{ text: string; status: string }> }) {
   /**
    * 弱模型容错（实测外溢形态）：参数名溢成 Claude TodoWrite 的 `todos`、
    * items 数组整体字符串化、状态词表用 Claude 的 `completed`。统一归一成
@@ -805,6 +804,7 @@ export class TodoTool implements Tool<{
     }
     return items
   }
+  async invoke(i: { items: Array<{ text: string; status: string }> }) {
     return result(JSON.stringify(i.items), { durationMs: 0 })
   }
 }
@@ -1039,11 +1039,11 @@ export class ToolExecutor {
     toolUseId?: string,
   ): Promise<ToolResult> {
     const started = Date.now()
-    const error = validate(tool.inputSchema, input)
     // 校验前给工具一次纯格式归一（normalizeInput）：弱模型外溢的别名参数/
     // 字符串化 payload 在这里修形，意图不变、对模型展示的 schema 不变；
     // 归一不出合法形状时收敛为缺 required 的既有报错路径回喂模型。
     input = tool.normalizeInput?.(input) ?? input
+    const error = validate(tool.inputSchema, input)
     if (error) return failure(new Error(`Invalid input: ${error}`))
     const session = this.context(signal).session
     const hookContext = {

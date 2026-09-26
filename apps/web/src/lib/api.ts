@@ -294,7 +294,8 @@ export class WebApi {
     )
   }
   // ── W-08 变更/undo ────────────────────────────────────────────────
-  async changes(): Promise<{
+  /** stats:true 时每路径附净效果行统计（消息流变更卡片；逐文件 diff 成本加码）。 */
+  async changes(opts?: { stats?: boolean }): Promise<{
     sessionId: string
     paths: {
       path: string
@@ -302,6 +303,12 @@ export class WebApi {
       batches: number
       lastModifiedAt: string
       allConsumed: boolean
+      stats?: {
+        linesAdded: number
+        linesRemoved: number
+        truncated: boolean
+        deleted: boolean
+      }
     }[]
     missing: boolean
   }> {
@@ -375,13 +382,6 @@ export class WebApi {
       }),
     )
   }
-
-  // ── P4 管理面 ─────────────────────────────────────────────────────
-  async managementList(domain: string): Promise<unknown> {
-    return parseResponse(await fetch(`/api/v1/${domain}/actions`))
-  }
-  async managementAction(domain: string, body: Record<string, unknown>): Promise<unknown> {
-    return parseResponse(
   /** AskUserQuestion 作答（value 缺省 = 跳过，模型自选默认继续）。 */
   async answerAsk(requestId: string, value?: string): Promise<void> {
     await parseResponse(
@@ -392,6 +392,13 @@ export class WebApi {
       }),
     )
   }
+
+  // ── P4 管理面 ─────────────────────────────────────────────────────
+  async managementList(domain: string): Promise<unknown> {
+    return parseResponse(await fetch(`/api/v1/${domain}/actions`))
+  }
+  async managementAction(domain: string, body: Record<string, unknown>): Promise<unknown> {
+    return parseResponse(
       await fetch(`/api/v1/${domain}/actions`, {
         method: 'POST',
         headers: this.headers(),
@@ -531,13 +538,6 @@ export class WebApi {
   }
   /** 工作台终端走 WebSocket（/api/v1/workbench/terminal/ws），不经 REST client。 */
 
-  // ── 代码页（内嵌 vscode workbench 的 FileSystemProvider 后端）────────────
-  async wbStat(path: string): Promise<WbStat> {
-    return parseResponse(await fetch(`/api/v1/workbench/fs/stat?path=${encodeURIComponent(path)}`))
-  }
-  async wbReadBytes(path: string): Promise<WbFileBytes> {
-    return parseResponse(
-      await fetch(`/api/v1/workbench/fs/read-bytes?path=${encodeURIComponent(path)}`),
   private rawToken?: { value: string; at: number }
 
   /**
@@ -562,6 +562,13 @@ export class WebApi {
     return `/api/v1/workbench/raw/${token}/${encoded}${download ? '?download=1' : ''}`
   }
 
+  // ── 代码页（内嵌 vscode workbench 的 FileSystemProvider 后端）────────────
+  async wbStat(path: string): Promise<WbStat> {
+    return parseResponse(await fetch(`/api/v1/workbench/fs/stat?path=${encodeURIComponent(path)}`))
+  }
+  async wbReadBytes(path: string): Promise<WbFileBytes> {
+    return parseResponse(
+      await fetch(`/api/v1/workbench/fs/read-bytes?path=${encodeURIComponent(path)}`),
     )
   }
   async wbWriteBytes(path: string, base64: string): Promise<{ path: string; size: number }> {

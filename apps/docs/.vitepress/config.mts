@@ -132,11 +132,6 @@ export default withMermaid(
                 text: 'Web Search custom backend',
                 link: '/docs/reference/web-search-custom-backend',
               },
-              { text: 'Error codes', link: '/docs/reference/error-codes' },
-              {
-                text: 'Web Search custom backend',
-                link: '/docs/reference/web-search-custom-backend',
-              },
               {
                 text: 'Troubleshooting',
                 items: [
@@ -217,8 +212,6 @@ export default withMermaid(
                   { text: '接入 MCP Server', link: '/zh/docs/guides/mcp-servers' },
                   { text: '市场与自建目录', link: '/zh/docs/guides/marketplace' },
                   { text: '远程网关', link: '/zh/docs/guides/remote-gateway' },
-              { text: '错误码参考', link: '/zh/docs/reference/error-codes' },
-              { text: 'Web 搜索自定义后端', link: '/zh/docs/reference/web-search-custom-backend' },
                   { text: '网关接入', link: '/zh/docs/guides/gateway-integration' },
                 ],
               },

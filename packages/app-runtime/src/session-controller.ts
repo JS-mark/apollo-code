@@ -12,7 +12,7 @@
  *   `session_turn_in_progress`（Web 层映射为 409 `web_turn_in_progress`，§22 W-03）。
  *   Runner.run 自身无并发守卫，此前由 TUI 的串行输入隐式保证。
  */
-import { glob, readFile, realpath, stat } from 'node:fs/promises'
+import { glob, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { Service } from '@cordisjs/core'
@@ -78,6 +78,8 @@ export interface SessionControllerOptions<TStatusView = unknown> {
     | ((input: { mode: PermissionInteractionMode }) => void)
     | undefined
   readonly onEnd?: ((sessionId: string) => void | Promise<void>) | undefined
+  /** 删除会话档案后的宿主清理钩子（BackupStore.purgeSession 随装配注入）。 */
+  readonly onDelete?: ((sessionId: string) => void | Promise<void>) | undefined
   readonly onTerminalOutput?: ((input: { streamToStdout: boolean }) => void) | undefined
   readonly onPermissionPromptHandler?:
     | ((
@@ -238,6 +240,7 @@ export class SessionController<TStatusView = unknown> extends Service {
             : []
         return [...textEntries, ...toolEntries]
       })
+    }
     return {
       id: this.runner!.state.id,
       cwd: this.runner!.state.cwd,
@@ -408,41 +411,6 @@ export class SessionController<TStatusView = unknown> extends Service {
   }
 
   /**
-   * §7.5.2 剪贴板附件粘贴：image → AttachmentStore.stage 落盘返回 handle chip；
-   * file → path 引用 chip；text → 交回 UI 原样插入；empty/denied/unavailable
-   * 由 UI 映射为系统消息。
-   */
-  private async pasteClipboardAttachment(): Promise<
-    import('@volund/shared').PasteAttachmentResult
-  > {
-    const runner = this.runner
-    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
-    let payload: ClipboardPayload
-    try {
-      payload = await (
-        this.options.clipboard ?? (await import('@volund/native-bridge')).createClipboardReader()
-      ).read()
-    } catch (error) {
-      return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) }
-    }
-    if (payload.kind === 'empty') return { kind: 'empty' }
-    if (payload.kind === 'text') return { kind: 'text', text: payload.text }
-    if (payload.kind === 'image') return this.stageImageBytes(payload.bytes, payload.mime)
-    const target = payload.paths[0]
-    if (!target) return { kind: 'empty' }
-    return this.attachFilePath(target)
-  }
-
-  /**
-   * §7.5.2/§22 W-05：图片字节 → AttachmentStore 内容寻址落盘返回 handle chip——
-   * TUI 剪贴板粘贴与 Web 上传（stageAttachment）共用的同一条暂存管线；
-   * MIME 白名单与魔数校验由 AttachmentStore.stage 把守。
-   */
-  private async stageImageBytes(
-    bytes: Uint8Array,
-    mime: string,
-  ): Promise<import('@volund/shared').PasteAttachmentResult> {
-  /**
    * 删除会话档案（<id>.jsonl + <id>/attachments/；备份目录经 onDelete 钩子清）。
    * 目标是当前活动会话时：turn 在途拒绝（session_turn_in_progress）；否则先
    * end 落 session.ended（否则后续 append 会把文件原样重建），删档后立即以原
@@ -479,6 +447,41 @@ export class SessionController<TStatusView = unknown> extends Service {
     await rm(join(this.options.sessionsDir, id), { recursive: true, force: true })
   }
 
+  /**
+   * §7.5.2 剪贴板附件粘贴：image → AttachmentStore.stage 落盘返回 handle chip；
+   * file → path 引用 chip；text → 交回 UI 原样插入；empty/denied/unavailable
+   * 由 UI 映射为系统消息。
+   */
+  private async pasteClipboardAttachment(): Promise<
+    import('@volund/shared').PasteAttachmentResult
+  > {
+    const runner = this.runner
+    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
+    let payload: ClipboardPayload
+    try {
+      payload = await (
+        this.options.clipboard ?? (await import('@volund/native-bridge')).createClipboardReader()
+      ).read()
+    } catch (error) {
+      return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) }
+    }
+    if (payload.kind === 'empty') return { kind: 'empty' }
+    if (payload.kind === 'text') return { kind: 'text', text: payload.text }
+    if (payload.kind === 'image') return this.stageImageBytes(payload.bytes, payload.mime)
+    const target = payload.paths[0]
+    if (!target) return { kind: 'empty' }
+    return this.attachFilePath(target)
+  }
+
+  /**
+   * §7.5.2/§22 W-05：图片字节 → AttachmentStore 内容寻址落盘返回 handle chip——
+   * TUI 剪贴板粘贴与 Web 上传（stageAttachment）共用的同一条暂存管线；
+   * MIME 白名单与魔数校验由 AttachmentStore.stage 把守。
+   */
+  private async stageImageBytes(
+    bytes: Uint8Array,
+    mime: string,
+  ): Promise<import('@volund/shared').PasteAttachmentResult> {
     const runner = this.runner
     if (!runner) return { kind: 'unavailable', reason: 'no active session' }
     try {

@@ -736,29 +736,20 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     logger,
   })
   const slashCommands = new MutableSlashCommandRegistry()
+  // volund-plugin-web-search：跨会话共享的 WebSearch 工具实例——插件贡献的
+  // provider 经 setProvider 热接线，启用/禁用即时生效于全部活会话。
+  const webSearchTool = new WebSearchTool()
   // P1-04d：插件域装配迁入 app-runtime（createPluginDomain）；loadedPluginEntries /
   // localPluginState / localPluginHub 等共享句柄经解构取用，F1 工具域名单同源。
   const pluginDomain = createPluginDomain({
     home,
-  const webSearchTool = new WebSearchTool()
     volundVersion: options.identity.version,
     logger,
     emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
     slashCommands,
-  // volund-plugin-web-search：跨会话共享的 WebSearch 工具实例——插件贡献的
-  // provider 经 setProvider 热接线，启用/禁用即时生效于全部活会话。
-  const webSearchTool = new WebSearchTool()
     getAppliedEnv: () => configDomain.appliedEnv(),
     liveToolServices,
     resolveBuiltinPluginRoot: builtinPluginRoot,
-  })
-  const localPlugins = pluginDomain.localPlugins
-  const localPluginState = pluginDomain.localPluginState
-  const loadedPluginEntries = pluginDomain.loadedPluginEntries
-  const localPluginHub = pluginDomain.localPluginHub
-  const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
-  const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
-  const memoryStack = createMemoryStack(home)
     webSearchTool,
     httpFetch: async (url, init) => {
       const request = (init ?? {}) as {
@@ -789,6 +780,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         body: Buffer.concat(chunks).toString('utf8'),
       }
     },
+  })
+  const localPlugins = pluginDomain.localPlugins
+  const localPluginState = pluginDomain.localPluginState
+  const loadedPluginEntries = pluginDomain.loadedPluginEntries
+  const localPluginHub = pluginDomain.localPluginHub
+  const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
+  const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
+  const memoryStack = createMemoryStack(home)
   const memory = memoryStack.memory
   const memoryRecall = memoryStack.memoryRecall
   const memoryMaintenance = memoryStack.memoryMaintenance
@@ -982,10 +981,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // §22 W-07 多路审批：进程级共享队列是权限链的唯一 prompt 源——TUI 与 Web
   // 都订阅它，任一端决策全端清卡（不再经 setPermissionPromptHandler 抢单槽）。
   const permissionPrompts = new PermissionPromptController()
+  interactivePermissionPrompt = (request) => permissionPrompts.request(request)
   // AskUserQuestion 的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
   // 问答卡都订阅它，任一端作答全端清卡。
   const askPrompts = new AskPromptController()
-  interactivePermissionPrompt = (request) => permissionPrompts.request(request)
   // §22 W-01：嵌入式 Web 控制台的 URL cell（startEmbedded 起服务后回填，状态面板 Web 行读取）。
   let webConsoleUrl: string | undefined
   let streamToStdout = true
@@ -1003,6 +1002,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     for (const domain of builtinToolDomains({
       backups,
       background,
+      webSearch: { tool: webSearchTool },
       task: {
         dispatcher,
         parent: () => {
@@ -1014,10 +1014,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       for (const tool of domain.tools) names.add(tool.name)
     }
     if (!builtinToolsDisabled.has('volund.orchestration')) {
-      webSearch: { tool: webSearchTool },
       for (const tool of createMemoryTools(memory)) names.add(tool.name)
-      names.add(ASK_USER_QUESTION_TOOL_NAME)
       names.add(SKILL_TOOL_NAME)
+      names.add(ASK_USER_QUESTION_TOOL_NAME)
     }
     for (const loaded of loadedPluginEntries) {
       if (!loaded.handle) continue
@@ -1469,6 +1468,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     for (const domain of builtinToolDomains({
       backups,
       background,
+      webSearch: { tool: webSearchTool },
       bash: {
         ...(windowsShell ? { windowsShell } : {}),
         ...(passThroughEnv ? { passThroughEnv } : {}),
@@ -1481,7 +1481,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           turnId: runner.state.activeTurn ?? '',
           signal,
         }),
-      webSearch: { tool: webSearchTool },
       },
     })) {
       if (builtinToolsDisabled.has(domain.id)) continue
@@ -1495,12 +1494,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           grantEphemeral: (rules) => permissionChain.grantEphemeral(rules),
           onWarn: (message) => logger.warn(message),
         }),
+      )
       // AskUserQuestion：工具本体在 @volund/tools（零依赖，交互走 ToolUiPort
       // 的 requestChoice 通道）；这里的宿主接缝按本会话冻结的权限快照决定
       // 交互面——tui 进共享提问队列（TUI/Web/Mobile 任一端作答），line 终端
       // 数字问答，none 由工具降级为「用户不可达」。
       registry.register(createAskUserQuestionTool())
-      )
     }
     // G 插件一等公民：已激活插件的工具贡献注册进本会话注册表——
     // permissionSpec 收敛到 {custom:{pluginTool:{plugin,tool}}} 进统一权限决策链；
@@ -1659,10 +1658,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     onEnd: async (sessionId) => {
       permissionPolicy.releaseLineage(sessionId)
       await memory.flush()
+    },
     // 删除会话档案后的备份清理（/undo、restore 的数据源一并回收）。
     onDelete: async (sessionId) => {
       await backups.purgeSession(sessionId)
-    },
     },
     onTerminalOutput: (input) => {
       streamToStdout = input.streamToStdout
@@ -1760,13 +1759,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           skills: appKernel.ui.panel<SkillsPanelController>('skills'),
           mcp: appKernel.ui.panel<McpPanelController>('mcp'),
           // SUBAGENTS-UI-r1：/subagents 运行管理面板（dispatcher 运行注册表）
+          subagents: appKernel.ui.panel<SubagentsPanelController>('subagents'),
           // /sessions 删除流：宿主 controller 直删（活动会话先 end 再冷启动并经
           // 激活推送换绑 TUI）；备份/附件清理在 controller.delete 内一并完成。
           sessions: {
             list: () => session.list(),
             delete: (id) => session.delete(id),
           },
-          subagents: appKernel.ui.panel<SubagentsPanelController>('subagents'),
           // W-08 对齐：/changes 会话变更面板（BackupStore 背书；含面板内按路径撤销）
           changes: {
             list: (sessionId) => backups.changes(sessionId),
@@ -1783,6 +1782,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
     // §22 W-07：进程级共享审批队列（TUI/Web 多路订阅；权限链 prompt 源）。
     permissionPrompts,
+    askPrompts,
     permissionMode: {
       current: () =>
         activePermissionControl?.get() ?? overridePermissionMode ?? configPermissionMode ?? 'ask',
@@ -1792,7 +1792,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         activePermissionControl?.set(mode)
         notifyPermissionMode(mode)
       },
-    askPrompts,
       subscribe: (listener) => {
         permissionModeListeners.add(listener)
         return () => permissionModeListeners.delete(listener)

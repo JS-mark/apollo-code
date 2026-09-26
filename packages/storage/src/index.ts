@@ -660,7 +660,7 @@ export class BackupStore {
       list.push(record)
       byPath.set(record.path, list)
     }
-    const paths = [...byPath.entries()]
+    const paths: SessionChanges['paths'] = [...byPath.entries()]
       .map(([path, records]) => {
         const sorted = [...records].toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))
         const first = sorted[0]!
@@ -733,8 +733,8 @@ export class BackupStore {
       path,
       tracked: true,
       created: !first.existed,
-      beforeAvailable,
-      deleted,
+      beforeAvailable: ends.beforeAvailable,
+      deleted: ends.deleted,
       truncated: false,
       diff: formatUnifiedDiff(path, hunks),
       linesAdded,
@@ -799,6 +799,12 @@ export class BackupStore {
       await release()
     }
   }
+  /** 删除会话档案时的备份清理：整目录移除该会话的 manifest 与 objects。 */
+  async purgeSession(sessionId: string): Promise<void> {
+    validateSessionId(sessionId)
+    await rm(resolve(this.root, sessionId), { recursive: true, force: true })
+  }
+
   async gc(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 })
     const lockPath = resolve(this.root, '.gc.lock')
@@ -811,12 +817,6 @@ export class BackupStore {
     }
     try {
       const manifestsRoot = this.root
-  /** 删除会话档案时的备份清理：整目录移除该会话的 manifest 与 objects。 */
-  async purgeSession(sessionId: string): Promise<void> {
-    validateSessionId(sessionId)
-    await rm(resolve(this.root, sessionId), { recursive: true, force: true })
-  }
-
       let entries
       try {
         entries = await readdir(manifestsRoot, { withFileTypes: true })

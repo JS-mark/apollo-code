@@ -25,6 +25,7 @@ import {
   ProductionPermissionSessionPolicy,
   requestPermission,
   SessionController,
+  type TranscriptEntry,
 } from '@volund/app-runtime'
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@volund/core'
 import type { Runner, SessionState } from '@volund/core'
@@ -218,7 +219,9 @@ describe('SessionController（自 RuntimeSessionPort 迁入 app-runtime）', () 
     })
     const interactive = await second.resumeInteractive(id)
 
-    const entry = interactive.transcript?.find((item) => item.id === 'assistant-1')
+    const entry = interactive.transcript?.find(
+      (item): item is TranscriptEntry => item.id === 'assistant-1' && !('kind' in item),
+    )
     expect(entry?.text).toBe(markdown)
   })
 

@@ -66,6 +66,7 @@
     "antd": "catalog:",
     "monaco-editor": "catalog:",
     "next": "catalog:",
+    "prism-react-renderer": "^2.4.1",
     "qrcode": "^1.5.4",
     "react": "catalog:",
     "react-dom": "catalog:",

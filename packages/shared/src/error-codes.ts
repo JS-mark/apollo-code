@@ -249,6 +249,7 @@ export const ErrorCodes = {
   gatewayPairingInvalid: 'gateway_pairing_invalid', // REM-r1 配对码不存在/过期/已核销（400）
   gatewayStaticMissing: 'gateway_static_missing', // REM-r1 移动站静态产物缺失（404）
   gatewayAttachmentNotFound: 'gateway_attachment_not_found', // 附件 handle 不存在/已清理/hub 不支持读取（404）
+  gatewayEnrollmentDisabled: 'gateway_enrollment_disabled', // 动态注册被策略关闭（403）
   remoteCwdInvalid: 'remote_cwd_invalid', // REM-r1 uplink RPC 的 cwd 不存在/逃逸本机工作区（400）
   remoteHubFailed: 'remote_hub_failed', // REM-r1 本机侧 hub RPC 执行失败（经隧道回传网关）
 

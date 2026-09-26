@@ -8,8 +8,6 @@
  * 清本地回到配对页。
  */
 
-import { diag } from './diag'
-
 export interface MobileSession {
   readonly token: string
   readonly deviceId: string
@@ -175,6 +173,12 @@ export interface SessionSummary {
 
 /** 已暂存附件（POST /v1/attachments 返回面；handle 由本机 AttachmentStore 颁发）。 */
 export interface StagedAttachment {
+  kind: 'file' | 'image'
+  mime: string
+  size: number
+  handle?: string
+}
+
 /** 会话文件变更条目（GET /v1/sessions/active/changes 返回面；stats 恒带）。 */
 export interface ChangeRow {
   path: string
@@ -211,12 +215,6 @@ export interface UndoPreview {
   warnings: { path: string; kind: string }[]
 }
 
-  kind: 'file' | 'image'
-  mime: string
-  size: number
-  handle?: string
-}
-
 /**
  * 附件字节缓存：transcript 图片随滚动反复挂载/卸载，字节内容寻址不可变——
  * 缓存 Blob（非 objectURL，挂载方自行 create/revoke），失败不留缓存允许重试。
@@ -244,6 +242,26 @@ export class GatewayApi {
     return this.get<{ sessions: SessionSummary[] }>('/v1/sessions')
   }
 
+  /** 删除会话档案（网关经隧道落到本机；next = 删活动会话时本机冷启动的新会话 id）。 */
+  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    const res = await fetch(`${gatewayBase()}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (res.status === 401) {
+      notifyUnauthorized()
+      throw new Error('凭证已失效，请重新配对')
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => undefined)) as
+        | { error?: { message?: string } }
+        | undefined
+      throw new Error(body?.error?.message ?? `网关请求失败（${res.status}）`)
+    }
+    return (await res.json()) as { deleted: true; next?: string }
+  }
+
   transcript(): Promise<{ id?: string; cwd?: string; transcript: unknown[] }> {
     return this.get('/v1/sessions/active/transcript')
   }
@@ -253,9 +271,7 @@ export class GatewayApi {
     return this.get('/v1/models')
   }
 
-  /** 附件上传：原始字节直传（Content-Type = 图片 mime），回本机 AttachmentStore 引用。 */
-  async uploadAttachment(bytes: Blob, mime: string): Promise<StagedAttachment> {
-    const res = await fetch(`${gatewayBase()}/v1/attachments`, {
+  /** 会话文件变更聚合（消息流变更卡片数据源；每路径带净效果行统计）。 */
   changes(): Promise<{ paths: ChangeRow[]; missing?: boolean }> {
     return this.get('/v1/sessions/active/changes')
   }
@@ -274,29 +290,26 @@ export class GatewayApi {
   async changesUndo(): Promise<{ undone: boolean; reason?: string }> {
     const res = await fetch(`${gatewayBase()}/v1/sessions/active/changes/undo`, {
       method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}` },
+    })
+    if (res.status === 401) {
+      notifyUnauthorized()
+      throw new Error('凭证已失效，请重新配对')
+    }
+    if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
+    return (await res.json()) as { undone: boolean; reason?: string }
+  }
+
+  /** 附件上传：原始字节直传（Content-Type = 图片 mime），回本机 AttachmentStore 引用。 */
+  async uploadAttachment(bytes: Blob, mime: string): Promise<StagedAttachment> {
+    const res = await fetch(`${gatewayBase()}/v1/attachments`, {
+      method: 'POST',
       headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': mime },
       body: bytes,
     })
     if (res.status === 401) {
       notifyUnauthorized()
       throw new Error('凭证已失效，请重新配对')
-  /** 删除会话档案（网关经隧道落到本机；next = 删活动会话时本机冷启动的新会话 id）。 */
-  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
-    const res = await fetch(`${gatewayBase()}/v1/sessions/delete`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-    if (res.status === 401) {
-      notifyUnauthorized()
-      throw new Error('凭证已失效，请重新配对')
-    }
-    if (!res.ok) {
-      const body = (await res.json().catch(() => undefined)) as
-        | { error?: { message?: string } }
-        | undefined
-      throw new Error(body?.error?.message ?? `网关请求失败（${res.status}）`)
-    }
     }
     const body = (await res.json().catch(() => ({}))) as StagedAttachment & {
       error?: { message?: string }
@@ -359,6 +372,8 @@ export interface WsHello {
   version: string
   session: { id: string; cwd?: string } | null
   pendingPermissions: string[]
+  /** 待决提问 id 面（AskUserQuestion；迟到设备以 hello 兜底，旧网关缺省）。 */
+  pendingAsks?: string[]
   /** 握手瞬间是否有 turn 在途（迟到者恢复运行态/中断按钮）。 */
   turnRunning?: boolean
 }
@@ -374,9 +389,14 @@ export interface GatewayWsHandlers {
 
 /** 移动站 WS 客户端：自动重连（2.5s 退避），命令经 send() 发 JSON 帧。 */
 export class GatewayWs {
+  /** 断线期出站帧上限：手机上命令都是小 JSON，防离线窗口无限积压。 */
+  private static readonly OUTBOX_LIMIT = 64
+
   private ws: WebSocket | undefined
   private closed = false
   private retryTimer: ReturnType<typeof setTimeout> | undefined
+  /** WS 非 OPEN 期间收下的命令帧；重连成功后按序补发（resume 点了不能无声丢）。 */
+  private readonly outbox: Record<string, unknown>[] = []
 
   constructor(
     private readonly token: string,
@@ -393,6 +413,7 @@ export class GatewayWs {
     this.ws = ws
     ws.onopen = () => {
       this.handlers.onOpenChange(true)
+      this.flushOutbox()
     }
     ws.onmessage = (event) => {
       // 只处理当前连接的帧：重连后旧连接若未竟，其迟到事件不应重复进 reducer。
@@ -437,6 +458,10 @@ export class GatewayWs {
     ws.onerror = () => onDrop()
   }
 
+  /**
+   * OPEN 即直发；否则入站排队（cap 内丢最旧），连接就绪后按序补发。手机锁屏/
+   * 切后台后 WS 常处于半开或重连窗口——静默丢帧的表象就是「点了 resume 没反应」。
+   */
   send(frame: Record<string, unknown>): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame))
@@ -455,6 +480,7 @@ export class GatewayWs {
   close(): void {
     this.closed = true
     if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.outbox.length = 0
     this.ws?.close()
     this.ws = undefined
   }

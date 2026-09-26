@@ -11,7 +11,6 @@
  * - 错误恒为 { error: { code, message } }；敏感值（credential/token）永不进 payload。
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import type { Server, ServerResponse } from 'node:http'
@@ -29,7 +28,8 @@ import type { WorkbenchPort } from './workbench'
 
 /** W-08：会话变更/undo 的宿主端口（BackupStore 背书）。 */
 export interface ChangesPortLike {
-  list(sessionId: string): Promise<unknown>
+  /** stats:true 时每路径附净效果行统计（Web 消息流变更卡片用；成本=每文件一次 diff）。 */
+  list(sessionId: string, opts?: { stats?: boolean }): Promise<unknown>
   previewUndo(sessionId: string): Promise<unknown>
   undoStep(sessionId: string): Promise<unknown>
   /** W-08+：单文件会话净效果 diff（首备份 before → 当前盘面内容）。 */
@@ -229,6 +229,7 @@ const MIME: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
 }
 
+/**
  * 产物直出文档（raw 端点的 HTML/SVG/XML）的独立 CSP：脚本/样式/图片/字体放开到
  * http(s)（产物常引 CDN 资源），但 `connect-src 'none'` 切断 fetch/XHR/WebSocket、
  * 表单与框架全禁——与前端沙箱 iframe（无 allow-same-origin）共同保证产物脚本
@@ -357,7 +358,6 @@ function redactConfigCredentials(config: Record<string, unknown>): {
       redacted.push('remote.client_secret')
     }
   }
-  return { config: clone, redacted }
   const webSearch = clone.web_search
   if (webSearch && typeof webSearch === 'object' && !Array.isArray(webSearch)) {
     for (const [key, value] of Object.entries(webSearch as Record<string, unknown>)) {
@@ -366,6 +366,7 @@ function redactConfigCredentials(config: Record<string, unknown>): {
       redacted.push(`web_search.${key}`)
     }
   }
+  return { config: clone, redacted }
 }
 
 /** config/set、config/unset 的 key 形状门（与 config-edit assertSafeKey 同规则）。 */
@@ -391,7 +392,7 @@ function safeEqual(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-function parseCookies(header: string | undefined): Map<string, string> {
+/**
  * 产物直出的预览 token：HMAC 时间桶（每 10 分钟轮换，前一把仍在有效期内）。
  * 沙箱 iframe（无 allow-same-origin）是 opaque origin——其子资源请求不带
  * SameSite=Strict cookie，产物内相对资源（./app.js）必须靠 URL 路径里的
@@ -411,6 +412,7 @@ function rawPreviewTokenValid(secret: Buffer, candidate: string): boolean {
   )
 }
 
+function parseCookies(header: string | undefined): Map<string, string> {
   const out = new Map<string, string>()
   if (!header) return out
   for (const part of header.split(';')) {
@@ -427,9 +429,9 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     throw new Error(`--port must be 1024..65535 (got ${options.port}); 0 picks a free port`)
 
   const serverId = randomBytes(16).toString('base64url')
+  const rawPreviewSecret = randomBytes(32)
   const sessions = new Map<string, BrowserSession>()
   const sessionTtl = options.sessionTtlMs ?? 12 * 60 * 60_000
-  const rawPreviewSecret = randomBytes(32)
   const startedAt = Date.now()
 
   const createSession = (): BrowserSession => {
@@ -542,9 +544,9 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
               turnSubmit: options.sessionHub !== undefined,
               permissionDecision: options.sessionHub !== undefined,
               attachments: options.sessionHub !== undefined,
+              sessionDelete: options.sessionHub !== undefined,
             },
             // W-01：嵌入式（随 TUI 静默启动）——会话切换/结束由 TUI 持有，前端降级。
-              sessionDelete: options.sessionHub !== undefined,
             embedded: options.embedded === true,
             models: options.models !== undefined,
             permissionMode: options.permissionMode !== undefined,
@@ -573,8 +575,6 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       return
     }
 
-    // 其余 /api/v1 一律要求 browser session。
-    const session = findSession(req)
     // ── 产物直出（工作台预览面板的后端）：必须在 session 门之前——沙箱 iframe
     // 是 opaque origin，其子资源请求不带 cookie，鉴权 = 路径 token 或 browser
     // session 二选一。路径式路由 /raw/[<token>/]<rel>：产物内相对资源
@@ -629,6 +629,8 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       return
     }
 
+    // 其余 /api/v1 一律要求 browser session。
+    const session = findSession(req)
     if (!session) {
       fail(res, 401, { code: 'web_session_invalid', message: 'missing or expired browser session' })
       return
@@ -1017,8 +1019,6 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           ok(res, await workbench.readBytes(url.searchParams.get('path') ?? ''))
           return
         }
-        if (path === '/api/v1/workbench/fs/write-bytes' && req.method === 'POST') {
-          const body = (await readJsonBody(req, MAX_WRITE_BODY_BYTES)) as
         // ── 产物直出 token 签发（cookie 门内）：前端拼 /raw/<token>/<rel> 供
         // 沙箱 iframe 与图片用；实际的文件服务在 session 门之前的 raw 钩子里。
         if (path === '/api/v1/workbench/raw-token' && req.method === 'GET') {
@@ -1030,6 +1030,8 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           })
           return
         }
+        if (path === '/api/v1/workbench/fs/write-bytes' && req.method === 'POST') {
+          const body = (await readJsonBody(req, MAX_WRITE_BODY_BYTES)) as
             | { path?: unknown; base64?: unknown }
             | undefined
           if (typeof body?.path !== 'string' || typeof body.base64 !== 'string') {
@@ -1126,8 +1128,6 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       return
     }
-    if (hub && path === '/api/v1/sessions/active/transcript' && req.method === 'GET') {
-      ok(res, hub.transcript())
     // 会话删除（破坏性）：hub 底层端口未接线时 503（能力诚实降级），不存在 404，
     // 删的是活动会话时宿主先 end 再冷启动并经 SSE 推 session.attached/deleted。
     if (hub && path === '/api/v1/sessions/delete' && req.method === 'POST') {
@@ -1144,6 +1144,8 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       return
     }
+    if (hub && path === '/api/v1/sessions/active/transcript' && req.method === 'GET') {
+      ok(res, hub.transcript())
       return
     }
     if (hub && path === '/api/v1/sessions/active/turns' && req.method === 'POST') {
@@ -1200,7 +1202,12 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         return
       }
       try {
-        const changes = (await options.changes.list(activeId)) as Record<string, unknown>
+        // ?stats=1：每路径附净效果行统计（消息流变更卡片；逐文件 diff，成本加码）。
+        const withStats = url.searchParams.get('stats') === '1'
+        const changes = (await options.changes.list(
+          activeId,
+          withStats ? { stats: true } : undefined,
+        )) as Record<string, unknown>
         ok(res, { sessionId: activeId, ...changes })
       } catch (cause) {
         failFrom(res, cause)
@@ -1390,13 +1397,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       ok(res, { decided: hub.decide(requestId, kind) })
       return
     }
-
-    // ── P4 管理域（GET inventory + POST tagged-union action；§22.8.2）──────
-    const mgmt = options.management
-    if (mgmt && path.startsWith('/api/v1/') && path.endsWith('/actions')) {
-      const raw = path.slice('/api/v1/'.length, -'/actions'.length)
-      // 规范别名：§22.8.2 的复数路径 → 域单数键。
-      const domain = raw === 'skills' ? 'skill' : raw
+    // AskUserQuestion 工具的 Web 作答端点（value 缺省 = 未作答关闭提问）。
     if (hub && path === '/api/v1/asks/answer' && req.method === 'POST') {
       const body = await readJsonBody(req)
       const requestId = (body as { requestId?: unknown })?.requestId
@@ -1411,6 +1412,13 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       ok(res, { answered: hub.answerAsk(requestId, rawValue) })
       return
     }
+
+    // ── P4 管理域（GET inventory + POST tagged-union action；§22.8.2）──────
+    const mgmt = options.management
+    if (mgmt && path.startsWith('/api/v1/') && path.endsWith('/actions')) {
+      const raw = path.slice('/api/v1/'.length, -'/actions'.length)
+      // 规范别名：§22.8.2 的复数路径 → 域单数键。
+      const domain = raw === 'skills' ? 'skill' : raw
       const tables: Record<
         string,
         Record<string, (body: Record<string, unknown>) => Promise<unknown>>

@@ -1049,11 +1049,11 @@ export async function runCli(
         // 轮显式切换——贴图碰到不支持视觉的模型时用它切到视觉模型。
         modelPicker: buildModelPicker(effectiveModelId, configuredModel, modelAliases),
         permissions,
-        // 沙箱探针 + search/fs worker 探针并行跑；等全部 settle（预算封顶 5s）
-        // 一次性回填，避免欢迎屏 native 状态停在 probing 或闪烁两跳。
         // AskUserQuestion 的共享提问队列：TUI 选项卡与 Web/Mobile 问答卡同源，
         // 任一端作答全端清卡；无共享队列的宿主不挂卡片。
         ...(ports.askPrompts ? { asks: ports.askPrompts } : {}),
+        // 沙箱探针 + search/fs worker 探针并行跑；等全部 settle（预算封顶 5s）
+        // 一次性回填，避免欢迎屏 native 状态停在 probing 或闪烁两跳。
         // tier 不上状态行（Mark 拍板：macOS 常驻 partial 只是噪音）——欢迎屏
         // Native modules 行与 /status 面板承载展示；仅 none（真不可用）示警。
         sandboxProbe: () =>
