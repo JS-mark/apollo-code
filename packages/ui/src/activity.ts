@@ -52,7 +52,32 @@ const TOOL_VERBS: Record<string, ActivityVerbs> = {
   KillShell: { running: '正在终止进程', done: '已终止进程', error: '终止失败' },
 }
 
+/**
+ * mcp__〈server〉__〈tool〉 拆解（SKILLS-MCPS-r1 §S3.5 双下划线命名，与
+ * packages/mcp-client 的 mcpToolName 同规则）；非 MCP 工具回 undefined。
+ */
+export function mcpToolParts(tool: string): { server: string; name: string } | undefined {
+  if (!tool.startsWith('mcp__')) return undefined
+  const rest = tool.slice('mcp__'.length)
+  const sep = rest.indexOf('__')
+  if (sep <= 0 || sep === rest.length - 2) return undefined
+  return { server: rest.slice(0, sep), name: rest.slice(sep + 2) }
+}
+
+/** MCP 工具的展示名：`server/name`（如 github/search）；非 MCP 回 undefined。 */
+export function mcpToolDisplayName(tool: string): string | undefined {
+  const parts = mcpToolParts(tool)
+  return parts ? `${parts.server}/${parts.name}` : undefined
+}
+
 export function activityVerbs(tool: string): ActivityVerbs {
+  const mcp = mcpToolDisplayName(tool)
+  if (mcp)
+    return {
+      running: `正在调用 MCP ${mcp}`,
+      done: `MCP ${mcp} 完成`,
+      error: `MCP ${mcp} 失败`,
+    }
   return (
     TOOL_VERBS[tool] ?? { running: `正在使用 ${tool}`, done: `${tool} 完成`, error: `${tool} 失败` }
   )
@@ -86,6 +111,8 @@ const NEWLINE_TOKEN = '\\u{000A}'
  * 先过 SafeDisplay 转义（bidi/控制字符），再把换行 token 压成空格，最后截断。
  */
 export function activityTarget(tool: string, input: unknown): string | undefined {
+  // MCP 工具的入参无统一 target 语义（fallback 键多为猜测），server/name 已在动词里。
+  if (mcpToolParts(tool)) return undefined
   if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
   const record = input as Record<string, unknown>
   const preferred = TARGET_KEY_BY_TOOL[tool]

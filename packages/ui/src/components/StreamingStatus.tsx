@@ -1,6 +1,8 @@
 import { Box, Text, useInput } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 
+import { mcpToolDisplayName } from '../activity'
+
 export type StreamingPhase = 'streaming' | 'tool' | 'waiting'
 
 export interface StreamingStatusProps {
@@ -47,7 +49,10 @@ export function estimateStreamedTokens(streamedChars: number): number {
 
 export function phaseLabel(phase: StreamingPhase, phaseDetail?: string): string {
   if (phase === 'waiting') return 'waiting for model'
-  if (phase === 'tool') return phaseDetail ? `running ${phaseDetail}` : 'running tool'
+  if (phase === 'tool')
+    return phaseDetail
+      ? `running ${mcpToolDisplayName(phaseDetail) ?? phaseDetail}`
+      : 'running tool'
   return 'streaming'
 }
 

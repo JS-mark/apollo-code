@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useStdout } from 'ink'
 import { useEffect, useMemo, useState } from 'react'
 
+import { mcpToolDisplayName } from '../activity'
 import type {
   InteractivePermissionDecisionKind,
   InteractivePermissionRequest,
@@ -340,7 +341,7 @@ export function PermissionPromptStack({ controller, requests, cwd }: PermissionP
         {request.display.toolName.length > 0 ? (
           <Text key="tool" bold>
             {' · '}
-            {request.display.toolName}
+            {mcpToolDisplayName(request.display.toolName) ?? request.display.toolName}
           </Text>
         ) : null}
         {backgroundBash ? (
@@ -496,7 +497,7 @@ function quickDecision(
 }
 
 function tabLabel(toolName: string): string {
-  const collapsed = toolName.replace(/\s+/g, ' ')
+  const collapsed = (mcpToolDisplayName(toolName) ?? toolName).replace(/\s+/g, ' ')
   if (collapsed.length <= MAX_TAB_LABEL) return collapsed
   return `${collapsed.slice(0, MAX_TAB_LABEL - 1)}…`
 }

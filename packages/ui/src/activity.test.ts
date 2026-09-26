@@ -51,6 +51,15 @@ describe('activityVerbs', () => {
     expect(activityVerbs('Mystery').running).toBe('正在使用 Mystery')
     expect(activityVerbs('Mystery').error).toBe('Mystery 失败')
   })
+
+  it('MCP 工具按 server/name 展示，且不产 target（入参无统一语义）', () => {
+    expect(activityVerbs('mcp__github__search_repos').running).toBe(
+      '正在调用 MCP github/search_repos',
+    )
+    expect(activityVerbs('mcp__github__search_repos').done).toBe('MCP github/search_repos 完成')
+    expect(activityVerbs('mcp__bad').running).toBe('正在使用 mcp__bad')
+    expect(activityTarget('mcp__github__search_repos', { path: '/tmp/x' })).toBeUndefined()
+  })
 })
 
 describe('formatActivityDuration', () => {
