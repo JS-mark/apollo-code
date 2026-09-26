@@ -39,3 +39,5 @@ credentials.enc
 
 # --- Vitepress ---
 **/.vitepress/cache
+# volund CLI 本地运行时数据（权限缓存等）
+.volund/
