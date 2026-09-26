@@ -583,12 +583,21 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output.split('\x1b[2J\x1b[3J\x1b[H').length).toBe(clearsAfterWidthChange)
   })
 
-  it('hides the welcome shell after the first prompt without changing submission', async () => {
+  it('keeps the welcome shell visible once the conversation starts', async () => {
+    // Mark：欢迎屏不随开聊消失——盒体常驻头部，transcript 挂在它下面的槽位。
+    const events = new EventBus()
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
     const submitted = vi.fn()
     const app = renderInteractiveApp(
-      { cwd: '/repo', onSubmit: submitted, welcome: welcomeFixture() },
+      {
+        cwd: '/repo',
+        events,
+        onSubmit: submitted,
+        sessionId: 'session-1234567890',
+        status: 'ready',
+        welcome: welcomeFixture(),
+      },
       {
         debug: true,
         interactive: true,
@@ -598,17 +607,40 @@ describe('renderInteractiveApp', () => {
       },
     )
 
+    await app.waitUntilRenderFlush()
+    // Ink's render flush can resolve before React has committed the event-subscription effect.
+    // Yield once so this test never emits stream events into an unsubscribed EventBus.
+    await new Promise<void>((resolve) => setImmediate(resolve))
     stdin.write('hello')
     await app.waitUntilRenderFlush()
     stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1234567890',
+      type: 'stream.started',
+      version: 1,
+    })
+    await events.emit({
+      payload: {
+        messageId: 'm-1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'pong' }],
+      },
+      sessionId: 'session-1234567890',
+      type: 'message.appended',
+      version: 1,
+    })
     await app.waitUntilRenderFlush()
     app.unmount()
     await app.waitUntilExit()
 
     expect(submitted).toHaveBeenCalledWith('hello', undefined)
-    expect(stdout.output).toContain('Ready. Start with a message or /help.')
-    expect(stdout.output.lastIndexOf('WELCOME /')).toBeLessThan(
-      stdout.output.lastIndexOf('Ready. Start with a message or /help.'),
+    // 对话开始后欢迎盒仍在，回复出现在它下面的 transcript 槽位。
+    expect(stdout.output).toContain('Tips for getting started')
+    expect(stdout.output).toContain('pong')
+    expect(stdout.output.lastIndexOf('Tips for getting started')).toBeLessThan(
+      stdout.output.lastIndexOf('pong'),
     )
   })
 
@@ -853,8 +885,9 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
-  it('keeps the input draft and attachment chips when the welcome screen hides', async () => {
-    // 回归：welcome 退出曾导致 InputBox 重挂载，未提交的文本与 chip 全丢。
+  it('keeps the input draft and attachment chips across paste feedback', async () => {
+    // 回归：视图切换曾导致 InputBox 重挂载，未提交的文本与 chip 全丢；
+    // welcome 常驻后同样要求反馈消息落进 transcript 时输入行存活。
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
@@ -895,7 +928,7 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('draft [Image #1]')
 
-    // 第二次粘贴（空剪贴板）触发反馈消息 → welcome 退出 → 输入行必须存活。
+    // 第二次粘贴（空剪贴板）触发反馈消息落 transcript → 输入行必须存活。
     stdin.write('\x16')
     await new Promise((resolve) => setTimeout(resolve, 30))
     await app.waitUntilRenderFlush()
@@ -1179,39 +1212,6 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
-  it('restores the session-pinned model on /resume and submits with it', async () => {
-    const stdout = new MemoryWriteStream()
-    const stdin = new MemoryReadStream()
-    const submit = vi.fn(async () => {})
-    const candidate = {
-      id: 'target-session',
-      cwd: '/target',
-      updatedAt: '2026-08-10T00:00:00Z',
-      title: 'Target work',
-    }
-    const app = renderInteractiveApp(
-      {
-        cwd: '/repo',
-        initialInput: '/resume',
-        modelPicker: {
-          currentModelId: 'anthropic/claude-sonnet-4-20250514',
-          models: [
-            {
-              id: 'anthropic/claude-sonnet-4-20250514',
-              provider: 'anthropic',
-              model: 'claude-sonnet-4-20250514',
-              label: 'Claude Sonnet 4',
-            },
-            {
-              id: 'anthropic/mimo-v2.5',
-              provider: 'anthropic',
-              model: 'mimo-v2.5',
-              label: 'mimo-v2.5',
-            },
-          ],
-        },
-        resume: {
-          list: vi.fn(async () => [candidate]),
   it('lists /sessions delete flow: pick, confirm, and report', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
@@ -1256,6 +1256,40 @@ describe('renderInteractiveApp', () => {
     app.unmount()
     await app.waitUntilExit()
   })
+
+  it('restores the session-pinned model on /resume and submits with it', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submit = vi.fn(async () => {})
+    const candidate = {
+      id: 'target-session',
+      cwd: '/target',
+      updatedAt: '2026-08-10T00:00:00Z',
+      title: 'Target work',
+    }
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/resume',
+        modelPicker: {
+          currentModelId: 'anthropic/claude-sonnet-4-20250514',
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-20250514',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-20250514',
+              label: 'Claude Sonnet 4',
+            },
+            {
+              id: 'anthropic/mimo-v2.5',
+              provider: 'anthropic',
+              model: 'mimo-v2.5',
+              label: 'mimo-v2.5',
+            },
+          ],
+        },
+        resume: {
+          list: vi.fn(async () => [candidate]),
           resume: vi.fn(async () => ({
             cwd: candidate.cwd,
             id: candidate.id,
@@ -3180,6 +3214,57 @@ describe('renderInteractiveApp', () => {
     expect(settled).toBe(false)
     stdin.write('d')
     await expect(pending).resolves.toEqual({ kind: 'deny' })
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('AskUserQuestion 提问卡：渲染问题与选项，数字键直选回填答案，esc 跳过', async () => {
+    const { AskPromptController } = await import('@volund/app-runtime')
+    const asks = new AskPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const pending = asks.request({
+      id: 'ask-e2e-1',
+      question: '用哪个方案？',
+      options: [
+        { label: '方案 A', description: '快但糙' },
+        { label: '方案 B', description: '稳但慢' },
+      ],
+    })
+    const app = renderInteractiveApp(
+      { cwd: '/repo', asks },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('◆ 提问')
+    expect(stdout.output).toContain('用哪个方案')
+    expect(stdout.output).toContain('方案 A')
+    expect(stdout.output).toContain('快但糙')
+    // 数字键直选 = 2 方案 B；作答后卡片出队（stdout 是累计流，看增量帧）。
+    stdin.write('2')
+    await expect(pending).resolves.toBe('方案 B')
+    await app.waitUntilRenderFlush()
+    const cleared = stdout.output.slice(stdout.output.lastIndexOf('◆ 提问') + 1)
+    expect(cleared).not.toContain('◆ 提问')
+
+    // 第二问：esc = 跳过（undefined），模型自选默认继续。
+    const second = asks.request({
+      id: 'ask-e2e-2',
+      question: '要不要继续？',
+      options: [{ label: '继续' }, { label: '停' }],
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('要不要继续')
+    stdin.write('\u001b')
+    await expect(second).resolves.toBeUndefined()
     await app.unmount()
     await app.waitUntilExit()
   })

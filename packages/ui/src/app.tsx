@@ -7,7 +7,7 @@ import {
   type TranscriptEntry,
   type TranscriptItem,
 } from '@volund/app-runtime'
-import { isSlashSubmitView, type SlashSubmitView, type TranscriptEntry } from '@volund/app-runtime'
+import type { AskPromptController, InteractiveAskRequest } from '@volund/app-runtime'
 import type { CoreEvent, EventBus } from '@volund/core'
 import {
   contentPartChipLabel,
@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { activityTarget, buildTimeline, completeActivity, type ActivityItem } from './activity'
 import type { ChangesPanelController } from './changes-panel'
+import { AskPromptStack } from './components/AskPromptStack'
 import { ChangesPanel } from './components/ChangesPanel'
 import { InputBox } from './components/InputBox'
 import { ListPicker } from './components/ListPicker'
@@ -62,13 +63,15 @@ import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
 import type { WelcomeNativeStatus, WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
 export type { TranscriptEntry }
-export { isSlashSubmitView }
+
+/**
  * transcript 快照播种 TUI 消息流前过滤 tool 条目（web/mobile 折叠卡用）：
  * TUI 的工具活动行走 events 重放的 ActivityItem，快照里的工具卡不进消息流。
  */
 function messageEntries(transcript: readonly TranscriptItem[]): TranscriptEntry[] {
   return transcript.filter((item): item is TranscriptEntry => !isTranscriptToolEntry(item))
 }
+export { isSlashSubmitView }
 export type { SlashSubmitView } from '@volund/app-runtime'
 
 export interface SlashCommandInput {
@@ -228,6 +231,8 @@ export interface InteractiveAppOptions {
   /** §7.5.3 @ picker 的文件候选源（cwd 相对路径）；缺省时 @ 只提供模型别名。 */
   listFiles?: () => Promise<readonly string[]>
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
+  /** AskUserQuestion 的共享提问队列（TUI 选项卡；Web/Mobile 经 hub 作答同队列）。 */
+  asks?: AskPromptController
   permissions?: PermissionPromptController
   /** §4.4 三档会话权限模式（/mode 命令的后端）；缺省时 /mode 显示为不可用。 */
   permissionMode?: {
@@ -235,6 +240,15 @@ export interface InteractiveAppOptions {
     set(mode: 'ask' | 'auto' | 'full'): Promise<void> | void
   }
   resume?: SessionResumeController
+  /**
+   * 会话删除（/sessions）：委托宿主 SessionController.delete。删活动会话时宿主
+   * 先 end 再冷启动新会话并经 sessionActivation 推送换绑 facade，next 供本地
+   * 兜底同步；未接线时命令显示为不可用。
+   */
+  sessions?: {
+    list(): Promise<readonly SessionCandidate[]>
+    delete(id: string): Promise<{ next?: string }>
+  }
   /**
    * §22 W-01：外部驱动（Web 嵌入式 start/resume）的会话激活源——新会话激活时
    * 本组件换绑 facade（与 /resume 选择同路径，按会话 id 幂等去重）。
@@ -253,14 +267,6 @@ export interface InteractiveAppOptions {
   }>
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
-   * 会话删除（/sessions）：委托宿主 SessionController.delete。删活动会话时宿主
-   * 先 end 再冷启动新会话并经 sessionActivation 推送换绑 facade，next 供本地
-   * 兜底同步；未接线时命令显示为不可用。
-   */
-  sessions?: {
-    list(): Promise<readonly SessionCandidate[]>
-    delete(id: string): Promise<{ next?: string }>
-  }
   slashCommandRegistry?: SlashCommandRegistry
   status?: string
   statusPanel?: StatusPanelData
@@ -309,7 +315,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
   const [welcome, setWelcome] = useState(options.welcome)
-  const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [skillsPanelOpen, setSkillsPanelOpen] = useState(false)
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false)
@@ -333,9 +338,16 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [permissionRequests, setPermissionRequests] = useState(
     () => options.permissions?.requests() ?? [],
   )
+  const [askRequests, setAskRequests] = useState<readonly InteractiveAskRequest[]>(
+    () => options.asks?.requests() ?? [],
+  )
   const [activeSession, setActiveSession] = useState<ResumedInteractiveSession>()
   const [resumeCandidates, setResumeCandidates] = useState<readonly SessionCandidate[]>()
   const [resumeError, setResumeError] = useState<string>()
+  // /sessions 删除流：候选 picker → 单条确认 picker（Enter 二次确认，Esc 退回）。
+  const [deleteCandidates, setDeleteCandidates] = useState<readonly SessionCandidate[]>()
+  const [deleteError, setDeleteError] = useState<string>()
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<SessionCandidate>()
   // 插件命令的列表视图输出（如 /env）：打开即独占键盘（InputBox 禁用），
   // Enter 把该条 detail 进 transcript，Esc 关闭。tabs 形态（/plugins）渲染成
   // 多页签面板，交互同源。
@@ -357,10 +369,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     modelPickerOpen ||
     commandListView !== undefined
   const [registryCommands, setRegistryCommands] = useState(
-  // /sessions 删除流：候选 picker → 单条确认 picker（Enter 二次确认，Esc 退回）。
-  const [deleteCandidates, setDeleteCandidates] = useState<readonly SessionCandidate[]>()
-  const [deleteError, setDeleteError] = useState<string>()
-  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<SessionCandidate>()
     () => options.slashCommandRegistry?.snapshot() ?? [],
   )
   const activeEvents = activeSession?.events ?? options.events
@@ -469,6 +477,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     return options.permissions.subscribe(setPermissionRequests)
   }, [options.permissions])
 
+  useEffect(() => {
+    if (!options.asks) return
+    return options.asks.subscribe(setAskRequests)
+  }, [options.asks])
+
   useSessionEvents(
     activeEvents,
     useCallback(
@@ -479,7 +492,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         if ('parentTurnId' in event || (event.parentDepth ?? 0) > 0) return
         if (event.type === 'stream.started') {
           streamBuffer.reset()
-          setShowWelcome(false)
           setState((current) => applyInteractiveEvent(current, event))
           return
         }
@@ -514,7 +526,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           })
           return
         }
-        if (event.type === 'tool.started') setShowWelcome(false)
         if (event.type === 'message.appended') {
           // §7.5.2：把 hash 形态的附件 chip（[image: 49779094.png]）回译成输入行的
           // 顺序编号 chip（[Image #1]），transcript 与输入行展示一致。
@@ -624,16 +635,12 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       try {
         const result = await activeOnPasteAttachment()
         if (result.kind === 'attached' || result.kind === 'text') return result
-        // welcome 屏下 transcript 不可见——反馈消息出现时先退 welcome，
-        // 否则 denied/empty/unavailable 对用户无声（像粘贴被吞）。
-        setShowWelcome(false)
         if (result.kind === 'denied') appendSystemMessage(setState, 'clipboard attachment denied')
         else if (result.kind === 'empty')
           appendSystemMessage(setState, 'clipboard has no image or file to attach')
         else appendSystemMessage(setState, `clipboard attachment unavailable: ${result.reason}`)
         return result
       } catch (error) {
-        setShowWelcome(false)
         appendSystemMessage(
           setState,
           `clipboard paste failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -654,7 +661,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         order: 10,
         description: 'Show slash commands',
         run: () => {
-          setShowWelcome(false)
           appendSystemMessage(setState, slashHelpText(commands))
         },
       },
@@ -672,7 +678,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         order: 30,
         description: 'Clear the transcript',
         run: () => {
-          setShowWelcome(false)
           setStatusPanelOpen(false)
           setSkillsPanelOpen(false)
           setMcpPanelOpen(false)
@@ -692,7 +697,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 40,
             description: 'Undo the last side-effecting tool (single step)',
             run: async () => {
-              setShowWelcome(false)
               setStatusPanelOpen(false)
               const undoSessionId = activeSession?.id ?? state.sessionId
               const outcome = await options.undo!.undoStep(undoSessionId)
@@ -731,7 +735,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 50,
             description: 'Show runtime status',
             run: () => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(true)
               setState((current) => ({
@@ -750,7 +753,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 80,
             description: 'Browse and manage memory',
             run: () => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(false)
               setSkillsPanelOpen(false)
@@ -773,7 +775,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 90,
             description: 'Resume a saved session',
             run: async () => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(false)
               setResumeError(undefined)
@@ -792,7 +793,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 100,
             description: 'Switch model',
             run: () => {
-              setShowWelcome(false)
               setStatusPanelOpen(false)
               setModelPickerOpen(true)
               setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
@@ -832,7 +832,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 110,
             description: 'Browse and manage skills',
             run: async ({ args }) => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(false)
               setMemoryOpen(false)
@@ -856,7 +855,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 120,
             description: 'Browse and manage MCP servers',
             run: async ({ args }) => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(false)
               setMemoryOpen(false)
@@ -880,7 +878,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 125,
             description: 'Browse and manage subagent runs',
             run: async ({ args }) => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(false)
               setMemoryOpen(false)
@@ -907,12 +904,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             run: async ({ args }) => {
               const [verb, name] = args
               if (verb === 'activate' && name) {
-                setShowWelcome(false)
                 return options.skills!.setActive(name, true)
               }
               if (verb === 'deactivate' && name) return options.skills!.setActive(name, false)
               if (verb === 'show' && name) {
-                setShowWelcome(false)
                 return options.skills!.show(name)
               }
               return 'usage: /skill activate|deactivate|show <name> (browse with /skills)'
@@ -927,7 +922,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 140,
             description: 'Attach the clipboard image or file to the input box',
             run: async () => {
-              setShowWelcome(false)
               const result = await pasteClipboardAndReport()
               if (result.kind === 'attached') {
                 setChipInjection({ info: result.attachment, nonce: Date.now() })
@@ -951,7 +945,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             order: 150,
             description: 'Browse session file changes with diffs',
             run: () => {
-              setShowWelcome(false)
               setModelPickerOpen(false)
               setStatusPanelOpen(false)
               setMemoryOpen(false)
@@ -968,12 +961,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('changes', 'Browse session file changes with diffs', 150),
-    ]
-    return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
-  }, [
-    activeSession,
-    currentModelId,
-    exit,
       // 会话删除：picker 选择 → 单条确认（破坏性动作两次 Enter），删活动会话后
       // 宿主冷启动并经激活推送换绑。
       options.sessions
@@ -1001,15 +988,21 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('sessions', 'Delete a saved session', 160),
+    ]
+    return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
+  }, [
+    activeSession,
+    currentModelId,
+    exit,
     options.memory,
     options.modelPicker,
+    options.sessions,
     options.skills,
     options.mcp,
     options.changes,
     activeOnExit,
     options.resume,
     options.slashCommands,
-    options.sessions,
     options.undo,
     pasteClipboardAndReport,
     registryCommands,
@@ -1042,14 +1035,15 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         changesPanelOpen ||
         modelPickerOpen ||
         resumeCandidates !== undefined ||
+        deleteCandidates !== undefined ||
+        deleteConfirmTarget !== undefined ||
         commandListView !== undefined ||
         commandRunning ||
-        permissionRequests.length > 0
+        permissionRequests.length > 0 ||
+        askRequests.length > 0
       }
       history={historyEntries}
       initialValue={options.initialInput ?? ''}
-        deleteCandidates !== undefined ||
-        deleteConfirmTarget !== undefined ||
       placeholder={`Ask ${productIdentity.shortName} to inspect, change, test, or explain this repo`}
       slashCommands={slashCommands}
       terminalColumns={terminalSize.columns}
@@ -1081,7 +1075,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           return
         }
         if (trimmed.startsWith('/')) {
-          setShowWelcome(false)
           // 命令执行期（如 /plugins 拉市场索引可能要几秒）显示 spinner：InputBox
           // 随 active 状态禁用，StreamingStatus 以 tool 相位呈现 `running /<name>`。
           const commandName = trimmed.slice(1).split(/\s+/)[0] ?? ''
@@ -1120,7 +1113,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           // /skill-name 一次性调用：skill 内容 + 任务作为用户消息进当轮对话
           //（不持久改 system prompt）。输入行历史记原始命令，不记展开文本。
           if (outcome.kind === 'submit') {
-            setShowWelcome(false)
             settleStatus('info')
             if (turnInFlight) {
               setQueuedInputs((current) => [...current, { attachments: [], text: outcome.text }])
@@ -1143,7 +1135,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           settleStatus(outcome.level, outcome.text)
           return
         }
-        setShowWelcome(false)
         if (turnInFlight) {
           setQueuedInputs((current) => [...current, { attachments, text: input }])
           appendSystemMessage(
@@ -1174,18 +1165,28 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const statusIdle =
     state.status === 'ready' &&
     (state.statusLevel === 'muted' || state.statusLevel === 'info') &&
-    permissionRequests.length === 0
+    permissionRequests.length === 0 &&
+    askRequests.length === 0
   const bottomStatus = statusIdle ? null : (
-    <StatusLine level={permissionRequests.length > 0 ? 'warning' : state.statusLevel}>
-      {permissionRequests.length > 0 ? 'permission required' : state.status}
+    <StatusLine
+      level={
+        permissionRequests.length > 0 || askRequests.length > 0 ? 'warning' : state.statusLevel
+      }
+    >
+      {permissionRequests.length > 0
+        ? 'permission required'
+        : askRequests.length > 0
+          ? 'awaiting answer'
+          : state.status}
     </StatusLine>
   )
 
   // While a turn is in flight (statusLevel 'active': streaming or tool running),
   // the plain StatusLine is replaced by a live spinner with elapsed time, token
   // estimate, and esc-to-interrupt hint. Suppressed while a permission prompt
-  // is open so esc unambiguously means "deny" there.
-  const turnInFlight = state.statusLevel === 'active' && permissionRequests.length === 0
+  // or a pending question is open so esc unambiguously means "deny"/"skip" there.
+  const turnInFlight =
+    state.statusLevel === 'active' && permissionRequests.length === 0 && askRequests.length === 0
   // 排队消息在 turn 收尾后自动发出（permission 弹窗期不算收尾，statusLevel 仍 active）
   useEffect(() => {
     if (state.statusLevel === 'active' || queuedInputs.length === 0) return
@@ -1235,49 +1236,40 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   return (
     <Box flexDirection="column">
       {/*
-        InputBox 绝不进任何条件分支——welcome/正常视图切换时它若随分支移动会被
-        React 重挂载，未提交的文本与附件 chip 全丢。commandInput 固定在分支之外；
-        welcome 模式的 bottomStatus 与 WelcomeStatusBar 也拆到外层固定槽位。
+        InputBox 绝不进任何条件分支——视图切换时它若随分支移动会被 React 重挂
+        载，未提交的文本与附件 chip 全丢。下面各槽位条件不满足时以 null 占位，
+        保证 commandInput 的子序号在任何视图组合下都稳定。
+        welcome 盒常驻（Mark：欢迎信息不随开聊消失），transcript/状态行/弹窗
+        挂在它下面的固定槽位；无 welcome 数据的嵌入方回退 TopBar。
       */}
-      {showWelcome && welcomeState ? (
-        <>
-          {/* §7.5.2：Ctrl+V 剪贴板授权弹窗可能发生在首次提交之前（welcome 仍
-              可见）——welcome 分支同样挂载弹窗，否则请求挂着却无处决策。 */}
-          {options.permissions ? (
-            <PermissionPromptStack
-              controller={options.permissions}
-              requests={permissionRequests}
-              {...(activeCwd ? { cwd: activeCwd } : {})}
-            />
-          ) : null}
-          <WelcomeScreen state={welcomeState} terminalSize={terminalSize} />
-          <Box marginTop={1} paddingX={1}>
-            {bottomStatus}
-          </Box>
-        </>
+      {welcomeState ? (
+        <WelcomeScreen state={welcomeState} terminalSize={terminalSize} />
       ) : (
-        <>
-          <TopBar cwd={activeCwd} sessionId={state.sessionId} />
-          <ScrollableTranscript items={timeline} {...(activeCwd ? { cwd: activeCwd } : {})} />
-          {options.permissions ? (
-            <PermissionPromptStack
-              controller={options.permissions}
-              requests={permissionRequests}
-              {...(activeCwd ? { cwd: activeCwd } : {})}
-            />
-          ) : null}
-          {turnStatus}
-          {queuedInputs.length > 0 ? (
-            <Box paddingLeft={1}>
-              <Text color="gray">
-                {queuedInputs.length} queued message(s) — sent when the turn finishes
-              </Text>
-            </Box>
-          ) : null}
-        </>
+        <TopBar cwd={activeCwd} sessionId={state.sessionId} />
       )}
+      {welcomeState && timeline.length === 0 ? null : (
+        <ScrollableTranscript items={timeline} {...(activeCwd ? { cwd: activeCwd } : {})} />
+      )}
+      {/* §7.5.2：Ctrl+V 剪贴板授权弹窗可能发生在首次提交之前——弹窗必须常挂，
+          否则请求挂着却无处决策。 */}
+      {options.permissions ? (
+        <PermissionPromptStack
+          controller={options.permissions}
+          requests={permissionRequests}
+          {...(activeCwd ? { cwd: activeCwd } : {})}
+        />
+      ) : null}
+      {options.asks ? <AskPromptStack controller={options.asks} asks={askRequests} /> : null}
+      {turnStatus}
+      {queuedInputs.length > 0 ? (
+        <Box paddingLeft={1}>
+          <Text color="gray">
+            {queuedInputs.length} queued message(s) — sent when the turn finishes
+          </Text>
+        </Box>
+      ) : null}
       {commandInput}
-      {showWelcome && welcomeState ? (
+      {welcomeState ? (
         <WelcomeStatusBar layout={getWelcomeLayout(terminalSize)} state={welcomeState} />
       ) : null}
       {statusPanelOpen && (options.statusPanel || welcome) ? (
@@ -1319,7 +1311,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         <MemoryPanel
           controller={options.memory}
           {...(options.noColor === undefined ? {} : { noColor: options.noColor })}
-          paused={permissionRequests.length > 0}
+          paused={permissionRequests.length > 0 || askRequests.length > 0}
           terminalColumns={terminalSize.columns}
           terminalRows={terminalSize.rows}
           onClose={() => {
@@ -1415,11 +1407,6 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           }}
         />
       ) : null}
-      {commandListView ? (
-        commandListView.kind === 'tabs' ? (
-          <TabbedListView
-            view={commandListView}
-            onCancel={() => {
       {deleteCandidates ? (
         <SessionPicker
           title="Delete session"
@@ -1460,6 +1447,32 @@ export function InteractiveApp(options: InteractiveAppOptions) {
                 setState((current) => {
                   const switched = next !== undefined || current.sessionId === candidate.id
                   return {
+                    ...current,
+                    ...(switched
+                      ? {
+                          sessionId: next ?? 'new',
+                          transcript: [],
+                          activities: [],
+                          pendingAssistantText: '',
+                        }
+                      : {}),
+                    status: `session deleted: ${candidate.title}`,
+                    statusLevel: 'muted' as const,
+                  }
+                })
+              } catch (error) {
+                setDeleteConfirmTarget(undefined)
+                setDeleteError(error instanceof Error ? error.message : String(error))
+              }
+            })()
+          }}
+        />
+      ) : null}
+      {commandListView ? (
+        commandListView.kind === 'tabs' ? (
+          <TabbedListView
+            view={commandListView}
+            onCancel={() => {
               setCommandListView(undefined)
               setState((current) => ({ ...current, status: 'closed' }))
             }}
