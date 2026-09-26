@@ -7,6 +7,9 @@
  * 由显式「新会话」触发，不再有首条消息自动补建。
  */
 import { CommentOutlined, HistoryOutlined, UserOutlined, WifiOutlined } from '@ant-design/icons'
+import { App as AntApp, Badge, ConfigProvider, Select, theme as antdTheme, Typography } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
+import zhCN from 'antd/locale/zh_CN'
 import { App as AntApp, Badge, Select, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
@@ -31,6 +34,7 @@ import {
   loadSession,
   saveModelOverride,
   setUnauthorizedHandler,
+import { ThemeModeProvider, useThemeMode } from '../lib/theme'
   type MobileSession,
   type SessionSummary,
   type StagedAttachment,
@@ -38,7 +42,32 @@ import {
 
 type Tab = 'sessions' | 'chat' | 'mine'
 
-export default function MobileApp() {
+/** antd 主题壳：亮/暗 algorithm 跟随 ThemeModeProvider 的 resolved（cssVar 随之切换）。 */
+function Themed({ children }: { children: React.ReactNode }) {
+  const { resolved } = useThemeMode()
+  return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        algorithm: resolved === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+      }}
+    >
+      <AntApp>{children}</AntApp>
+    </ConfigProvider>
+  )
+}
+
+export default function Page() {
+  return (
+    <ThemeModeProvider>
+      <Themed>
+        <MobileApp />
+      </Themed>
+    </ThemeModeProvider>
+  )
+}
+
+function MobileApp() {
   const [session, setSession] = useState<MobileSession | undefined>()
   const [booted, setBooted] = useState(false)
   const [tab, setTab] = useState<Tab>('sessions')
@@ -337,6 +366,8 @@ export default function MobileApp() {
     async (id: string) => {
       const current = sessionRef.current
       if (!current) return
+  // kind 走完整决策档位（allow-once/…/deny-forever），gateway 原样透传共享审批队列。
+  const decide = useCallback((requestId: string, kind: string) => {
       try {
         const result = await new GatewayApi(current.token).deleteSession(id)
         if (id === activeSessionRef.current) {

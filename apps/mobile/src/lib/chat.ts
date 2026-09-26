@@ -76,6 +76,18 @@ export interface ChatState {
   /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
   subagents: Record<string, SubagentActivity>
   turn: 'idle' | 'running'
+  /**
+   * 网关审批超时兜底的绝对截止（epoch ms）：自动 deny 的时钟权威在网关，
+   * permission.request 帧经手时盖章；旧网关缺省 → 不渲染倒计时。
+   */
+  expiresAt?: number
+}
+
+/** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影）。 */
+export interface AskCard {
+  id: string
+  question: string
+  options: { label: string; description?: string }[]
 /** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影）。 */
 export interface AskCard {
   id: string
@@ -325,6 +337,8 @@ function reduceEnvelope(
     case 'turn.aborted': {
       const messages = finalizeStreaming(state.messages)
       const reason = payload.reason
+  /** permission.request 帧的审批超时截止（网关盖章，epoch ms）；其余帧缺省。 */
+  expiresAt?: number
       if (reason === 'error')
         return { ...state, turn: 'idle', messages, notice: state.notice ?? '本轮因错误中止' }
       if (reason === 'stream_interrupted')
@@ -412,10 +426,40 @@ function reduceEnvelope(
       break
   }
   if (envelope.kind === 'view') {
-    const view = event as unknown as { type: string; request?: PermissionCard; message?: string }
-    if (view.type === 'permission.request' && view.request)
-      return { ...state, permission: view.request }
-    if (view.type === 'permission.resolved') return { ...state, permission: undefined }
+    const view = event as unknown as {
+      type: string
+      request?: PermissionCard | AskCard
+      requests?: (PermissionCard | AskCard)[]
+      message?: string
+    }
+    // 完整队列投影（requests）优先；旧网关只带队首（request）时降级单卡数组。
+    // expiresAt（网关超时兜底的绝对截止）盖章在帧上，摊给队列里每张卡。
+    if (view.type === 'permission.request') {
+      const rawExpiresAt = (view as { expiresAt?: unknown }).expiresAt
+      const expiresAt = typeof rawExpiresAt === 'number' ? rawExpiresAt : undefined
+      const rawQueue =
+        Array.isArray(view.requests) && view.requests.length > 0
+          ? (view.requests as PermissionCard[])
+          : view.request
+            ? [view.request as PermissionCard]
+            : []
+      const queue = rawQueue.map((card) =>
+        expiresAt === undefined ? card : { ...card, expiresAt },
+      )
+      return queue.length > 0 ? { ...state, permissions: queue } : state
+    }
+    if (view.type === 'permission.resolved') return { ...state, permissions: [] }
+    // 提问队列：同款投影/清空语义（问答卡多 tab 的数据源）。
+    if (view.type === 'ask.request') {
+      const queue =
+        Array.isArray(view.requests) && view.requests.length > 0
+          ? (view.requests as AskCard[])
+          : view.request
+            ? [view.request as AskCard]
+            : []
+      return queue.length > 0 ? { ...state, asks: queue } : state
+    }
+    if (view.type === 'ask.resolved') return { ...state, asks: [] }
     if (view.type === 'turn.failed')
       return {
         ...state,

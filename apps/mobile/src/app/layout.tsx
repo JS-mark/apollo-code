@@ -16,7 +16,17 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        {/* 主题首帧不闪：白昼/暗夜/自动三态读 localStorage（lib/theme.tsx 同源 key），
+            未设置/自动按系统偏好解析。hydration 后由 ThemeModeProvider 接管（含系统
+            切色跟随），这里只落地初值、不挂常驻监听，避免与 provider 打架。 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var s=localStorage.getItem('volund-mobile-theme');var dark=s==='dark'||(s!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.body.dataset.theme=dark?'dark':'light'}catch(e){}`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   )
 }

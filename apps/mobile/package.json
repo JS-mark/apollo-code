@@ -12,6 +12,7 @@
   "dependencies": {
     "@ant-design/icons": "catalog:",
     "antd": "catalog:",
+    "antd-mobile": "^5.43.0",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

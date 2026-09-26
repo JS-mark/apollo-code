@@ -177,6 +177,90 @@ body[data-theme='dark'] {
   margin-bottom: 0;
 }
 
+/* Markdown 排版：react-markdown 直出、无包装类，标题/表格此前吃 UA 默认
+   （h1 2em、表格无边框），在手机上过大——整体压到正文量级 */
+.bubble h1,
+.bubble h2,
+.bubble h3,
+.bubble h4,
+.bubble h5,
+.bubble h6 {
+  margin: 10px 0 6px;
+  line-height: 1.4;
+}
+
+.bubble h1 {
+  font-size: 1.15em;
+}
+
+.bubble h2 {
+  font-size: 1.1em;
+}
+
+.bubble h3,
+.bubble h4,
+.bubble h5,
+.bubble h6 {
+  font-size: 1em;
+}
+
+.bubble > :first-child {
+  margin-top: 0;
+}
+
+.bubble ul,
+.bubble ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.bubble li {
+  margin: 2px 0;
+}
+
+.bubble blockquote {
+  margin: 6px 0;
+  padding: 2px 10px;
+  border-left: 3px solid rgba(5, 5, 5, 0.15);
+  color: rgba(0, 0, 0, 0.55);
+}
+
+[data-theme='dark'] .bubble blockquote {
+  border-left-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.bubble hr {
+  border: none;
+  border-top: 1px solid rgba(5, 5, 5, 0.1);
+  margin: 10px 0;
+}
+
+[data-theme='dark'] .bubble hr {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 表格：块级化出横向滚动 + 细边框 + 压字号，宽表不撑爆气泡 */
+.bubble table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.bubble th,
+.bubble td {
+  border: 1px solid rgba(5, 5, 5, 0.12);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+[data-theme='dark'] .bubble th,
+[data-theme='dark'] .bubble td {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
 .composer-wrap {
   background: rgba(255, 255, 255, 0.94);
   border-top: 1px solid rgba(5, 5, 5, 0.08);
@@ -354,14 +438,75 @@ body[data-theme='dark'] {
   color: rgba(255, 255, 255, 0.45);
 }
 
-.overlay-tools {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+/* ── 审批队列卡（亮暗双主题；变量集中在 .permstack 上，暗色只改值不改结构） ── */
+.permstack {
+  /* 亮色默认值 */
+  --perm-bg: #ffffff;
+  --perm-fg: #1f2329;
+  --perm-muted: rgba(0, 0, 0, 0.45);
+  --perm-faint: rgba(0, 0, 0, 0.3);
+  --perm-line: rgba(5, 5, 5, 0.08);
+  --perm-accent: #1677ff;
+  --perm-accent-soft: rgba(22, 119, 255, 0.08);
+  --perm-ok: #16a34a;
+  --perm-ok-bg: #16a34a;
+  --perm-ok-soft: rgba(22, 163, 74, 0.1);
+  --perm-bad: #dc2626;
+  --perm-bad-soft: rgba(220, 38, 38, 0.08);
+  --perm-warn: #b45309;
+  --perm-warn-soft: rgba(217, 119, 6, 0.12);
+  --perm-inset: #f7f8fa;
+  --perm-read: #0369a1;
+  --perm-write: #b45309;
+  --perm-env: #7c3aed;
+  position: relative;
+  border: 1px solid var(--perm-line);
+  border-radius: 14px;
+  background: var(--perm-bg);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  padding: 12px;
+  color: var(--perm-fg);
+  font-size: 13px;
+  overflow: hidden;
 }
 
-.tool-chip {
-  display: inline-flex;
+[data-theme='dark'] .permstack {
+  --perm-bg: #171c22;
+  --perm-fg: #e6edf3;
+  --perm-muted: rgba(255, 255, 255, 0.5);
+  --perm-faint: rgba(255, 255, 255, 0.35);
+  --perm-line: rgba(255, 255, 255, 0.1);
+  --perm-accent: #58a6ff;
+  --perm-accent-soft: rgba(88, 166, 255, 0.14);
+  --perm-ok: #3fb950;
+  --perm-ok-bg: #238636;
+  --perm-ok-soft: rgba(63, 185, 80, 0.16);
+  --perm-bad: #f85149;
+  --perm-bad-soft: rgba(248, 81, 73, 0.12);
+  --perm-warn: #d29922;
+  --perm-warn-soft: rgba(210, 153, 34, 0.16);
+  --perm-inset: #0d1117;
+  --perm-read: #58a6ff;
+  --perm-write: #d29922;
+  --perm-env: #bc8cff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 顶部 2px accent 发丝线——克制的科技感点缀 */
+.permstack::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--perm-accent), transparent 70%);
+  opacity: 0.55;
+}
+
+.perm-head {
+  display: flex;
   align-items: center;
   gap: 4px;
   padding: 3px 8px;
@@ -371,9 +516,558 @@ body[data-theme='dark'] {
   font-size: 11px;
 }
 
-[data-theme='dark'] .tool-chip {
-  background: rgba(22, 119, 255, 0.16);
-  color: rgba(255, 255, 255, 0.65);
+/* 呼吸点：有待审批的心跳指示（暗色下带微光） */
+.perm-pulse {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--perm-accent);
+  animation: perm-breathe 1.6s ease-in-out infinite;
+}
+
+[data-theme='dark'] .perm-pulse {
+  box-shadow: 0 0 6px var(--perm-accent);
+}
+
+@keyframes perm-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.perm-title {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.perm-tool {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--perm-accent);
+  background: var(--perm-accent-soft);
+  border-radius: 6px;
+  padding: 1px 7px;
+  align-self: center;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.perm-count {
+  flex: 0 0 auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--perm-muted);
+}
+
+/* 审批倒计时（网关到点自动 deny 的剩余秒数；过期到局前显示过渡文案） */
+.perm-countdown {
+  flex: 0 0 auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--perm-accent);
+}
+
+/* 多请求 tab（待审批队列 >1）：胶囊条 */
+.perm-reqtabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.perm-reqtabs::-webkit-scrollbar {
+  display: none;
+}
+
+.perm-reqtab {
+  flex: 0 0 auto;
+  border: 1px solid var(--perm-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--perm-muted);
+  font-size: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  padding: 4px 11px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.perm-reqtab[data-active] {
+  border-color: var(--perm-accent);
+  background: var(--perm-accent-soft);
+  color: var(--perm-accent);
+  font-weight: 600;
+}
+
+.perm-body {
+  margin-top: 10px;
+  border: 1px solid var(--perm-line);
+  border-radius: 10px;
+  background: var(--perm-inset);
+  min-width: 0;
+}
+
+/* 能力行：中文 gutter 标签 + 等宽值，写/运行类暖色警示 */
+.perm-spec {
+  padding: 8px 10px;
+  max-height: 20dvh;
+  overflow-y: auto;
+  padding: 0 8px calc(env(safe-area-inset-bottom) + 12px);
+  overscroll-behavior: contain;
+}
+
+.perm-spec-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+  min-width: 0;
+}
+
+.perm-spec-gutter {
+  flex: 0 0 3em;
+  text-align: justify;
+  text-align-last: justify;
+  color: var(--perm-faint);
+  font-size: 12px;
+  line-height: inherit;
+  padding-top: 1px;
+}
+
+.perm-spec-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+
+.tone-read .perm-spec-gutter {
+  color: var(--perm-read);
+}
+
+.tone-write .perm-spec-value {
+  color: var(--perm-write);
+}
+
+.tone-write .perm-spec-gutter {
+  color: var(--perm-write);
+}
+
+.tone-env .perm-spec-gutter {
+  color: var(--perm-env);
+}
+
+.perm-raw {
+  padding: 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--perm-muted);
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-height: 20dvh;
+  overflow-y: auto;
+}
+
+/* 数据详情：美化 JSON 收进折叠（默认只看能力行）；两主题各自配色 */
+.perm-details {
+  border-top: 1px solid var(--perm-line);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--perm-faint);
+}
+
+.perm-details summary {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.perm-details[open] summary {
+  border-bottom: 1px solid var(--perm-line);
+}
+
+.perm-json {
+  margin: 0;
+  padding: 10px;
+  max-height: 20dvh;
+  overflow: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--perm-fg);
+}
+
+.perm-json .json-key {
+  color: var(--perm-accent);
+}
+
+.perm-json .json-str {
+  color: #16a34a;
+}
+
+[data-theme='dark'] .perm-json .json-str {
+  color: #7ee787;
+}
+
+.perm-json .json-num {
+  color: #d97706;
+}
+
+[data-theme='dark'] .perm-json .json-num {
+  color: #ffa657;
+}
+
+.perm-json .json-lit {
+  color: var(--perm-env);
+}
+
+/* 主操作行：一键决策（点即发送，无两段式） */
+.perm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.perm-approve {
+  flex: 1;
+  border: none;
+  border-radius: 10px;
+  background: var(--perm-ok-bg);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.perm-approve:active {
+  filter: brightness(1.1);
+}
+
+.perm-deny {
+  flex: 0 0 96px;
+  border: 1px solid var(--perm-bad);
+  border-radius: 10px;
+  background: var(--perm-bad-soft);
+  color: var(--perm-bad);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 11px 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.perm-deny-wide {
+  flex: 1;
+}
+
+.perm-approve:disabled,
+.perm-deny:disabled,
+.perm-pill:disabled {
+  opacity: 0.55;
+}
+
+/* 次要档位行：其余五档的小 pill（一键生效），放行族/危险档分色 */
+.perm-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.perm-pill {
+  border: 1px solid var(--perm-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--perm-muted);
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+  padding: 10px 0 4px;
+}
+
+.perm-pill.tone-allow {
+  color: var(--perm-ok);
+  border-color: var(--perm-ok-soft);
+  background: var(--perm-ok-soft);
+}
+
+.perm-pill.tone-warn {
+  color: var(--perm-warn);
+  border-color: var(--perm-warn-soft);
+  background: var(--perm-warn-soft);
+}
+
+.perm-pill.tone-deny {
+  color: var(--perm-bad);
+  border-color: var(--perm-bad-soft);
+  background: var(--perm-bad-soft);
+}
+
+.perm-pill-standalone {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* AskUserQuestion 提问卡：复用 permstack 骨架，青色系区分「可选项」与「风险审批」。 */
+.askstack-question {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--perm-fg, rgba(0, 0, 0, 0.88));
+}
+
+/* 模型选择器（对话页 header 最右）：窄宽度 + 选中值截断，防挤压会话标题 */
+.app-header .model-picker {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 132px;
+  font-size: 12px;
+}
+
+.askstack-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 14px;
+  border: 1px solid var(--ant-color-info-border, #91caff);
+  border-radius: 14px;
+  background: var(--ant-color-info-bg, #e6f4ff);
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+}
+
+.askstack-option:disabled {
+  opacity: 0.55;
+}
+
+.askstack-option-label {
+  font-weight: 600;
+}
+
+.askstack-option-desc {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.askstack-skip {
+  margin-top: 2px;
+  align-self: center;
+}
+
+.perm-denonly-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--perm-warn);
+  background: var(--perm-warn-soft);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+/* 会话流里的工具卡：默认折叠一行（图标+中文标签+单行目标），点击展开详情卡 */
+.tool-block {
+  margin-bottom: 6px;
+}
+
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 2px;
+  margin: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 12px;
+  font-family: inherit;
+  color: rgba(0, 0, 0, 0.62);
+  cursor: pointer;
+}
+
+[data-theme='dark'] .tool-row {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+div.tool-row {
+  cursor: default;
+}
+
+.tool-row:active {
+  opacity: 0.7;
+}
+
+div.tool-row:active {
+  opacity: 1;
+}
+
+.tool-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.tool-name {
+  flex-shrink: 0;
+}
+
+.tool-target {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  opacity: 0.85;
+}
+
+.tool-status {
+  flex-shrink: 0;
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .tool-status {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.tool-status.error {
+  color: #dc2626;
+}
+
+[data-theme='dark'] .tool-status.error {
+  color: #f85149;
+}
+
+/* 可展开行的右缘小箭头：收起朝右、展开转朝下。 */
+.tool-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+[data-theme='dark'] .tool-chevron {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.tool-chevron.open {
+  transform: rotate(90deg);
+}
+
+/* 展开过渡：grid 0fr→1fr 撑开高度 + 淡入（卡片常驻 DOM，双向都有动画）。 */
+.tool-card-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin: 2px 0 4px;
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.645, 0.045, 0.355, 1),
+    opacity 0.2s cubic-bezier(0.215, 0.61, 0.355, 1),
+    visibility 0.24s;
+}
+
+.tool-card-wrap.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-chevron,
+  .tool-card-wrap {
+    transition: none;
+  }
+}
+
+/* 展开卡：小写工具名头 + 复制按钮 + 等宽正文（对齐 Web 控制台） */
+.tool-card {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--perm-line, rgba(5, 5, 5, 0.1));
+  border-radius: 10px;
+  background: var(--perm-inset, #f7f8fa);
+}
+
+[data-theme='dark'] .tool-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 2px 12px;
+  border-bottom: 1px solid var(--perm-line, rgba(5, 5, 5, 0.08));
+}
+
+[data-theme='dark'] .tool-card-head {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.tool-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+[data-theme='dark'] .tool-card-title {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.tool-card-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .tool-card-status {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.tool-card-status.error {
+  color: #dc2626;
+}
+
+[data-theme='dark'] .tool-card-status.error {
+  color: #f85149;
+}
+
+.tool-card-body {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 280px;
+  overflow: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+[data-theme='dark'] .tool-card-body {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 /* ── 会话页：下拉刷新 + 上拉分页 ────────────────────────────────────── */
@@ -421,12 +1115,21 @@ body[data-theme='dark'] {
   }
 }
 
+/* Virtuoso 滚动容器：行是绝对定位，不吃容器 padding——留白在 .session-item-wrap/.session-list-tail。 */
 .session-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 8px calc(env(safe-area-inset-bottom) + 12px);
+  overflow-x: hidden;
   overscroll-behavior: contain;
+}
+
+.session-item-wrap {
+  padding: 0 8px;
+}
+
+.session-list-tail {
+  height: calc(env(safe-area-inset-bottom) + 12px);
 }
 
 .session-item {
@@ -434,7 +1137,6 @@ body[data-theme='dark'] {
   align-items: center;
   gap: 10px;
   padding: 11px 12px;
-  border-radius: 10px;
   background: rgba(255, 255, 255, 0.7);
   margin-bottom: 6px;
   cursor: pointer;
@@ -447,6 +1149,30 @@ body[data-theme='dark'] {
 
 .session-item.active {
   background: rgba(22, 119, 255, 0.1);
+}
+
+/* 左滑删除（antd-mobile SwipeAction）：外层裁圆角，行体不透明压住下层动作条。 */
+.swipe-item {
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.adm-swipe-action {
+  background: transparent;
+}
+
+.swipe-item .adm-swipe-action-action {
+  font-size: 13px;
+}
+
+.swipe-item .session-item {
+  margin-bottom: 0;
+  background: #fff;
+}
+
+[data-theme='dark'] .swipe-item .session-item {
+  background: #1b2026;
 }
 
 .session-item-main {
@@ -472,17 +1198,6 @@ body[data-theme='dark'] {
   display: block;
 }
 
-.load-more {
-  text-align: center;
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.4);
-  padding: 10px 0 4px;
-}
-
-[data-theme='dark'] .load-more {
-  color: rgba(255, 255, 255, 0.4);
-}
-
 /* 对话页无会话空态（创建/恢复从会话列表发起） */
 .chat-empty {
   flex: 1;
@@ -490,6 +1205,311 @@ body[data-theme='dark'] {
   display: grid;
   place-content: center;
   padding: 24px;
+}
+
+/* ── 会话流空态（有会话无消息）：主气泡悬浮摇摆 + 三点弹跳 + 迷你气泡绕游 ── */
+.chat-blank-stream {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  user-select: none;
+}
+
+.chat-blank-scene {
+  position: relative;
+  width: 124px;
+  height: 112px;
+  margin-bottom: 16px;
+}
+
+.chat-blank-bubble {
+  position: absolute;
+  left: 18px;
+  bottom: 14px;
+  width: 76px;
+  height: 56px;
+  border-radius: 20px;
+  background: #1677ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 10px 24px rgba(22, 119, 255, 0.28);
+  animation: blank-bob 3.2s ease-in-out infinite;
+}
+
+/* 气泡尾巴（随主体一起摇摆） */
+.chat-blank-bubble::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  background: #1677ff;
+  border-radius: 0 0 14px 2px;
+  transform: rotate(18deg);
+}
+
+.chat-blank-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  animation: blank-dot 1.2s ease-in-out infinite;
+}
+
+.chat-blank-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chat-blank-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.chat-blank-mini {
+  position: absolute;
+  border: 2px solid rgba(22, 119, 255, 0.4);
+  border-radius: 50% 50% 50% 4px;
+  animation: blank-drift 4.2s ease-in-out infinite;
+}
+
+.chat-blank-mini.one {
+  top: 0;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+}
+
+.chat-blank-mini.two {
+  top: 22px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  animation-duration: 5s;
+  animation-delay: 1.4s;
+}
+
+@keyframes blank-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-9px) rotate(2.5deg);
+  }
+}
+
+@keyframes blank-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  30% {
+    transform: translateY(-7px);
+    opacity: 1;
+  }
+}
+
+@keyframes blank-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.25;
+  }
+  50% {
+    transform: translate(4px, -8px) scale(1.15);
+    opacity: 0.75;
+  }
+}
+
+.chat-blank-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.chat-blank-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .chat-blank-title {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-theme='dark'] .chat-blank-sub {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+[data-theme='dark'] .chat-blank-mini {
+  border-color: rgba(88, 166, 255, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-blank-bubble,
+  .chat-blank-dot,
+  .chat-blank-mini,
+  .chat-hydrate .bubble,
+  .chat-hydrate-typing,
+  .chat-hydrate-typing span,
+  .typing-dots span {
+    animation: none;
+  }
+
+  /* 入场是透明度动画，静止态也要可见（both 填充被 animation:none 清掉） */
+  .chat-hydrate-typing,
+  .chat-hydrate-caption {
+    opacity: 1;
+  }
+
+  .typing-dots span {
+    opacity: 0.6;
+  }
+}
+
+/* ── transcript 水合期加载：骨架气泡依次漂浮入场 + 蓝色「正在输入」气泡呼吸 ── */
+.chat-hydrate {
+  padding: 16px 0;
+}
+
+.chat-hydrate .bubble {
+  animation:
+    hydrate-in 0.45s ease-out both,
+    hydrate-bob 2.6s ease-in-out infinite;
+}
+
+.chat-hydrate-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  padding: 10px 12px;
+  margin-top: 4px;
+  border-radius: 14px;
+  border-top-left-radius: 4px;
+  background: #1677ff;
+  box-shadow: 0 6px 16px rgba(22, 119, 255, 0.25);
+  animation:
+    hydrate-in 0.4s ease-out 0.9s both,
+    hydrate-breathe 1.6s ease-in-out 1.3s infinite;
+}
+
+.chat-hydrate-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  animation: hydrate-dot 1.1s ease-in-out infinite;
+}
+
+.chat-hydrate-typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chat-hydrate-typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.chat-hydrate-caption {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+  animation: hydrate-in 0.6s ease-out 1.1s both;
+}
+
+[data-theme='dark'] .chat-hydrate-caption {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+@keyframes hydrate-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hydrate-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes hydrate-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes hydrate-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+/* ── AI 回复中的俏皮「正在输入」三点：依次弹跳带挤压回弹（状态提示/流式气泡尾迹共用） ── */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 14px;
+  margin-left: 4px;
+  flex-shrink: 0;
+  vertical-align: -2px;
+}
+
+.typing-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #1677ff;
+  opacity: 0.45;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px) scale(1.25);
+    opacity: 1;
+  }
 }
 
 /* header：标题区收缩防挤压，长会话名截断 */
@@ -518,4 +1538,173 @@ body[data-theme='dark'] {
 
 .app-header .model-picker .ant-select-selection-wrap {
   justify-content: flex-end;
+}
+
+/* ── 消息流变更卡片（ChangesCard）：会话文件改动汇总，钉在消息流末尾 ── */
+.chg-card {
+  margin: 2px 0 10px;
+  overflow: hidden;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 12.5px;
+}
+
+[data-theme='dark'] .chg-card {
+  background: #1b2026;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.chg-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chg-card-title {
+  font-weight: 600;
+}
+
+.chg-stat {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.chg-stat.add {
+  color: #389e0d;
+}
+
+.chg-stat.del {
+  color: #cf1322;
+}
+
+[data-theme='dark'] .chg-stat.add {
+  color: #73d13d;
+}
+
+[data-theme='dark'] .chg-stat.del {
+  color: #ff7875;
+}
+
+.chg-card-row-wrap {
+  border-top: 1px solid rgba(5, 5, 5, 0.06);
+}
+
+[data-theme='dark'] .chg-card-row-wrap {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.chg-card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.chg-card-icon {
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .chg-card-icon {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.chg-card-name {
+  font-weight: 500;
+}
+
+.chg-card-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .chg-card-dir {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.chg-card-consumed {
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 11px;
+}
+
+[data-theme='dark'] .chg-card-consumed {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* 行内 diff（窄屏 unified 直渲，横向滚动保结构） */
+.chg-row-diff {
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px 0;
+  background: rgba(5, 5, 5, 0.03);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+[data-theme='dark'] .chg-row-diff {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chg-row-empty {
+  padding: 10px 12px;
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .chg-row-empty {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.chg-dl {
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.chg-dl.add {
+  background: rgba(56, 158, 13, 0.12);
+  color: #389e0d;
+}
+
+.chg-dl.del {
+  background: rgba(207, 19, 34, 0.1);
+  color: #cf1322;
+}
+
+.chg-dl.hunk {
+  color: #1677ff;
+}
+
+[data-theme='dark'] .chg-dl.add {
+  background: rgba(115, 209, 61, 0.12);
+  color: #73d13d;
+}
+
+[data-theme='dark'] .chg-dl.del {
+  background: rgba(255, 120, 117, 0.12);
+  color: #ff7875;
+}
+
+[data-theme='dark'] .chg-dl.hunk {
+  color: #69b1ff;
+}
+
+.chg-undo-path {
+  padding: 2px 0;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+[data-theme='dark'] .chg-undo-path {
+  color: rgba(255, 255, 255, 0.45);
 }

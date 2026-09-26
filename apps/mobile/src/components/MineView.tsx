@@ -1,10 +1,38 @@
 'use client'
 
-/** 我的：设备信息 / 网关地址 / 凭证有效期 / 解除配对（清本地凭证）。 */
-import { DisconnectOutlined, LinkOutlined, SafetyOutlined } from '@ant-design/icons'
-import { Button, Card, Descriptions, Popconfirm, Space, Typography } from 'antd'
+/** 我的：外观主题 / 设备信息 / 网关地址 / 凭证有效期 / 解除配对（清本地凭证）。 */
+import {
+  DisconnectOutlined,
+  LinkOutlined,
+  MoonOutlined,
+  SafetyOutlined,
+  SunOutlined,
+} from '@ant-design/icons'
+import { Button, Card, Descriptions, Popconfirm, Segmented, Space, Typography } from 'antd'
 
 import type { MobileSession } from '../lib/gateway'
+import { useThemeMode, type ThemeMode } from '../lib/theme'
+
+/** 外观三态：自动（跟随系统）/ 白昼 / 暗夜（Segmented 单选即生效，设备级持久化）。 */
+const THEME_OPTIONS: { value: ThemeMode; label: React.ReactNode }[] = [
+  { value: 'system', label: '自动' },
+  {
+    value: 'light',
+    label: (
+      <Space size={4}>
+        <SunOutlined /> 白昼
+      </Space>
+    ),
+  },
+  {
+    value: 'dark',
+    label: (
+      <Space size={4}>
+        <MoonOutlined /> 暗夜
+      </Space>
+    ),
+  },
+]
 
 export function MineView({
   session,
@@ -17,8 +45,17 @@ export function MineView({
   activeSessionId: string | undefined
   onUnpair(): void
 }) {
+  const { mode, setMode } = useThemeMode()
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+      <Card size="small" title="外观" style={{ marginBottom: 12 }}>
+        <Segmented
+          block
+          options={THEME_OPTIONS}
+          value={mode}
+          onChange={(value) => setMode(value as ThemeMode)}
+        />
+      </Card>
       <Card size="small" style={{ marginBottom: 12 }}>
         <Descriptions
           column={1}

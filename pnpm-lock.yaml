@@ -475,6 +475,9 @@ importers:
       antd:
         specifier: 'catalog:'
         version: 6.6.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      antd-mobile:
+        specifier: ^5.43.0
+        version: 5.43.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       next:
         specifier: 'catalog:'
         version: 16.3.4(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -4150,6 +4153,18 @@ packages:
 
   aws4@1.13.2:
     resolution: {integrity: sha512-lHe62zvbTB5eEABUVi/AwVh0ZKY9rMMDhmm+eeyuuUQbQ3+J+fONVQOZyj+DdrvD4BY33uYniyRJ4UJIaSKAfw==}
+  antd-mobile-icons@0.3.0:
+    resolution: {integrity: sha512-rqINQpJWZWrva9moCd1Ye695MZYWmqLPE+bY8d2xLRy7iSQwPsinCdZYjpUPp2zL/LnKYSyXxP2ut2A+DC+whQ==}
+
+  antd-mobile-v5-count@1.0.1:
+    resolution: {integrity: sha512-YGsiEDCPUDz3SzfXi6gLZn/HpeSMW+jgPc4qiYUr1fSopg3hkUie2TnooJdExgfiETHefH3Ggs58He0OVfegLA==}
+
+  antd-mobile@5.43.0:
+    resolution: {integrity: sha512-Pe8P/hHmv1vDHzbGuT6C23SJPeiH7ryESi001eiNqEm9WzEgyKhV60T69Mt26fUvkF7k6Wd75cMcdDziGYeJbw==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
 
   b4a@1.8.1:
     resolution: {integrity: sha512-aiqre1Nr0B/6DgE2N5vwTc+2/oQZ4Wh1t4NznYY4E00y8LCt6NqdRv81so00oo27D8MVKTpUa/MwUUtBLXCoDw==}
@@ -9853,6 +9868,35 @@ snapshots:
   buffer@6.0.3:
     dependencies:
       base64-js: 1.5.1
+  antd-mobile-icons@0.3.0: {}
+
+  antd-mobile-v5-count@1.0.1: {}
+
+  antd-mobile@5.43.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+    dependencies:
+      '@floating-ui/dom': 1.8.0
+      '@rc-component/mini-decimal': 1.1.4
+      '@react-spring/web': 9.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@use-gesture/react': 10.3.0(react@19.2.8)
+      ahooks: 3.10.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      antd-mobile-icons: 0.3.0
+      antd-mobile-v5-count: 1.0.1
+      classnames: 2.5.1
+      dayjs: 1.11.23
+      deepmerge: 4.3.1
+      nano-memoize: 3.0.16
+      rc-field-form: 1.44.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      rc-segmented: 2.4.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      rc-util: 5.44.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      react-fast-compare: 3.2.2
+      react-is: 18.2.0
+      runes2: 1.1.10
+      staged-components: 1.1.3(react@19.2.8)
+      tslib: 2.8.1
+      use-sync-external-store: 1.7.0(react@19.2.8)
+
       ieee754: 1.2.1
 
   byte-counter@0.1.0: {}
