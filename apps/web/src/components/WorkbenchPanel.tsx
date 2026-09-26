@@ -2,11 +2,12 @@
 
 /**
  * 工作台（右侧栏，对齐 CodeBuddy web 的 workbench）：
- * - 空态：「打开工作区工具」五入口（资源管理器/打开文件/搜索/源代码管理/终端⌘J）；
+ * - 空态：「打开工作区工具」六入口（资源管理器/打开文件/搜索/源代码管理/文件变更/终端⌘J）；
  * - 打开的工具以可关闭标签页承载（全部保活——终端切走不杀 shell）；
  * - 终端可多开：+ 菜单/空态按钮每次新开一个标签页（终端 1/2/…），⌘J 聚焦最近的
- *   终端、没有则新开；
- * - 资源管理器是懒加载文件树，点文件开查看器（可编辑保存）；
+ *   终端、没有则新开；文件变更是会话改动的 diff/undo 面板（消息流变更卡片「审查」直达）；
+ * - 资源管理器是懒加载文件树，点文件开源码查看器（可编辑保存；对可预览文件
+ *   给「预览」按钮开富预览标签，同一文件的源码/预览标签并存）；
  * - 终端是 xterm.js + WebSocket 交互式 shell（服务端 expect/script 提供 PTY）；
  *   握手 query 带初始尺寸（cols/rows），pty 出生即真实几何——中途改尺寸会让
  *   zsh/p10k 重绘留残帧（重复提示行 + '%'）。
@@ -15,7 +16,8 @@
 import '@xterm/xterm/css/xterm.css'
 import {
   CloseOutlined,
-  EditOutlined,
+  DiffOutlined,
+  EyeOutlined,
   FileOutlined,
   FolderOutlined,
   ForkOutlined,
@@ -27,14 +29,20 @@ import { App, Button, Dropdown, Empty, Input, Spin, Tabs, Tag, Tooltip, Typograp
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WbGitStatus, WbMatch, WebApi } from '../lib/api'
+import type { PreviewKind } from '../lib/preview-kind'
+import { previewKindOf } from '../lib/preview-kind'
+import { ChangesPane } from './ChangesPane'
+import { DiffView } from './DiffView'
+import { FilePreview } from './FilePreview'
 import { FileTree } from './FileTree'
 import { QuickOpenModal } from './QuickOpenModal'
+import { SourcePanel } from './SourcePanel'
 
-type ToolKind = 'explorer' | 'search' | 'git' | 'terminal'
+type ToolKind = 'explorer' | 'search' | 'git' | 'changes' | 'terminal'
 
 interface ToolTab {
   key: string
-  kind: ToolKind | 'file' | 'diff'
+  kind: ToolKind | 'file' | 'preview' | 'diff'
   title: string
   path?: string
   line?: number
@@ -44,6 +52,7 @@ const TOOL_DEFS: { kind: ToolKind; title: string; icon: React.ReactNode }[] = [
   { kind: 'explorer', title: '资源管理器', icon: <FolderOutlined /> },
   { kind: 'search', title: '搜索', icon: <SearchOutlined /> },
   { kind: 'git', title: '源代码管理', icon: <ForkOutlined /> },
+  { kind: 'changes', title: '文件变更', icon: <DiffOutlined /> },
   { kind: 'terminal', title: '终端', icon: <TerminalIcon /> },
 ]
 
@@ -249,117 +258,8 @@ function DiffPanel({ api, path }: { api: WebApi; path?: string }) {
     return <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
   if (!diff.trim()) return <Empty description="没有可展示的 diff" style={{ marginTop: 32 }} />
   return (
-    <pre className="wb-diff">
-      {diff.split('\n').map((line, index) => (
-        <div
-          key={index}
-          className={
-            line.startsWith('+') && !line.startsWith('+++')
-              ? 'wb-diff-add'
-              : line.startsWith('-') && !line.startsWith('---')
-                ? 'wb-diff-del'
-                : line.startsWith('@@')
-                  ? 'wb-diff-hunk'
-                  : undefined
-          }
-        >
-          {line}
-        </div>
-      ))}
-    </pre>
-  )
-}
-
-// ── 文件查看器（可编辑保存）─────────────────────────────────────────────
-function FilePanel({ api, path, line }: { api: WebApi; path: string; line?: number }) {
-  const { message } = App.useApp()
-  const [file, setFile] = useState<{ content: string; binary: boolean; truncated: boolean }>()
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const bodyRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    setEditing(false)
-    void api
-      .wbReadFile(path)
-      .then((result) => {
-        setFile(result)
-        setDraft(result.content)
-      })
-      .catch((cause) => {
-        setFile(undefined)
-        message.error(cause instanceof Error ? cause.message : String(cause))
-      })
-  }, [api, path, message])
-
-  // 搜索跳转：渲染后滚动到目标行（行高固定 19px 与 css 对齐）。
-  useEffect(() => {
-    if (!line || !file || editing) return
-    const target = bodyRef.current?.querySelector(`[data-line="${line}"]`)
-    target?.scrollIntoView({ block: 'center' })
-  }, [file, line, editing])
-
-  if (!file) return <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
-  if (file.binary) return <Empty description="二进制文件不支持预览" style={{ marginTop: 32 }} />
-
-  const save = async () => {
-    setSaving(true)
-    try {
-      await api.wbWriteFile(path, draft)
-      setFile({ ...file, content: draft })
-      setEditing(false)
-      message.success('已保存')
-    } catch (cause) {
-      message.error(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="wb-pane wb-file">
-      <div className="wb-file-bar">
-        <Typography.Text type="secondary" ellipsis style={{ flex: 1, minWidth: 0, fontSize: 12 }}>
-          {path}
-          {file.truncated ? '（过大已截断）' : ''}
-        </Typography.Text>
-        {editing ? (
-          <>
-            <Button size="small" type="primary" loading={saving} onClick={() => void save()}>
-              保存
-            </Button>
-            <Button size="small" onClick={() => setEditing(false)}>
-              取消
-            </Button>
-          </>
-        ) : (
-          <Button size="small" type="text" icon={<EditOutlined />} onClick={() => setEditing(true)}>
-            编辑
-          </Button>
-        )}
-      </div>
-      {editing ? (
-        <Input.TextArea
-          className="wb-file-editor"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          autoSize={{ minRows: 12 }}
-        />
-      ) : (
-        <div className="wb-file-body" ref={bodyRef}>
-          {file.content.split('\n').map((text, index) => (
-            <div
-              key={index}
-              data-line={index + 1}
-              className={index + 1 === line ? 'wb-file-line wb-file-line-hit' : 'wb-file-line'}
-            >
-              <span className="wb-file-lineno">{index + 1}</span>
-              <span>{text}</span>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="wb-diff">
+      <DiffView diff={diff} />
     </div>
   )
 }
@@ -494,12 +394,18 @@ function TerminalPanel({ api }: { api: WebApi }) {
 // ── 工作台面板本体 ─────────────────────────────────────────────────────
 export function WorkbenchPanel({
   api,
+  sessionId,
   terminalSignal,
+  focusSignal,
   onClose,
 }: {
   api: WebApi
+  /** 活动会话 id：文件变更面板的数据源（无会话时展示空态）。 */
+  sessionId: string | undefined
   /** AppShell 的 ⌘J 信号：递增即打开/聚焦终端标签页。 */
   terminalSignal: number
+  /** AppShell 的工作台聚焦信号（变更卡片「审查/打开」）：seq 变化即定位目标。 */
+  focusSignal: { seq: number; tab: 'changes' | 'file'; path: string }
   onClose(): void
 }) {
   const [tabs, setTabs] = useState<ToolTab[]>([])
@@ -544,6 +450,22 @@ export function WorkbenchPanel({
       }),
     [activate],
   )
+  // 预览标签：同一文件的源码/预览并存（key 不同），资源管理器默认开源码。
+  const openPreview = useCallback(
+    (path: string) =>
+      activate({
+        key: `preview:${path}`,
+        kind: 'preview',
+        title: path.split('/').pop() ?? path,
+        path,
+      }),
+    [activate],
+  )
+  // 地址栏回车跳转：按扩展名智能落到源码或预览标签页。
+  const openPath = useCallback(
+    (path: string) => (previewKindOf(path) === 'text' ? openFile(path) : openPreview(path)),
+    [openFile, openPreview],
+  )
   const openDiff = useCallback(
     (path: string) =>
       activate({
@@ -555,6 +477,12 @@ export function WorkbenchPanel({
     [activate],
   )
 
+  // 变更面板内定位信号（「审查」带路径）：转发给 ChangesPane 做选中。
+  const [changesFocus, setChangesFocus] = useState<{ seq: number; path: string }>({
+    seq: 0,
+    path: '',
+  })
+
   // ⌘J（AppShell 全局快捷键）：聚焦最近的终端标签页，没有则新开。
   useEffect(() => {
     if (terminalSignal <= 0) return
@@ -562,6 +490,17 @@ export function WorkbenchPanel({
     if (existing) setActiveKey(existing.key)
     else openTool('terminal')
   }, [terminalSignal, openTool])
+
+  // 变更卡片「审查/打开」：聚焦变更标签页（并定位文件 diff）或打开文件查看器。
+  useEffect(() => {
+    if (focusSignal.seq <= 0) return
+    if (focusSignal.tab === 'changes') {
+      activate({ key: 'changes', kind: 'changes', title: toolTitle('changes') })
+      setChangesFocus({ seq: focusSignal.seq, path: focusSignal.path })
+    } else {
+      openFile(focusSignal.path)
+    }
+  }, [focusSignal, activate, openFile])
 
   const closeTab = (key: string) => {
     setTabs((current) => {
@@ -594,8 +533,36 @@ export function WorkbenchPanel({
     <aside className="workbench" style={{ width }}>
       <div className="workbench-resize" onMouseDown={startResize} title="调整工作台宽度" />
       <div className="workbench-head">
-        <Typography.Text strong>工作台</Typography.Text>
-        <span style={{ flex: 1 }} />
+        {tabs.length > 0 ? (
+          // 标签即标识（不设「工作台」文字标题）：Tabs 自身可横向滚动，+ / 收起
+          // 固定最右。
+          <Tabs
+            className="workbench-tabs"
+            size="small"
+            type="editable-card"
+            hideAdd
+            {...(activeKey !== undefined ? { activeKey } : {})}
+            items={tabs.map((tab) => ({
+              key: tab.key,
+              closable: true,
+              label:
+                tab.kind === 'preview' ? (
+                  <span className="wb-tab-preview">
+                    <EyeOutlined />
+                    {tab.title}
+                  </span>
+                ) : (
+                  tab.title
+                ),
+            }))}
+            onChange={setActiveKey}
+            onEdit={(key, action) => {
+              if (action === 'remove' && typeof key === 'string') closeTab(key)
+            }}
+          />
+        ) : (
+          <span style={{ flex: 1 }} />
+        )}
         <Dropdown
           trigger={['click']}
           placement="bottomRight"
@@ -626,20 +593,6 @@ export function WorkbenchPanel({
           <Button size="small" type="text" icon={<CloseOutlined />} onClick={onClose} />
         </Tooltip>
       </div>
-      {tabs.length > 0 && (
-        <Tabs
-          className="workbench-tabs"
-          size="small"
-          type="editable-card"
-          hideAdd
-          {...(activeKey !== undefined ? { activeKey } : {})}
-          items={tabs.map((tab) => ({ key: tab.key, label: tab.title, closable: true }))}
-          onChange={setActiveKey}
-          onEdit={(key, action) => {
-            if (action === 'remove' && typeof key === 'string') closeTab(key)
-          }}
-        />
-      )}
       <div className="workbench-body">
         {!active ? (
           <div className="workbench-empty">
@@ -647,7 +600,7 @@ export function WorkbenchPanel({
               打开工作区工具
             </Typography.Title>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              选择资源管理器、文件搜索、源代码管理、文件或终端
+              选择资源管理器、文件搜索、源代码管理、文件变更、文件或终端
             </Typography.Text>
             <div className="workbench-tools">
               {TOOL_DEFS.slice(0, 1).map((tool) => (
@@ -686,14 +639,25 @@ export function WorkbenchPanel({
               <SearchPanel api={api} onOpenFile={openFile} />
             ) : tab.kind === 'git' ? (
               <GitPanel api={api} onOpenDiff={openDiff} />
+            ) : tab.kind === 'changes' ? (
+              <ChangesPane api={api} sessionId={sessionId} focus={changesFocus} />
             ) : tab.kind === 'terminal' ? (
               <TerminalPanel api={api} />
             ) : tab.kind === 'diff' ? (
               <DiffPanel api={api} {...(tab.path !== undefined ? { path: tab.path } : {})} />
-            ) : (
-              <FilePanel
+            ) : tab.kind === 'preview' ? (
+              <FilePreview
                 api={api}
                 path={tab.path!}
+                kind={previewKindOf(tab.path!) as Exclude<PreviewKind, 'text'>}
+                onOpenSource={openFile}
+                onOpenPath={openPath}
+              />
+            ) : (
+              <SourcePanel
+                api={api}
+                path={tab.path!}
+                onOpenPreview={openPreview}
                 {...(tab.line !== undefined ? { line: tab.line } : {})}
               />
             )}

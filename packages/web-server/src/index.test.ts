@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createWebServer } from './index'
 import type { RemoteControlPort, WebServerHandle } from './index'
 import { SessionHub } from './session-hub'
+import { createWorkbenchPort } from './workbench'
 
 let handle: WebServerHandle | undefined
 afterEach(async () => {
@@ -496,7 +497,6 @@ describe('web-server gateway', () => {
     expect(anonymous.status).toBe(401)
   })
 
-  it('changes per-file undo preview + execute (W-08+)', async () => {
   it('changes list endpoint passes the stats flag through to the port (W-08 stats)', async () => {
     const fakeSession = {
       id: 'sess-stats',
@@ -1207,5 +1207,106 @@ describe('web-server remote control endpoints (REM-r1)', () => {
       body: JSON.stringify({ type: 'start' }),
     })
     expect(action.status).toBe(503)
+  })
+})
+describe('workbench raw preview endpoint', () => {
+  async function startWithWorkbench(): Promise<{
+    base: string
+    headers: Record<string, string>
+    root: string
+  }> {
+    const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = await mkdtemp(join(tmpdir(), 'wb-raw-'))
+    await mkdir(join(root, 'assets'), { recursive: true })
+    await writeFile(
+      join(root, 'index.html'),
+      '<!doctype html><html><body><h1>demo</h1><script src="./assets/app.js"></script></body></html>',
+    )
+    await writeFile(join(root, 'assets', 'app.js'), 'console.log(1)')
+    await writeFile(
+      join(root, 'photo.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+    await writeFile(join(root, 'doc.md'), '# hello\n')
+    await writeFile(join(root, 'data.bin'), Buffer.from([0, 1, 2, 255]))
+    const { url } = await start({ workbench: createWorkbenchPort(root) })
+    const { base, headers } = await authed(url)
+    return { base, headers, root }
+  }
+
+  it('serves html with the artifact CSP and resolves relative assets on the same route', async () => {
+    const { base, headers } = await startWithWorkbench()
+    const page = await fetch(`${base}api/v1/workbench/raw/index.html`, { headers })
+    expect(page.status).toBe(200)
+    expect(page.headers.get('content-type')).toContain('text/html')
+    const csp = page.headers.get('content-security-policy') ?? ''
+    expect(csp).toContain("connect-src 'none'")
+    expect(csp).toContain("form-action 'none'")
+    expect(page.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(await page.text()).toContain('<h1>demo</h1>')
+    const script = await fetch(`${base}api/v1/workbench/raw/assets/app.js`, { headers })
+    expect(script.status).toBe(200)
+    expect(script.headers.get('content-type')).toContain('javascript')
+  })
+
+  it('serves binary formats with sniff-proof types and no document CSP', async () => {
+    const { base, headers } = await startWithWorkbench()
+    const png = await fetch(`${base}api/v1/workbench/raw/photo.png`, { headers })
+    expect(png.status).toBe(200)
+    expect(png.headers.get('content-type')).toBe('image/png')
+    expect(png.headers.get('content-security-policy')).toBeNull()
+    const bin = await fetch(`${base}api/v1/workbench/raw/data.bin`, { headers })
+    expect(bin.headers.get('content-type')).toBe('application/octet-stream')
+    expect((await bin.arrayBuffer()).byteLength).toBe(4)
+    const md = await fetch(`${base}api/v1/workbench/raw/doc.md`, { headers })
+    expect(md.headers.get('content-type')).toContain('text/markdown')
+  })
+
+  it('sets attachment disposition with download=1', async () => {
+    const { base, headers } = await startWithWorkbench()
+    const download = await fetch(`${base}api/v1/workbench/raw/doc.md?download=1`, { headers })
+    expect(download.headers.get('content-disposition')).toBe(`attachment; filename*=UTF-8''doc.md`)
+  })
+
+  it('rejects path escapes and oversize files', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { base, headers, root } = await startWithWorkbench()
+    const escape = await fetch(`${base}api/v1/workbench/raw/%2e%2e%2fsecret.txt`, { headers })
+    expect(escape.status).toBe(400)
+    expect(((await escape.json()) as { error: { code: string } }).error.code).toBe(
+      'web_schema_invalid',
+    )
+    // 超过 16 MiB 直出上限（web_attachment_rejected → 400）。
+    await writeFile(join(root, 'big.bin'), Buffer.alloc(17 * 1024 * 1024))
+    const oversize = await fetch(`${base}api/v1/workbench/raw/big.bin`, { headers })
+    expect(oversize.status).toBe(400)
+    expect(((await oversize.json()) as { error: { code: string } }).error.code).toBe(
+      'web_attachment_rejected',
+    )
+  })
+
+  it('issues a raw token and serves files with token alone (no cookie)', async () => {
+    const { base, headers } = await startWithWorkbench()
+    const tokenRes = await fetch(`${base}api/v1/workbench/raw-token`, { headers })
+    expect(tokenRes.status).toBe(200)
+    const { data } = (await tokenRes.json()) as { data: { token: string } }
+    expect(data.token).toMatch(/^[0-9a-f]{64}$/)
+    const tokenOnly = await fetch(`${base}api/v1/workbench/raw/${data.token}/doc.md`)
+    expect(tokenOnly.status).toBe(200)
+    expect(await tokenOnly.text()).toContain('# hello')
+    // 无 token 无 cookie → 401；坏 token 同样 401。
+    const anonymous = await fetch(`${base}api/v1/workbench/raw/doc.md`)
+    expect(anonymous.status).toBe(401)
+    const badToken = await fetch(`${base}api/v1/workbench/raw/${'a'.repeat(64)}/doc.md`)
+    expect(badToken.status).toBe(401)
+  })
+
+  it('requires a browser session', async () => {
+    const { base } = await startWithWorkbench()
+    const anonymous = await fetch(`${base}api/v1/workbench/raw/doc.md`)
+    expect(anonymous.status).toBe(401)
   })
 })

@@ -10,6 +10,7 @@
  *   API 禁缓存；请求体 64 KiB 上限（附件端点 20 MiB 裸字节单列）；
  * - 错误恒为 { error: { code, message } }；敏感值（credential/token）永不进 payload。
  */
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -228,6 +229,26 @@ const MIME: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
 }
 
+ * 产物直出文档（raw 端点的 HTML/SVG/XML）的独立 CSP：脚本/样式/图片/字体放开到
+ * http(s)（产物常引 CDN 资源），但 `connect-src 'none'` 切断 fetch/XHR/WebSocket、
+ * 表单与框架全禁——与前端沙箱 iframe（无 allow-same-origin）共同保证产物脚本
+ * 摸不到控制台 API 与会话 cookie 面。不适用于其余格式（图片/PDF 由渲染器接管）。
+ */
+const ARTIFACT_CSP =
+  "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob:; " +
+  "style-src 'self' 'unsafe-inline' http: https: data:; img-src 'self' data: blob: http: https:; " +
+  "font-src 'self' data: http: https:; media-src 'self' data: blob: http: https:; " +
+  "connect-src 'none'; frame-src 'none'; frame-ancestors 'self'; form-action 'none'; " +
+  "object-src 'none'; base-uri 'none'"
+
+/** 需要套产物 CSP 的文档类型（可携带脚本的文档：网页与 SVG/XML）。 */
+const RAW_DOCUMENT_CSP = (contentType: string): boolean =>
+  contentType.startsWith('text/html') ||
+  contentType.startsWith('application/xhtml') ||
+  contentType.startsWith('image/svg') ||
+  contentType.startsWith('application/xml') ||
+  contentType.startsWith('text/xml')
+
 function fail(
   res: ServerResponse,
   status: number,
@@ -337,6 +358,14 @@ function redactConfigCredentials(config: Record<string, unknown>): {
     }
   }
   return { config: clone, redacted }
+  const webSearch = clone.web_search
+  if (webSearch && typeof webSearch === 'object' && !Array.isArray(webSearch)) {
+    for (const [key, value] of Object.entries(webSearch as Record<string, unknown>)) {
+      if (!/_api_key$/i.test(key) || typeof value !== 'string') continue
+      ;(webSearch as Record<string, unknown>)[key] = true
+      redacted.push(`web_search.${key}`)
+    }
+  }
 }
 
 /** config/set、config/unset 的 key 形状门（与 config-edit assertSafeKey 同规则）。 */
@@ -358,19 +387,30 @@ function notifyRemoteConfigChange(
 /** 常量时间比较（nonce/CSRF/session id 全走这里）。 */
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a)
-  const webSearch = clone.web_search
-  if (webSearch && typeof webSearch === 'object' && !Array.isArray(webSearch)) {
-    for (const [key, value] of Object.entries(webSearch as Record<string, unknown>)) {
-      if (!/_api_key$/i.test(key) || typeof value !== 'string') continue
-      ;(webSearch as Record<string, unknown>)[key] = true
-      redacted.push(`web_search.${key}`)
-    }
-  }
   const right = Buffer.from(b)
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
 function parseCookies(header: string | undefined): Map<string, string> {
+ * 产物直出的预览 token：HMAC 时间桶（每 10 分钟轮换，前一把仍在有效期内）。
+ * 沙箱 iframe（无 allow-same-origin）是 opaque origin——其子资源请求不带
+ * SameSite=Strict cookie，产物内相对资源（./app.js）必须靠 URL 路径里的
+ * token 过鉴权。token 只授予 raw 直出的只读面、只在 loopback 服务器有效、
+ * 随进程重启失效。
+ */
+const RAW_PREVIEW_BUCKET_MS = 10 * 60_000
+
+function rawPreviewToken(secret: Buffer, bucket: number): string {
+  return createHmac('sha256', secret).update(`raw-preview:${bucket}`).digest('hex')
+}
+
+function rawPreviewTokenValid(secret: Buffer, candidate: string): boolean {
+  const current = Math.floor(Date.now() / RAW_PREVIEW_BUCKET_MS)
+  return [current, current - 1].some((bucket) =>
+    safeEqual(rawPreviewToken(secret, bucket), candidate),
+  )
+}
+
   const out = new Map<string, string>()
   if (!header) return out
   for (const part of header.split(';')) {
@@ -389,6 +429,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   const serverId = randomBytes(16).toString('base64url')
   const sessions = new Map<string, BrowserSession>()
   const sessionTtl = options.sessionTtlMs ?? 12 * 60 * 60_000
+  const rawPreviewSecret = randomBytes(32)
   const startedAt = Date.now()
 
   const createSession = (): BrowserSession => {
@@ -503,6 +544,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
               attachments: options.sessionHub !== undefined,
             },
             // W-01：嵌入式（随 TUI 静默启动）——会话切换/结束由 TUI 持有，前端降级。
+              sessionDelete: options.sessionHub !== undefined,
             embedded: options.embedded === true,
             models: options.models !== undefined,
             permissionMode: options.permissionMode !== undefined,
@@ -533,6 +575,60 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
 
     // 其余 /api/v1 一律要求 browser session。
     const session = findSession(req)
+    // ── 产物直出（工作台预览面板的后端）：必须在 session 门之前——沙箱 iframe
+    // 是 opaque origin，其子资源请求不带 cookie，鉴权 = 路径 token 或 browser
+    // session 二选一。路径式路由 /raw/[<token>/]<rel>：产物内相对资源
+    // （./app.js）解析到同一棵路由树下并自然携带 token。响应不带全局 CSP，
+    // 可携带脚本的文档改发 ARTIFACT_CSP（见上方注释）。
+    if (path.startsWith('/api/v1/workbench/raw/') && req.method === 'GET') {
+      let rest = path.slice('/api/v1/workbench/raw/'.length)
+      try {
+        rest = decodeURIComponent(rest)
+      } catch {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'malformed path encoding' })
+        return
+      }
+      const slash = rest.indexOf('/')
+      const maybeToken = slash > 0 ? rest.slice(0, slash) : ''
+      const tokenOk = maybeToken.length > 0 && rawPreviewTokenValid(rawPreviewSecret, maybeToken)
+      if (!tokenOk && !findSession(req)) {
+        fail(res, 401, {
+          code: 'web_session_invalid',
+          message: 'missing or expired browser session',
+        })
+        return
+      }
+      const rel = tokenOk ? rest.slice(slash + 1) : rest
+      if (!rel) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'path is required' })
+        return
+      }
+      if (!options.workbench) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: 'workbench is not wired' })
+        return
+      }
+      try {
+        const file = await options.workbench.readRaw(rel)
+        const headers: Record<string, string> = {
+          'Content-Type': file.contentType,
+          'Content-Length': String(file.bytes.byteLength),
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        }
+        if (url.searchParams.get('download') === '1') {
+          const name = rel.split('/').pop() ?? 'file'
+          headers['Content-Disposition'] =
+            `attachment; filename*=UTF-8''${encodeURIComponent(name)}`
+        }
+        if (RAW_DOCUMENT_CSP(file.contentType)) headers['Content-Security-Policy'] = ARTIFACT_CSP
+        res.writeHead(200, headers)
+        res.end(file.bytes)
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+
     if (!session) {
       fail(res, 401, { code: 'web_session_invalid', message: 'missing or expired browser session' })
       return
@@ -544,7 +640,6 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         fail(res, 403, {
           code: 'web_origin_rejected',
           message: 'Origin does not match the loopback server',
-              sessionDelete: options.sessionHub !== undefined,
         })
         return
       }
@@ -924,6 +1019,17 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         }
         if (path === '/api/v1/workbench/fs/write-bytes' && req.method === 'POST') {
           const body = (await readJsonBody(req, MAX_WRITE_BODY_BYTES)) as
+        // ── 产物直出 token 签发（cookie 门内）：前端拼 /raw/<token>/<rel> 供
+        // 沙箱 iframe 与图片用；实际的文件服务在 session 门之前的 raw 钩子里。
+        if (path === '/api/v1/workbench/raw-token' && req.method === 'GET') {
+          ok(res, {
+            token: rawPreviewToken(
+              rawPreviewSecret,
+              Math.floor(Date.now() / RAW_PREVIEW_BUCKET_MS),
+            ),
+          })
+          return
+        }
             | { path?: unknown; base64?: unknown }
             | undefined
           if (typeof body?.path !== 'string' || typeof body.base64 !== 'string') {
@@ -1022,6 +1128,22 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     }
     if (hub && path === '/api/v1/sessions/active/transcript' && req.method === 'GET') {
       ok(res, hub.transcript())
+    // 会话删除（破坏性）：hub 底层端口未接线时 503（能力诚实降级），不存在 404，
+    // 删的是活动会话时宿主先 end 再冷启动并经 SSE 推 session.attached/deleted。
+    if (hub && path === '/api/v1/sessions/delete' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const id = (body as { id?: unknown })?.id
+      if (typeof id !== 'string' || !id) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'id is required' })
+        return
+      }
+      try {
+        ok(res, await hub.deleteSession(id))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
       return
     }
     if (hub && path === '/api/v1/sessions/active/turns' && req.method === 'POST') {
@@ -1128,22 +1250,6 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         fail(res, 400, { code: 'web_schema_invalid', message: 'missing query parameter: path' })
         return
       }
-    // 会话删除（破坏性）：hub 底层端口未接线时 503（能力诚实降级），不存在 404，
-    // 删的是活动会话时宿主先 end 再冷启动并经 SSE 推 session.attached/deleted。
-    if (hub && path === '/api/v1/sessions/delete' && req.method === 'POST') {
-      const body = await readJsonBody(req)
-      const id = (body as { id?: unknown })?.id
-      if (typeof id !== 'string' || !id) {
-        fail(res, 400, { code: 'web_schema_invalid', message: 'id is required' })
-        return
-      }
-      try {
-        ok(res, await hub.deleteSession(id))
-      } catch (cause) {
-        failFrom(res, cause)
-      }
-      return
-    }
       if (!options.changes.previewUndoPath) {
         fail(res, 501, { code: 'web_state_conflict', message: 'per-file undo is not available' })
         return
@@ -1291,6 +1397,20 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       const raw = path.slice('/api/v1/'.length, -'/actions'.length)
       // 规范别名：§22.8.2 的复数路径 → 域单数键。
       const domain = raw === 'skills' ? 'skill' : raw
+    if (hub && path === '/api/v1/asks/answer' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const requestId = (body as { requestId?: unknown })?.requestId
+      const rawValue = (body as { value?: unknown })?.value
+      if (
+        typeof requestId !== 'string' ||
+        !(rawValue === undefined || typeof rawValue === 'string')
+      ) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'requestId is required' })
+        return
+      }
+      ok(res, { answered: hub.answerAsk(requestId, rawValue) })
+      return
+    }
       const tables: Record<
         string,
         Record<string, (body: Record<string, unknown>) => Promise<unknown>>
@@ -1414,20 +1534,6 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           list: async () => ({
             summary: await mgmt.telemetry!.summary(),
             health: await mgmt.telemetry!.health(),
-    if (hub && path === '/api/v1/asks/answer' && req.method === 'POST') {
-      const body = await readJsonBody(req)
-      const requestId = (body as { requestId?: unknown })?.requestId
-      const rawValue = (body as { value?: unknown })?.value
-      if (
-        typeof requestId !== 'string' ||
-        !(rawValue === undefined || typeof rawValue === 'string')
-      ) {
-        fail(res, 400, { code: 'web_schema_invalid', message: 'requestId is required' })
-        return
-      }
-      ok(res, { answered: hub.answerAsk(requestId, rawValue) })
-      return
-    }
           }),
           summary: async () => await mgmt.telemetry!.summary(),
           health: async () => await mgmt.telemetry!.health(),

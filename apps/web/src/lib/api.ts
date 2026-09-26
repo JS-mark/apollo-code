@@ -382,6 +382,16 @@ export class WebApi {
   }
   async managementAction(domain: string, body: Record<string, unknown>): Promise<unknown> {
     return parseResponse(
+  /** AskUserQuestion 作答（value 缺省 = 跳过，模型自选默认继续）。 */
+  async answerAsk(requestId: string, value?: string): Promise<void> {
+    await parseResponse(
+      await fetch('/api/v1/asks/answer', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ requestId, ...(value === undefined ? {} : { value }) }),
+      }),
+    )
+  }
       await fetch(`/api/v1/${domain}/actions`, {
         method: 'POST',
         headers: this.headers(),
@@ -395,16 +405,6 @@ export class WebApi {
   }
 
   async sessions(): Promise<readonly SessionSummary[]> {
-  /** AskUserQuestion 作答（value 缺省 = 跳过，模型自选默认继续）。 */
-  async answerAsk(requestId: string, value?: string): Promise<void> {
-    await parseResponse(
-      await fetch('/api/v1/asks/answer', {
-        method: 'POST',
-        headers: this.headers(),
-        body: JSON.stringify({ requestId, ...(value === undefined ? {} : { value }) }),
-      }),
-    )
-  }
     const data = await parseResponse<{ sessions: readonly SessionSummary[] }>(
       await fetch('/api/v1/sessions'),
     )
@@ -538,6 +538,30 @@ export class WebApi {
   async wbReadBytes(path: string): Promise<WbFileBytes> {
     return parseResponse(
       await fetch(`/api/v1/workbench/fs/read-bytes?path=${encodeURIComponent(path)}`),
+  private rawToken?: { value: string; at: number }
+
+  /**
+   * 产物直出 token（HMAC 时间桶，服务端 10 分钟轮换、前一把仍有效；这里
+   * 8 分钟强刷）。沙箱 iframe 的子资源请求不带 cookie，直出 URL 必须带它。
+   */
+  async wbRawToken(): Promise<string> {
+    if (this.rawToken && Date.now() - this.rawToken.at < 8 * 60_000) return this.rawToken.value
+    const data = await parseResponse<{ token: string }>(
+      await fetch('/api/v1/workbench/raw-token', { headers: this.headers() }),
+    )
+    this.rawToken = { value: data.token, at: Date.now() }
+    return data.token
+  }
+
+  /**
+   * 产物直出 URL（预览 iframe / 图片 / 下载用）：路径式编码让产物内相对资源
+   * （./app.js）解析到同一路由树下并自然携带 token。
+   */
+  wbRawUrl(path: string, token: string, download = false): string {
+    const encoded = path.split('/').map(encodeURIComponent).join('/')
+    return `/api/v1/workbench/raw/${token}/${encoded}${download ? '?download=1' : ''}`
+  }
+
     )
   }
   async wbWriteBytes(path: string, base64: string): Promise<{ path: string; size: number }> {

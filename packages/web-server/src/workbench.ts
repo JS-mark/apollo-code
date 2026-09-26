@@ -89,6 +89,9 @@ export interface WorkbenchPort {
   stat(rel: string): Promise<WorkbenchStat>
   /** 字节读取(base64;图片等二进制预览走这里,上限 2 MiB)。 */
   readBytes(rel: string): Promise<WorkbenchFileBytes>
+  // ── 产物直出(工作台预览面板)───────────────────────────────────────────
+  /** 原始字节直出(带按扩展名判的 Content-Type;预览 iframe/图片/下载走这里)。 */
+  readRaw(rel: string): Promise<WorkbenchRawFile>
   /** 字节写入(base64;二进制粘贴/复制保真)。 */
   writeBytes(rel: string, base64: string): Promise<{ path: string; size: number }>
   mkdir(rel: string): Promise<{ path: string }>
@@ -111,8 +114,64 @@ export interface WorkbenchFileBytes {
   base64: string
 }
 
+/** raw 直出返回面(bytes 为原始字节,路由层直接写响应体)。 */
+export interface WorkbenchRawFile {
+  path: string
+  size: number
+  contentType: string
+  bytes: Buffer
+}
+
 /** 字节读取上限(图片预览场景):与写入上限同量级。 */
 const MAX_READ_BYTES_BINARY = 2 * 1024 * 1024
+
+/** raw 直出上限(产物预览;预渲染的网页/PDF 一般远小于此)。 */
+const MAX_RAW_BYTES = 16 * 1024 * 1024
+
+/**
+ * raw 直出的 Content-Type(按扩展名;未命中一律 application/octet-stream,
+ * 配合路由层 nosniff 防止把工作区文件嗅探成可执行文档)。
+ */
+const RAW_MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.xhtml': 'application/xhtml+xml',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.wasm': 'application/wasm',
+}
+
+const rawContentType = (rel: string): string => {
+  const name = rel.split('/').pop() ?? rel
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot).toLowerCase() : ''
+  return RAW_MIME[ext] ?? 'application/octet-stream'
+}
 
 /** 领域错误：带 code 由路由层 failFrom 映射状态码。 */
 function fail(code: string, message: string): never {
@@ -249,6 +308,16 @@ export function createWorkbenchPort(rootInput: string): WorkbenchPort {
         fail('web_attachment_rejected', `content exceeds ${MAX_READ_BYTES_BINARY} bytes`)
       const handle = await readFile(abs)
       return { path: rel, size: info.size, base64: handle.toString('base64') }
+    },
+
+    async readRaw(rel) {
+      const abs = resolveWithin(rel)
+      const info = await stat(abs).catch(() => fail('web_schema_invalid', `not found: ${rel}`))
+      if (!info.isFile()) fail('web_schema_invalid', `not a file: ${rel}`)
+      if (info.size > MAX_RAW_BYTES)
+        fail('web_attachment_rejected', `content exceeds ${MAX_RAW_BYTES} bytes`)
+      const bytes = await readFile(abs)
+      return { path: rel, size: info.size, contentType: rawContentType(rel), bytes }
     },
 
     async writeBytes(rel, base64) {
