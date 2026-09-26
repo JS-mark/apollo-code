@@ -38,6 +38,13 @@ export interface RunnerOptions {
   maxToolLoopsPerTurn?: number
   budget?: { tokenMax?: number; costUSDMax?: number; timeMsMax?: number; toolCallMax?: number }
 }
+/** subagent_budget_exhausted 的 context.dimension → 用户可读标签（context.message 用）。 */
+const BUDGET_DIMENSION_LABEL = {
+  token: 'token usage',
+  cost: 'cost',
+  time: 'time',
+  'tool-call': 'tool calls',
+} as const
 /**
  * tool_use 流式聚合条目（spec 03-provider-router §3.2 rule 1）：
  * `fragments` 即 `Map<toolUseId, string[]>` 的 per-id 片段列表，delta 按 id 追加，
@@ -181,6 +188,7 @@ export class Runner {
             code: 'subagent_budget_exhausted',
             context: {
               dimension: exhausted,
+              message: `Resource budget exhausted (${BUDGET_DIMENSION_LABEL[exhausted]}); the turn was aborted. Completed changes are kept — raise the budget to continue.`,
               consumed: {
                 input: this.#state.cumulativeUsage.input,
                 output: this.#state.cumulativeUsage.output,
@@ -198,7 +206,12 @@ export class Runner {
         if (loops >= (this.options.maxToolLoopsPerTurn ?? 25)) {
           await this.emit('error.raised', turnId, {
             code: 'tool_loop_exhausted',
-            context: { loopCount: loops },
+            context: {
+              loopCount: loops,
+              // context.message 是 UI 通知的直读键（web/mobile reducer 取
+              // message/reason 兜底渲染）；code 保留给日志与 grep。
+              message: `Reached the per-turn limit of ${loops} consecutive tool-call rounds; the turn ended here. Completed changes are kept — send a follow-up message to continue in a new turn.`,
+            },
           })
           break
         }

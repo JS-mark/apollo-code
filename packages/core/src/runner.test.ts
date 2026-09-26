@@ -98,13 +98,21 @@ describe('Runner', () => {
     ]
     const client = provider(Array.from({ length: 25 }, () => toolStream))
     const events: string[] = []
+    const raised: { code: string; context?: { message?: string } }[] = []
     const bus = new EventBus()
     bus.subscribe((event) => {
-      if (event.type === 'error.raised') events.push((event.payload as { code: string }).code)
+      if (event.type === 'error.raised') {
+        events.push((event.payload as { code: string }).code)
+        raised.push(event.payload as { code: string; context?: { message?: string } })
+      }
     })
     await new Runner(context(), router(client), composer, tools, bus).run('hi')
     expect(tools.execute).toHaveBeenCalledTimes(25)
     expect(events).toContain('tool_loop_exhausted')
+    // context.message 是 UI 通知的直读键：提示必须说清上限与出路，不能只抛空码。
+    expect(
+      raised.find((payload) => payload.code === 'tool_loop_exhausted')?.context?.message,
+    ).toMatch(/per-turn limit/)
   })
   it('enforces a subagent token budget between loops and preserves partial output', async () => {
     const client = provider([
@@ -135,7 +143,7 @@ describe('Runner', () => {
     expect(raised).toContainEqual(
       expect.objectContaining({
         code: 'subagent_budget_exhausted',
-        context: expect.objectContaining({ dimension: 'token' }),
+        context: expect.objectContaining({ dimension: 'token', message: expect.stringContaining('token usage') }),
       }),
     )
     expect(final.turns.at(-1)?.status).toBe('aborted')
