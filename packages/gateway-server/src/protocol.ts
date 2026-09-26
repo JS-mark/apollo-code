@@ -114,6 +114,10 @@ export type HubRpcMethod =
   | 'sessions.delete'
   | 'session.transcript'
   | 'models.list'
+  | 'changes.list'
+  | 'changes.diff'
+  | 'changes.undoPreview'
+  | 'changes.undo'
 
 export interface UplinkRpcFrame {
   readonly type: 'rpc'

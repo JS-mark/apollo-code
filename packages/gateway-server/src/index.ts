@@ -955,6 +955,20 @@ export async function createGatewayServer(
             new GatewayError(
               'gateway_unsupported_content',
               413,
+      // ── 会话文件变更（移动端消息流变更卡片；relay 经隧道取自本机 BackupStore）──
+      if (path === '/v1/sessions/active/changes' && req.method === 'GET') {
+        const hubForAuth = resolveHub(auth)
+        try {
+          ok(res, hubForAuth.changesList ? await hubForAuth.changesList() : { paths: [] })
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      if (path === '/v1/sessions/active/changes/diff' && req.method === 'GET') {
+        const target = url.searchParams.get('path')
+        if (!target)
               `attachment exceeds ${maxAttachmentBytes} bytes`,
             ),
           )

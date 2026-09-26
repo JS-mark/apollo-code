@@ -22,7 +22,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Bootstrap, SessionGroupsView, SessionSummary, StatusView } from '../lib/api'
 import { openBrowserSession, WebApi } from '../lib/api'
 import { BrandMark } from './BrandMark'
-import { ChangesPage } from './ChangesPage'
 import { ChatPanel } from './ChatPanel'
 import { CodePage } from './CodePage'
 import { ManagePage } from './ManagePage'
@@ -124,6 +123,12 @@ export function AppShell() {
   const [rightPanel, setRightPanel] = useState<'connect' | 'workbench' | null>(null)
   // ⌘J 信号：打开工作台并聚焦终端标签页（递增值触发 WorkbenchPanel 的 effect）。
   const [terminalSignal, setTerminalSignal] = useState(0)
+  // 工作台聚焦信号（变更卡片「审查/打开」）：打开工作台并定位目标。
+  const [wbFocus, setWbFocus] = useState<{ seq: number; tab: 'changes' | 'file'; path: string }>({
+    seq: 0,
+    tab: 'file',
+    path: '',
+  })
   const [loggedOut, setLoggedOut] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   // 会话侧栏可收起(⌘B / 图标轨底部按钮);收起后由图标轨按钮恢复。
@@ -342,7 +347,12 @@ export function AppShell() {
       {railMenuItem('docs', '文档', <ReadOutlined />, { href: DOCS_URL })}
       <div className="rail-menu-divider" />
       <div className="rail-menu-group">可观测</div>
-      {railMenuItem('changes', '变更', <ForkOutlined />, { route: 'changes' })}
+      {railMenuItem('changes', '变更', <ForkOutlined />, {
+        onSelect: () => {
+          setRightPanel('workbench')
+          setWbFocus((current) => ({ seq: current.seq + 1, tab: 'changes', path: '' }))
+        },
+      })}
       {railMenuItem('status', '实例', <ChipIcon />, { route: 'status' })}
       {railMenuItem('stats', '统计', <BarChartOutlined />, { route: 'stats' })}
       {railMenuItem('tracing', '链路', <TraceIcon />, { disabled: true })}
@@ -471,8 +481,6 @@ export function AppShell() {
               />
             ) : route === 'shortcuts' ? (
               <ShortcutsPage />
-            ) : route === 'changes' ? (
-              <ChangesPage api={loaded.api} sessionId={activeId} />
             ) : route === 'stats' ? (
               <StatsPage api={loaded.api} />
             ) : (
@@ -493,6 +501,14 @@ export function AppShell() {
                 onToggleWorkbench={() =>
                   setRightPanel((current) => (current === 'workbench' ? null : 'workbench'))
                 }
+                onOpenChanges={(path) => {
+                  setRightPanel('workbench')
+                  setWbFocus((current) => ({ seq: current.seq + 1, tab: 'changes', path }))
+                }}
+                onOpenFile={(path) => {
+                  setRightPanel('workbench')
+                  setWbFocus((current) => ({ seq: current.seq + 1, tab: 'file', path }))
+                }}
                 onResumeSession={(id) => void resume(id)}
                 onFocusSessionSearch={() => {
                   // 侧栏收起时先展开,等挂载后再聚焦搜索框。
@@ -519,6 +535,7 @@ export function AppShell() {
             api={loaded.api}
             terminalSignal={terminalSignal}
             onClose={() => setRightPanel(null)}
+            focusSignal={wbFocus}
           />
         )}
       </div>

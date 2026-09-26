@@ -1800,7 +1800,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     changes: {
-      list: (sessionId) => backups.changes(sessionId),
+      list: (sessionId, opts) => backups.changes(sessionId, opts),
       fileDiff: (sessionId, path) => backups.fileDiff(sessionId, path),
       previewUndo: (sessionId) => backups.previewUndoStep(sessionId),
       undoStep: (sessionId) => backups.undoStep(sessionId),

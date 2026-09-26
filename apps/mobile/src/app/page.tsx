@@ -87,6 +87,7 @@ export default function MobileApp() {
     } finally {
       setSessionsLoading(false)
     }
+  const gateway = useMemo(() => (session ? new GatewayApi(session.token) : undefined), [session])
   }, [])
 
   const refreshModels = useCallback(async () => {
@@ -478,6 +479,7 @@ export default function MobileApp() {
           ) : tab === 'sessions' ? (
             <SessionsView
               sessions={sessions}
+            gateway={gateway}
               loading={sessionsLoading}
               activeId={activeSessionId}
               onRefresh={() => void refreshSessions()}

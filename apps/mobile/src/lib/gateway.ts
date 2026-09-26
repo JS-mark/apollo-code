@@ -179,6 +179,42 @@ export interface SessionSummary {
 
 /** 已暂存附件（POST /v1/attachments 返回面；handle 由本机 AttachmentStore 颁发）。 */
 export interface StagedAttachment {
+/** 会话文件变更条目（GET /v1/sessions/active/changes 返回面；stats 恒带）。 */
+export interface ChangeRow {
+  path: string
+  created: boolean
+  batches: number
+  lastModifiedAt: string
+  allConsumed: boolean
+  stats?: {
+    linesAdded: number
+    linesRemoved: number
+    truncated: boolean
+    deleted: boolean
+  }
+}
+
+/** 单文件净效果 diff（GET .../changes/diff 返回面）。 */
+export interface ChangeDiff {
+  path: string
+  tracked: boolean
+  created: boolean
+  beforeAvailable: boolean
+  deleted: boolean
+  truncated?: boolean
+  diff: string
+  linesAdded: number
+  linesRemoved: number
+}
+
+/** 撤销最近批次的预览/执行返回面。 */
+export interface UndoPreview {
+  undoable: boolean
+  reason?: string
+  paths: string[]
+  warnings: { path: string; kind: string }[]
+}
+
   kind: 'file' | 'image'
   mime: string
   size: number
@@ -235,6 +271,23 @@ export class GatewayApi {
   /** 附件上传：原始字节直传（Content-Type = 图片 mime），回本机 AttachmentStore 引用。 */
   async uploadAttachment(bytes: Blob, mime: string): Promise<StagedAttachment> {
     const res = await fetch(`${gatewayBase()}/v1/attachments`, {
+  changes(): Promise<{ paths: ChangeRow[]; missing?: boolean }> {
+    return this.get('/v1/sessions/active/changes')
+  }
+
+  /** 单文件净效果 diff（卡片行内展开「审查」用）。 */
+  changesDiff(path: string): Promise<ChangeDiff> {
+    return this.get(`/v1/sessions/active/changes/diff?path=${encodeURIComponent(path)}`)
+  }
+
+  /** 撤销最近批次预览（确认门；不消费）。 */
+  changesUndoPreview(): Promise<UndoPreview> {
+    return this.get('/v1/sessions/active/changes/undo/preview')
+  }
+
+  /** 撤销最近批次（破坏性；预览确认后执行）。 */
+  async changesUndo(): Promise<{ undone: boolean; reason?: string }> {
+    const res = await fetch(`${gatewayBase()}/v1/sessions/active/changes/undo`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': mime },
       body: bytes,

@@ -101,6 +101,47 @@ class FakeHub implements GatewayHubLike {
     this.deletedSessions.push(id)
     return { deleted: true }
   }
+  /** changes 隧道腿（消息流变更卡片）：计数器供用例断言。 */
+  changesListCalls = 0
+  undoCalls = 0
+
+  async changesList() {
+    this.changesListCalls += 1
+    return {
+      paths: [
+        {
+          path: 'src/a.ts',
+          created: false,
+          batches: 1,
+          lastModifiedAt: '2026-09-23 18:30',
+          allConsumed: false,
+          stats: { linesAdded: 3, linesRemoved: 1, truncated: false, deleted: false },
+        },
+      ],
+    }
+  }
+
+  async changesDiff(path: string) {
+    return {
+      path,
+      tracked: true,
+      created: false,
+      beforeAvailable: true,
+      deleted: false,
+      diff: '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new',
+      linesAdded: 3,
+      linesRemoved: 1,
+    }
+  }
+
+  async changesUndoPreview() {
+    return { undoable: true, paths: ['src/a.ts'], warnings: [] }
+  }
+
+  async changesUndo() {
+    this.undoCalls += 1
+    return { undone: true, paths: ['src/a.ts'], warnings: [] }
+  }
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -425,6 +466,7 @@ describe('RemoteLink', () => {
   it('serves attachment bytes back through the uplink tunnel', async () => {
     await startGateway()
     link = createLink()
+  it('serves session changes (list/diff/undo) from the machine over the uplink', async () => {
     link.start()
     await waitOnline(link)
 

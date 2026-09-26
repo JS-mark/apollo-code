@@ -1,5 +1,12 @@
 // TranscriptEntry 契约已迁至 @volund/app-runtime（§22.7.1：TUI/Web 共用）；
 // 此处 re-export 保持既有引用兼容。
+import {
+  isSlashSubmitView,
+  isTranscriptToolEntry,
+  type SlashSubmitView,
+  type TranscriptEntry,
+  type TranscriptItem,
+} from '@volund/app-runtime'
 import { isSlashSubmitView, type SlashSubmitView, type TranscriptEntry } from '@volund/app-runtime'
 import type { CoreEvent, EventBus } from '@volund/core'
 import {
@@ -56,6 +63,12 @@ import type { WelcomeNativeStatus, WelcomePanelData, WelcomeSandboxStatus } from
 
 export type { TranscriptEntry }
 export { isSlashSubmitView }
+ * transcript 快照播种 TUI 消息流前过滤 tool 条目（web/mobile 折叠卡用）：
+ * TUI 的工具活动行走 events 重放的 ActivityItem，快照里的工具卡不进消息流。
+ */
+function messageEntries(transcript: readonly TranscriptItem[]): TranscriptEntry[] {
+  return transcript.filter((item): item is TranscriptEntry => !isTranscriptToolEntry(item))
+}
 export type { SlashSubmitView } from '@volund/app-runtime'
 
 export interface SlashCommandInput {
@@ -164,7 +177,7 @@ export interface ResumedInteractiveSession {
   /** §7.5.3 @ picker 的文件候选源（cwd 相对路径快照）。 */
   listFiles?(): Promise<readonly string[]>
   onSubmit(input: string, options?: SubmitOptions): Promise<void> | void
-  transcript?: readonly TranscriptEntry[]
+  transcript?: readonly TranscriptItem[]
 }
 
 export interface SessionResumeController {
@@ -379,7 +392,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       setState((current) => ({
         ...current,
         sessionId: session.id,
-        transcript: [...(session.transcript ?? [])],
+        transcript: messageEntries(session.transcript ?? []),
         pendingAssistantText: '',
         status: 'session switched from web',
         statusLevel: 'muted',
@@ -1388,7 +1401,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
                 setState((current) => ({
                   ...current,
                   sessionId: resumed.id,
-                  transcript: [...(resumed.transcript ?? [])],
+                  transcript: messageEntries(resumed.transcript ?? []),
                   // 持久化 transcript 只含消息（不含活动行）；旧会话的活动不带到新视图。
                   activities: [],
                   pendingAssistantText: '',

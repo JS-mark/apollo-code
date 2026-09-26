@@ -37,6 +37,7 @@ export interface PendingImage extends ChatMessageImage {
   previewUrl: string
   status: 'uploading' | 'ready' | 'error'
   staged?: StagedAttachment
+import type { GatewayApi, StagedAttachment } from '../lib/gateway'
 }
 
 /** 提交时传给父级的图片（staged 必在——uploading/error 已被 send 拦住）。 */
@@ -368,6 +369,18 @@ export function ChatView({
           <div className="chips">
             {images.map((image) => (
               <span key={image.chip} className={`chip ${image.status}`}>
+  gateway: GatewayApi | undefined
+  activeSessionId: string | undefined
+  turn: ChatState['turn']
+}
+
+/** 消息流末尾的变更卡片槽位（模块级组件——内联函数每次渲染换身份会让卡片反复重挂载）。 */
+function ChatChangesFooter({ context }: { context?: ChatFooterContext }) {
+  if (!context?.gateway) return null
+  return (
+    <div className="chat-item">
+      <ChangesCard api={context.gateway} sessionId={context.activeSessionId} turn={context.turn} />
+    </div>
                 <img src={image.previewUrl} alt={image.chip} />
                 {image.status === 'uploading' && <LoadingOutlined className="chip-status" />}
                 {image.status === 'error' && <span className="chip-status">失败</span>}
@@ -380,6 +393,7 @@ export function ChatView({
                   <CloseOutlined style={{ fontSize: 10 }} />
                 </button>
               </span>
+  gateway,
             ))}
           </div>
         )}
@@ -395,6 +409,7 @@ export function ChatView({
           </button>
           <input
             ref={fileRef}
+  gateway: GatewayApi | undefined
             type="file"
             accept={IMAGE_ACCEPT}
             multiple
@@ -442,3 +457,4 @@ export function ChatView({
           <AskStack
             asks={state.asks}
             onAnswer={(requestId, value) => onAnswerAsk(requestId, value)}
+          context={{ gateway, activeSessionId, turn: state.turn }}

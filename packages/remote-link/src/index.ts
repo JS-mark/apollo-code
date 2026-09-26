@@ -472,6 +472,26 @@ export class RemoteLink {
       const list = this.options.hub.listModels
       return list ? list.call(this.options.hub) : { options: [] }
     }
+    // 会话文件变更（移动端消息流变更卡片）：list 恒带行统计；hub 未实现按空视图。
+    if (method === 'changes.list') {
+      const list = this.options.hub.changesList
+      return list ? list.call(this.options.hub) : { paths: [] }
+    }
+    if (method === 'changes.diff') {
+      const diff = this.options.hub.changesDiff
+      if (!diff) throw new Error('changes diff is not supported by this hub')
+      return diff.call(this.options.hub, String(params.path ?? ''))
+    }
+    if (method === 'changes.undoPreview') {
+      const preview = this.options.hub.changesUndoPreview
+      if (!preview) throw new Error('changes undo is not supported by this hub')
+      return preview.call(this.options.hub)
+    }
+    if (method === 'changes.undo') {
+      const undo = this.options.hub.changesUndo
+      if (!undo) throw new Error('changes undo is not supported by this hub')
+      return undo.call(this.options.hub)
+    }
     throw new Error(`unknown uplink rpc method: ${method}`)
   }
 

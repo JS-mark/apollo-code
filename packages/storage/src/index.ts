@@ -364,6 +364,17 @@ export interface SessionChanges {
     lastModifiedAt: string
     /** 全部批次已被 /undo 消费。 */
     allConsumed: boolean
+    /**
+     * 净效果行统计（仅 stats:true 时计算；与 fileDiff 同源的 before→当前盘面 diff）。
+     * truncated=任一端超 4MB 只给 0/0 计数语义；deleted=盘面已删。单文件统计失败
+     * （读盘竞态等）不拖垮整表——该字段缺省。
+     */
+    stats?: {
+      linesAdded: number
+      linesRemoved: number
+      truncated: boolean
+      deleted: boolean
+    }
   }[]
   missing: boolean
 }
@@ -639,7 +650,7 @@ export class BackupStore {
    * W-08 Web changes 视图：按路径聚合本会话的备份批次（会话归属的文件效果；
    * Bash 无备份语义，天然不在此列）。只读，不消费任何批次。
    */
-  async changes(sessionId: string): Promise<SessionChanges> {
+  async changes(sessionId: string, options?: { stats?: boolean }): Promise<SessionChanges> {
     validateSessionId(sessionId)
     const manifest = await this.readManifest(sessionId)
     if (!manifest) return { paths: [], missing: true }
@@ -663,6 +674,31 @@ export class BackupStore {
         }
       })
       .toSorted((a, b) => b.lastModifiedAt.localeCompare(a.lastModifiedAt))
+    // 行统计是加码面（Web 消息流变更卡片 / 移动端）：每个文件一次 before→盘面净
+    // diff，成本与文件大小成正比（4MB 守卫同 fileDiff）；单文件失败只缺该行的统计。
+    if (options?.stats) {
+      await Promise.all(
+        paths.map(async (row) => {
+          const records = byPath.get(row.path)
+          const first = records?.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+          if (!first) return
+          try {
+            const ends = await readDiffEnds(first, row.path)
+            const diff = ends.truncated
+              ? { linesAdded: 0, linesRemoved: 0 }
+              : unifiedDiff(ends.before, ends.after)
+            row.stats = {
+              linesAdded: diff.linesAdded,
+              linesRemoved: diff.linesRemoved,
+              truncated: ends.truncated,
+              deleted: ends.deleted,
+            }
+          } catch {
+            // 读盘竞态（备份对象/盘面文件在统计间隙被删改）：缺省该行的 stats
+          }
+        }),
+      )
+    }
     return { paths, missing: false }
   }
   /**
@@ -690,33 +726,9 @@ export class BackupStore {
     const first = sorted[0]!
     // W-08「大 diff 虚拟化」：任一端超过上限不读全文——diff 成本与文件大小
     // 成正比，超限路径只给计数语义（truncated），调用方渲染截断提示。
-    let before = ''
-    let beforeAvailable = true
-    if (first.existed) {
-      if (first.backupPath) {
-        try {
-          const info = await stat(first.backupPath)
-          if (info.size > MAX_FILE_DIFF_BYTES)
-            return truncatedResult(path, first, true, await targetDeleted(path))
-          before = await readFile(first.backupPath, 'utf8')
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-          beforeAvailable = false
-        }
-      } else beforeAvailable = false
-    }
-    let after = ''
-    let deleted = false
-    try {
-      const info = await stat(path)
-      if (info.size > MAX_FILE_DIFF_BYTES)
-        return truncatedResult(path, first, beforeAvailable, false)
-      after = await readFile(path, 'utf8')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      deleted = true
-    }
-    const { hunks, linesAdded, linesRemoved } = unifiedDiff(before, after)
+    const ends = await readDiffEnds(first, path)
+    if (ends.truncated) return truncatedResult(path, first, ends.beforeAvailable, ends.deleted)
+    const { hunks, linesAdded, linesRemoved } = unifiedDiff(ends.before, ends.after)
     return {
       path,
       tracked: true,
@@ -922,6 +934,55 @@ async function targetDeleted(path: string): Promise<boolean> {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'ENOENT'
   }
+}
+
+/**
+ * fileDiff / changes(stats) 共用：读「首个备份的 before 快照」与「当前盘面内容」两端。
+ * 任一端超 MAX_FILE_DIFF_BYTES → truncated（不读全文，语义同 truncatedResult）。
+ */
+async function readDiffEnds(
+  first: BackupRecord,
+  path: string,
+): Promise<{
+  before: string
+  beforeAvailable: boolean
+  after: string
+  deleted: boolean
+  truncated: boolean
+}> {
+  let before = ''
+  let beforeAvailable = true
+  if (first.existed) {
+    if (first.backupPath) {
+      try {
+        const info = await stat(first.backupPath)
+        if (info.size > MAX_FILE_DIFF_BYTES)
+          return {
+            before: '',
+            beforeAvailable: true,
+            after: '',
+            deleted: await targetDeleted(path),
+            truncated: true,
+          }
+        before = await readFile(first.backupPath, 'utf8')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        beforeAvailable = false
+      }
+    } else beforeAvailable = false
+  }
+  let after = ''
+  let deleted = false
+  try {
+    const info = await stat(path)
+    if (info.size > MAX_FILE_DIFF_BYTES)
+      return { before, beforeAvailable, after: '', deleted: false, truncated: true }
+    after = await readFile(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    deleted = true
+  }
+  return { before, beforeAvailable, after, deleted, truncated: false }
 }
 
 /**

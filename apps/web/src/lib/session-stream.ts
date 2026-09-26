@@ -54,6 +54,8 @@ export interface ToolCard {
   task?: { agentType?: string; prompt?: string }
   /** tool.requested 的 input 提取的单行目标（路径/命令…）；无目标时省略。 */
   target?: string
+  /** 展开卡的完整正文（Bash 命令/文件内容/入参 JSON…）；仅 requested 帧带 input 时有。 */
+  body?: string
   linesAdded?: number
   linesRemoved?: number
 }
@@ -220,8 +222,131 @@ export function toolTargetLabel(tool: string, input: unknown): string | undefine
     .join(' ')
     .trim()
   if (!oneLine) return undefined
-  const prefixed = tool === 'Bash' ? `$ ${oneLine}` : oneLine
-  return prefixed.length > TARGET_MAX ? `${prefixed.slice(0, TARGET_MAX - 1)}…` : prefixed
+  return oneLine.length > TARGET_MAX ? `${oneLine.slice(0, TARGET_MAX - 1)}…` : oneLine
+}
+
+/**
+ * mcp__〈server〉__〈tool〉 拆解（SKILLS-MCPS-r1 §S3.5 双下划线命名）；非 MCP 工具
+ * 回 undefined。server/tool 名在注册时已做字符清洗，这里只做切分展示。
+ */
+export function mcpToolParts(tool: string): { server: string; name: string } | undefined {
+  if (!tool.startsWith('mcp__')) return undefined
+  const rest = tool.slice('mcp__'.length)
+  const sep = rest.indexOf('__')
+  if (sep <= 0 || sep === rest.length - 2) return undefined
+  return { server: rest.slice(0, sep), name: rest.slice(sep + 2) }
+}
+
+/** 工具的折叠行中文标签（Task 由组件走 🤖 特例，不在表内）；MCP 工具显示 server/tool；未知工具原样展示。 */
+const TOOL_LABELS: Record<string, string> = {
+  Bash: '终端',
+  ShellOutput: '终端输出',
+  KillShell: '结束终端',
+  Read: '读取',
+  Write: '写入',
+  Edit: '编辑',
+  MultiEdit: '编辑',
+  Glob: '找文件',
+  Grep: '搜内容',
+  WebFetch: '抓网页',
+  WebSearch: '搜网页',
+  Skill: '技能',
+}
+export function toolLabel(tool: string): string {
+  const mcp = mcpToolParts(tool)
+  if (mcp) return `MCP · ${mcp.server}/${mcp.name}`
+  return TOOL_LABELS[tool] ?? tool
+}
+
+/** 多段正文拼接（空段丢弃）；无有效段时省略。 */
+function joinBody(...parts: (string | undefined)[]): string | undefined {
+  const body = parts.filter((part) => part !== undefined).join('\n\n')
+  return body || undefined
+}
+
+/** 编辑类正文的新旧对照段。 */
+function diffPair(oldString?: string, newString?: string): string | undefined {
+  if (oldString === undefined && newString === undefined) return undefined
+  return `【旧】\n${oldString ?? ''}\n\n【新】\n${newString ?? ''}`
+}
+
+/** 展开卡正文上限（字符）：超大 input（Write 全文等）截断，避免撑爆消息流。 */
+const BODY_MAX = 4000
+
+/**
+ * tool.requested 的 input → 展开卡正文（保留多行：Bash 命令/文件内容/新旧对照…）。
+ * 只拼展示面参数，未知工具退回入参 JSON 全量；超长截断。
+ */
+export function toolBodyLabel(tool: string, input: unknown): string | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+  const record = input as Record<string, unknown>
+  const str = (key: string): string | undefined => {
+    const value = record[key]
+    return typeof value === 'string' && value.trim() ? value : undefined
+  }
+  const num = (key: string): number | undefined => {
+    const value = record[key]
+    return typeof value === 'number' ? value : undefined
+  }
+  let body: string | undefined
+  switch (tool) {
+    case 'Bash':
+    case 'ShellOutput':
+    case 'KillShell':
+      body = str('command') ?? str('shellId')
+      break
+    case 'Read': {
+      const offset = num('offset')
+      const limit = num('limit')
+      const range =
+        offset !== undefined || limit !== undefined
+          ? `offset: ${offset ?? 0}${limit !== undefined ? ` · limit: ${limit}` : ''}`
+          : undefined
+      body = joinBody(str('path'), range)
+      break
+    }
+    case 'Write':
+      body = joinBody(str('path'), str('content'))
+      break
+    case 'Edit':
+      body = joinBody(str('path'), diffPair(str('old_string'), str('new_string')))
+      break
+    case 'MultiEdit': {
+      const edits = Array.isArray(record.edits) ? record.edits : []
+      const pairs = edits
+        .map((edit) => {
+          if (!edit || typeof edit !== 'object') return undefined
+          const item = edit as Record<string, unknown>
+          const oldString = typeof item.old_string === 'string' ? item.old_string : undefined
+          const newString = typeof item.new_string === 'string' ? item.new_string : undefined
+          return diffPair(oldString, newString)
+        })
+        .filter((pair): pair is string => pair !== undefined)
+      body = joinBody(str('path'), pairs.length > 0 ? pairs.join('\n\n') : undefined)
+      break
+    }
+    case 'Glob':
+    case 'Grep':
+      body = joinBody(str('pattern'), str('path'))
+      break
+    case 'WebFetch':
+      body = joinBody(str('url'), str('prompt'))
+      break
+    case 'WebSearch':
+      body = str('query')
+      break
+    case 'Task':
+      body = joinBody(str('prompt'), str('description'))
+      break
+    default:
+      try {
+        body = JSON.stringify(input, null, 2)
+      } catch {
+        body = undefined
+      }
+  }
+  if (!body) return undefined
+  return body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}\n…（已截断）` : body
 }
 
 /** message.appended content 的 image part → 回显图片（仅 handle 引用式可取字节）。 */
@@ -366,18 +491,19 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       // agentType / prompt 首行摘要（§2.7bis.5 U3 折叠行）。
       const id = String(payload.toolUseId)
       const tool = String(payload.tool)
-      const target = toolTargetLabel(tool, payload.input)
+      // MCP 工具的入参无统一 target 语义（fallback 键多为猜测），只留 JSON 正文。
+      const target = mcpToolParts(tool) ? undefined : toolTargetLabel(tool, payload.input)
+      const body = toolBodyLabel(tool, payload.input)
+      const extras = {
+        ...(target === undefined ? {} : { target }),
+        ...(body === undefined ? {} : { body }),
+      }
       if (tool !== 'Task')
         return {
           ...state,
           tools: [
             ...state.tools.filter((card) => card.toolUseId !== id),
-            {
-              toolUseId: id,
-              tool,
-              status: 'running' as const,
-              ...(target === undefined ? {} : { target }),
-            },
+            { toolUseId: id, tool, status: 'running' as const, ...extras },
           ],
         }
       const input: unknown = payload.input
@@ -399,22 +525,14 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         return {
           ...state,
           tools: state.tools.map((card) =>
-            card.toolUseId === id
-              ? { ...card, task, ...(target === undefined ? {} : { target }) }
-              : card,
+            card.toolUseId === id ? { ...card, task, ...extras } : card,
           ),
         }
       return {
         ...state,
         tools: [
           ...state.tools,
-          {
-            toolUseId: id,
-            tool: 'Task',
-            status: 'running',
-            task,
-            ...(target === undefined ? {} : { target }),
-          },
+          { toolUseId: id, tool: 'Task', status: 'running', task, ...extras },
         ],
       }
     }
@@ -526,10 +644,28 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
           text?: string
           attachments?: readonly { chip?: string; kind?: string; mime?: string; handle?: string }[]
         }
-        if (!item.id || !item.role || !item.text) continue
+        if (!item.id) continue
+        if (item.kind === 'tool') {
+          if (typeof item.tool !== 'string') continue
+          const status: ToolCard['status'] =
+            item.status === 'error' ? 'error' : item.status === 'running' ? 'running' : 'done'
+          const target = toolTargetLabel(item.tool, item.input)
+          const body = toolBodyLabel(item.tool, item.input)
+          tools.push({
+            toolUseId: item.id,
+            tool: item.tool,
+            status,
+            ...(target === undefined ? {} : { target }),
+            ...(body === undefined ? {} : { body }),
+          })
+          continue
+        }
+        if (!item.role || !item.text) continue
         // 图片附件：handle 在 → 渲染真图并剥掉 text 里的 chip 占位；无 handle
         // （path 引用）字节不可回放，保留 chip 文本兜底。
         const attachments = (item.attachments ?? []).filter(
+      // 快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：target/body 从快照
+      // 携带的 input 现算，展开面与 live 卡一致；与 live 卡同 id 时以 live 为准。
           (attachment): attachment is { chip: string; mime?: string; handle: string } =>
             attachment.kind === 'image' &&
             typeof attachment.handle === 'string' &&
@@ -553,7 +689,13 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       const tail = state.messages.filter(
         (message) => !message.local && !hydratedIds.has(message.id),
       )
-      return { ...state, messages: [...messages, ...tail] }
+      const liveToolIds = new Set(state.tools.map((tool) => tool.toolUseId))
+      const hydratedTools = tools.filter((tool) => !liveToolIds.has(tool.toolUseId))
+      return {
+        ...state,
+        messages: [...messages, ...tail],
+        tools: [...hydratedTools, ...state.tools],
+      }
     }
     case 'echo':
       return {

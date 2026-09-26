@@ -191,6 +191,25 @@ export interface TranscriptEntry {
 }
 
 /**
+ * transcript 里的工具调用条目（快照重建折叠卡用）：来自 assistant 消息的
+ * tool_use part，input 原样携带（web/mobile 展开卡正文的数据面）。终态由配对的
+ * tool_result 定（isError → error）；没有 tool_result（中断/崩溃残留）保持 running。
+ */
+export interface TranscriptToolEntry {
+  id: string
+  kind: 'tool'
+  tool: string
+  input?: unknown
+  status: 'running' | 'done' | 'error'
+}
+
+export type TranscriptItem = TranscriptEntry | TranscriptToolEntry
+
+export function isTranscriptToolEntry(item: TranscriptItem): item is TranscriptToolEntry {
+  return (item as { kind?: unknown }).kind === 'tool'
+}
+
+/**
  * 一个进行中的会话句柄（SessionController 的返回值）。
  * `TStatusView` 由宿主装配决定：CLI 传 StatusViewModel；Web 在 P1-06 状态视图
  * 模型迁入前使用各自视图类型。
@@ -204,7 +223,7 @@ export interface InteractiveSession<TStatusView = unknown> {
    * 落盘；resume 时 replay 回填）。缺省 = 未钉住，turn 跟随全局配置解析。
    */
   model?: string
-  transcript?: readonly TranscriptEntry[]
+  transcript?: readonly TranscriptItem[]
   getStatus?(): Promise<TStatusView>
   /** Interrupts the in-flight turn (esc in the TUI). Optional: esc stays inert without it. */
   interrupt?(): Promise<void>

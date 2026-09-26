@@ -497,6 +497,49 @@ describe('web-server gateway', () => {
   })
 
   it('changes per-file undo preview + execute (W-08+)', async () => {
+  it('changes list endpoint passes the stats flag through to the port (W-08 stats)', async () => {
+    const fakeSession = {
+      id: 'sess-stats',
+      cwd: '/tmp/web-server-test',
+      events: { subscribe: () => () => {} },
+      transcript: [],
+      setPermissionPromptHandler() {},
+      async submit() {},
+      async end() {},
+    }
+    const { SessionHub } = await import('./session-hub')
+    const { PermissionPromptController } = await import('@volund/app-runtime')
+    const sessionHub = new SessionHub({
+      permissions: new PermissionPromptController(),
+      session: {
+        async startInteractive() {
+          return fakeSession as never
+        },
+        async interrupt() {},
+        async end() {},
+      },
+    })
+    const seen: unknown[] = []
+    const { url } = await start({
+      sessionHub,
+      changes: {
+        async list(_sessionId: string, opts?: unknown) {
+          seen.push(opts)
+          return { paths: [], missing: false }
+        },
+        async previewUndo() {
+          return { undoable: false, paths: [], warnings: [] }
+        },
+        async undoStep() {
+          return { undone: false, paths: [], warnings: [] }
+        },
+      },
+    })
+    const { base, cookie, csrfToken } = await authed(url)
+    await fetch(`${base}api/v1/sessions`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
     const fakeSession = {
       id: 'sess-undo-path',
       cwd: '/tmp/web-server-test',

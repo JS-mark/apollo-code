@@ -77,6 +77,14 @@ export interface GatewayHubLike {
   /**
    * 会话文件变更聚合（GET /v1/sessions/active/changes 的隧道腿；消息流变更卡片
 }
+   * 数据源）：每路径带净效果行统计。缺省 = hub 不支持，端点回空列表。
+   */
+  changesList?(): Promise<GatewayChangesView>
+  /** 单文件净效果 diff（GET .../changes/diff?path= 的隧道腿）。 */
+  changesDiff?(path: string): Promise<GatewayFileDiff>
+  /** undo 预览/执行（POST .../changes/undo 的隧道腿）：本机侧消费最近备份批次。 */
+  changesUndoPreview?(): Promise<GatewayUndoPreview>
+  changesUndo?(): Promise<GatewayUndoResult>
 
 /** 附件字节（uplink 回程的 base64 载荷 + 回放用的 Content-Type）。 */
 export interface GatewayAttachmentBytes {
@@ -108,4 +116,54 @@ export interface GatewayModelListing {
 export interface GatewayModelsView {
   readonly current?: string
   readonly options: readonly GatewayModelListing[]
+}
+
+/** 会话文件变更条目（结构对齐 @volund/storage SessionChanges 的 stats 加码面）。 */
+export interface GatewayChangeRow {
+  readonly path: string
+  readonly created: boolean
+  readonly batches: number
+  readonly lastModifiedAt: string
+  readonly allConsumed: boolean
+  readonly stats?: {
+    readonly linesAdded: number
+    readonly linesRemoved: number
+    readonly truncated: boolean
+    readonly deleted: boolean
+  }
+}
+
+/** GET /v1/sessions/active/changes 的应答面（relay 经 uplink `changes.list`）。 */
+export interface GatewayChangesView {
+  readonly paths: readonly GatewayChangeRow[]
+  readonly missing?: boolean
+}
+
+/** 单文件净效果 diff（结构对齐 @volund/storage SessionFileDiff）。 */
+export interface GatewayFileDiff {
+  readonly path: string
+  readonly tracked: boolean
+  readonly created: boolean
+  readonly beforeAvailable: boolean
+  readonly deleted: boolean
+  readonly truncated?: boolean
+  readonly diff: string
+  readonly linesAdded: number
+  readonly linesRemoved: number
+}
+
+/** undo 预览（结构对齐 @volund/storage UndoPreview）。 */
+export interface GatewayUndoPreview {
+  readonly undoable: boolean
+  readonly reason?: string
+  readonly paths: readonly string[]
+  readonly warnings: readonly { readonly path: string; readonly kind: string }[]
+}
+
+/** undo 执行结果（结构对齐 @volund/storage UndoStepResult）。 */
+export interface GatewayUndoResult {
+  readonly undone: boolean
+  readonly reason?: string
+  readonly paths: readonly string[]
+  readonly warnings: readonly { readonly path: string; readonly kind: string }[]
 }

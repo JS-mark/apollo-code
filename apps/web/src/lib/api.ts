@@ -305,7 +305,9 @@ export class WebApi {
     }[]
     missing: boolean
   }> {
-    return parseResponse(await fetch('/api/v1/sessions/active/changes'))
+    return parseResponse(
+      await fetch(`/api/v1/sessions/active/changes${opts?.stats ? '?stats=1' : ''}`),
+    )
   }
   async undoPreview(): Promise<{
     undoable: boolean

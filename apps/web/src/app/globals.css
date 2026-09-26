@@ -972,15 +972,70 @@ html[data-theme='light'] .rail-menu-item.disabled {
   overflow: auto;
   flex: 1;
 }
-.wb-diff-add {
-  color: var(--ant-color-success);
-  background: var(--ant-color-success-bg);
+/* VS Code 式 inline diff（DiffView）：左缘色条 | 旧行号 | 新行号 | 代码。 */
+.diff-uni {
+  display: grid;
+  grid-template-columns: 4px 3.4em 3.4em minmax(0, 1fr);
+  align-content: start;
+  /* 行背景覆盖整行：内容超宽时网格随最长行增长，由 .chg-diff-body/.wb-diff 横向滚动。 */
+  width: max-content;
+  min-width: 100%;
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+  line-height: 1.6;
 }
-.wb-diff-del {
-  color: var(--ant-color-error);
+.diff-bar {
+  background: transparent;
+}
+.diff-bar.del {
+  background: var(--ant-color-error);
+}
+.diff-bar.add {
+  background: var(--ant-color-success);
+}
+.diff-gutter {
+  padding: 0 6px;
+  color: var(--ant-color-text-quaternary);
+  text-align: right;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.diff-gutter.del {
+  background: var(--ant-color-error-bg-hover);
+}
+.diff-gutter.add {
+  background: var(--ant-color-success-bg-hover);
+}
+/* 行号区与代码之间的分隔线（VS Code 式）。 */
+.diff-gutter + .diff-code {
+  border-left: 1px solid var(--ant-color-border-secondary);
+}
+.diff-code {
+  min-width: 0;
+  padding: 0 8px;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.diff-code.del {
   background: var(--ant-color-error-bg);
 }
-.wb-diff-hunk {
+.diff-code.add {
+  background: var(--ant-color-success-bg);
+}
+/* 配对删/增行的行内差异片段，在行底色上再加深一档。 */
+.diff-code.del .diff-hl {
+  background: color-mix(in srgb, var(--ant-color-error) 22%, var(--ant-color-error-bg));
+}
+.diff-code.add .diff-hl {
+  background: color-mix(in srgb, var(--ant-color-success) 28%, var(--ant-color-success-bg));
+}
+.diff-hunk,
+.diff-meta {
+  grid-column: 1 / -1;
+  padding: 0 8px;
+  background: var(--ant-color-fill-quaternary);
+}
+.diff-hunk {
   color: var(--ant-color-info);
 }
 .wb-file {
@@ -1080,4 +1135,174 @@ html[data-theme='light'] .rail-menu-item.disabled {
 /* 管理页条目卡片 hover（WEB-EXT-MANAGE-MARKET-r1 视觉轮） */
 .manage-item-card:hover {
   border-color: var(--ant-color-primary, #1677ff);
+}
+.diff-meta {
+  color: var(--ant-color-text-quaternary);
+}
+.diff-more {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+/* ── 文件变更面板（ChangesPane，工作台「文件变更」标签页内容） ── */
+.chg-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.chg-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.chg-list {
+  flex-shrink: 0;
+  max-height: 42%;
+  padding: 6px 8px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.chg-item {
+  position: relative;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chg-item:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.chg-item.active {
+  background: var(--ant-color-fill-tertiary);
+}
+.chg-item-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.chg-item-path {
+  font-size: 13px;
+  font-weight: 500;
+}
+.chg-item-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ant-color-text-quaternary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chg-item-sub {
+  margin-top: 2px;
+  padding-left: 2px;
+  color: var(--ant-color-text-tertiary);
+  font-size: 11px;
+}
+.chg-item-undo {
+  flex-shrink: 0;
+  opacity: 0;
+}
+.chg-item:hover .chg-item-undo,
+.chg-item-undo:focus-visible {
+  opacity: 1;
+}
+.chg-diff {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.chg-diff-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 6px;
+}
+.chg-diff-head > .ant-typography {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.chg-diff-stat {
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+}
+.chg-diff-stat.add {
+  color: var(--ant-color-success);
+}
+.chg-diff-stat.del {
+  color: var(--ant-color-error);
+}
+.chg-diff-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ── 消息流变更卡片（ChangesCard）：会话文件改动汇总，钉在消息流末尾 ── */
+.chg-card {
+  margin: 8px 0;
+  overflow: hidden;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 10px;
+  background: var(--ant-color-bg-container);
+}
+.chg-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.chg-card-head:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.chg-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+.chg-card-name {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.chg-card-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ant-color-text-quaternary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chg-card-consumed {
+  color: var(--ant-color-text-quaternary);
+  font-size: 11px;
+}
+.chg-card-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+/* 源码面板（SourcePanel）的 Monaco 宿主：占满查看区。 */
+.wb-source {
+  flex: 1;
+  min-height: 0;
+}
+/* 搜索跳转的行高亮（monaco 装饰类）。 */
+.wb-source-line-hit {
+  background: var(--ant-color-warning-bg);
 }

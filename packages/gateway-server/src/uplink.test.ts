@@ -939,3 +939,53 @@ describe('uplink rpc 失败日志', () => {
     uplink.close()
   })
 })
+describe('changes 隧道腿（移动端消息流变更卡片）', () => {
+  it('serves changes list/diff/undo through the tunnel', async () => {
+    await startRelay([MACHINE])
+    const uplink = await dialUplink()
+    await uplink.waitRegistered()
+    const token = await tokenFor(base, { id: MACHINE.id, secret: MACHINE_SECRET })
+    const headers = { authorization: `Bearer ${token}` }
+
+    // 列表：每路径带净效果行统计（stats 加码面）。
+    const list = await fetch(`${base}/v1/sessions/active/changes`, { headers })
+    expect(list.status).toBe(200)
+    const view = (await list.json()) as {
+      paths: { path: string; stats?: { linesAdded: number; linesRemoved: number } }[]
+    }
+    expect(view.paths[0]?.path).toBe('/local/workspace/a.ts')
+    expect(view.paths[0]?.stats).toEqual({
+      linesAdded: 3,
+      linesRemoved: 1,
+      truncated: false,
+      deleted: false,
+    })
+    expect(hub.changesListCalls).toBe(1)
+
+    // 单文件 diff：path 经隧道原样传到本机。
+    const diff = await fetch(
+      `${base}/v1/sessions/active/changes/diff?path=${encodeURIComponent('/local/workspace/a.ts')}`,
+      { headers },
+    )
+    expect(diff.status).toBe(200)
+    expect(((await diff.json()) as { linesAdded: number }).linesAdded).toBe(3)
+    expect(hub.diffPaths).toEqual(['/local/workspace/a.ts'])
+
+    // 缺 path → 400。
+    const noPath = await fetch(`${base}/v1/sessions/active/changes/diff`, { headers })
+    expect(noPath.status).toBe(400)
+
+    // undo 预览 → 执行。
+    const preview = await fetch(`${base}/v1/sessions/active/changes/undo/preview`, { headers })
+    expect(preview.status).toBe(200)
+    expect(((await preview.json()) as { undoable: boolean }).undoable).toBe(true)
+    const undo = await fetch(`${base}/v1/sessions/active/changes/undo`, {
+      method: 'POST',
+      headers,
+    })
+    expect(undo.status).toBe(200)
+    expect(((await undo.json()) as { undone: boolean }).undone).toBe(true)
+    expect(hub.undoCalls).toBe(1)
+    uplink.close()
+  })
+})

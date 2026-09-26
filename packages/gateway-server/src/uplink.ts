@@ -27,11 +27,15 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   GatewayAttachmentBytes,
+  GatewayChangesView,
   GatewayEnvelope,
+  GatewayFileDiff,
   GatewayHubLike,
   GatewayModelsView,
   GatewayStagedAttachment,
   GatewaySubmitAttachment,
+  GatewayUndoPreview,
+  GatewayUndoResult,
 } from './hub'
 import type { GatewayFrame, HubRpcMethod } from './protocol'
 import { GatewayError } from './queue'
@@ -189,6 +193,25 @@ export class RemoteHub implements GatewayHubLike {
   decide(requestId: string, kind: string): boolean {
     const known = this.pendingIds.includes(requestId)
     if (!known || this.closed) return false
+  /** 会话文件变更聚合（GET /v1/sessions/active/changes 的隧道腿；每路径带行统计）。 */
+  changesList(): Promise<GatewayChangesView> {
+    return this.call('changes.list', {}) as Promise<GatewayChangesView>
+  }
+
+  /** 单文件净效果 diff（GET .../changes/diff 的隧道腿）。 */
+  changesDiff(path: string): Promise<GatewayFileDiff> {
+    return this.call('changes.diff', { path }) as Promise<GatewayFileDiff>
+  }
+
+  /** undo 预览/执行（移动端变更卡片的撤销门；本机侧消费最近批次）。 */
+  changesUndoPreview(): Promise<GatewayUndoPreview> {
+    return this.call('changes.undoPreview', {}) as Promise<GatewayUndoPreview>
+  }
+
+  changesUndo(): Promise<GatewayUndoResult> {
+    return this.call('changes.undo', {}) as Promise<GatewayUndoResult>
+  }
+
     // 布尔语义 = 「是否在待审批列表」（ws.ts 的 permission.decided 应答面）；
     // 决策本体 fire-and-forget——本机队列幂等，重复/过期决策被静默忽略。
     void this.call('hub.decide', { requestId, kind }).catch(() => {})

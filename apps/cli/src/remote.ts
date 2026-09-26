@@ -126,6 +126,29 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       // 模型清单与 Web 控制台同源（当前生效模型 + anthropic 别名候选）。
       listModels: () => listModels(ports, cwd),
       // AskUserQuestion 作答隧道（WS ask.answer / 移动端问答卡）：队列在 hub 侧。
+      // 会话文件变更（移动端消息流变更卡片的隧道终点）：与 Web 控制台同一个
+      // BackupStore 背书端口；无活动会话时 list 回空视图，diff/undo 按 RPC 错误回。
+      changesList: () => {
+        const activeId = sessionHub.active?.id
+        if (!activeId || !ports.changes) return Promise.resolve({ paths: [], missing: true })
+        return ports.changes.list(activeId, { stats: true })
+      },
+      changesDiff: (path) => {
+        const activeId = sessionHub.active?.id
+        if (!activeId || !ports.changes?.fileDiff)
+          return Promise.reject(new Error('no active session'))
+        return ports.changes.fileDiff(activeId, path)
+      },
+      changesUndoPreview: () => {
+        const activeId = sessionHub.active?.id
+        if (!activeId || !ports.changes) return Promise.reject(new Error('no active session'))
+        return ports.changes.previewUndo(activeId)
+      },
+      changesUndo: () => {
+        const activeId = sessionHub.active?.id
+        if (!activeId || !ports.changes) return Promise.reject(new Error('no active session'))
+        return ports.changes.undoStep(activeId)
+      },
       answerAsk: (requestId, value) => sessionHub.answerAsk(requestId, value),
       pendingAskIds: () => sessionHub.pendingAskIds(),
       pendingAskRequests: () => sessionHub.pendingAskRequests(),

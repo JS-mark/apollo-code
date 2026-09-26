@@ -198,6 +198,52 @@ describe('BackupStore', () => {
     expect(drained.remainingBatches).toBe(0)
   })
 
+  it('changes stats: per-file net line counts on demand (W-08 stats)', async () => {
+    const dir = await temp(),
+      modified = resolve(dir, 'modified.txt'),
+      created = resolve(dir, 'created.txt'),
+      gone = resolve(dir, 'gone.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(modified, 'a\nb\nc\n')
+    await writeFile(gone, 'x\ny\n')
+    const tx = await store.prepare('session-stats', [modified, created, gone])
+    await writeFile(modified, 'a\nX\nc\nd\n')
+    await writeFile(created, 'new\nfile\n')
+    await writeFile(gone, 'x\nz\n')
+    await tx.commit()
+    // 盘面删除发生在批次落盘之后（commit 要读 afterHash，删除须在 commit 后）。
+    await rm(gone)
+
+    // 默认不带统计（列表面不加码）。
+    const plain = await store.changes('session-stats')
+    expect(plain.paths.every((row) => row.stats === undefined)).toBe(true)
+
+    const withStats = await store.changes('session-stats', { stats: true })
+    expect(withStats.missing).toBe(false)
+    const byPath = new Map(withStats.paths.map((row) => [row.path, row]))
+    // 修改：b→X + 新增 d → +2 −1。
+    expect(byPath.get(modified)?.stats).toEqual({
+      linesAdded: 2,
+      linesRemoved: 1,
+      truncated: false,
+      deleted: false,
+    })
+    // 新建：从空文件起算 +2 −0。
+    expect(byPath.get(created)?.stats).toEqual({
+      linesAdded: 2,
+      linesRemoved: 0,
+      truncated: false,
+      deleted: false,
+    })
+    // 会话内删除：−2 +0 且 deleted 标记。
+    expect(byPath.get(gone)?.stats).toEqual({
+      linesAdded: 0,
+      linesRemoved: 2,
+      truncated: false,
+      deleted: true,
+    })
+  })
+
   it('diffs a session file against its first backup (net effect)', async () => {
     const dir = await temp(),
       modified = resolve(dir, 'modified.txt'),

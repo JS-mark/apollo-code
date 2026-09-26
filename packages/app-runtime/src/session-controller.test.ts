@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Context, createAppKernel } from './index'
 import { SessionController } from './session-controller'
+import { isTranscriptToolEntry } from './contracts'
 import type { RunnerFactory } from './session-controller'
 
 const fixtures: string[] = []
@@ -85,6 +86,108 @@ describe('SessionController', () => {
 
   it('rejects a concurrent submit with session_turn_in_progress and recovers after the turn', async () => {
     let release!: () => void
+  it('transcript 快照携带 tool 条目：tool_use 导出 + tool_result 配对终态', async () => {
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: (initial, events) => {
+        let state = initial
+        const apply = (mutate: (draft: SessionState) => void) => {
+          state = updateSession(state, mutate)
+        }
+        const appendEvent = async (
+          messageId: string,
+          role: string,
+          content: readonly ContentPart[],
+        ) => {
+          await events.emit({
+            type: 'message.appended',
+            version: state.version,
+            sessionId: state.id,
+            turnId: 'turn-1',
+            payload: { messageId, role, content: toEventContent(content) } as unknown as JsonValue,
+          })
+        }
+        return {
+          get state() {
+            return state
+          },
+          interrupt: vi.fn(async () => {}),
+          run: vi.fn(async (text: string) => {
+            await events.emit({
+              type: 'turn.started',
+              version: state.version,
+              sessionId: state.id,
+              turnId: 'turn-1',
+              payload: { turnId: 'turn-1' },
+            })
+            await appendEvent('user-1', 'user', [{ type: 'text', text }])
+            apply((draft) => {
+              draft.messages = [
+                ...draft.messages,
+                { id: 'user-1', role: 'user', content: [{ type: 'text', text }], createdAt: 1 },
+              ]
+              draft.turns = [
+                ...draft.turns,
+                { id: 'turn-1', startMessageId: 'user-1', status: 'streaming', parentDepth: 0 },
+              ]
+              draft.activeTurn = 'turn-1'
+            })
+            // assistant：文本 + 两个 tool_use
+            const assistant = {
+              id: 'asst-1',
+              role: 'assistant',
+              content: [
+                { type: 'text', text: '跑一下' },
+                { type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: 'pnpm test' } },
+                {
+                  type: 'tool_use',
+                  id: 'tu-2',
+                  name: 'Write',
+                  input: { path: 'a.ts', content: 'x=1' },
+                },
+              ],
+              createdAt: 2,
+            } as SessionState['messages'][number]
+            await appendEvent('asst-1', 'assistant', assistant.content)
+            // user tool_result：tu-1 成功、tu-2 失败
+            const results = {
+              id: 'user-2',
+              role: 'user',
+              content: [
+                { type: 'tool_result', toolUseId: 'tu-1', content: [] },
+                { type: 'tool_result', toolUseId: 'tu-2', content: [], isError: true },
+              ],
+              createdAt: 3,
+            } as SessionState['messages'][number]
+            await appendEvent('user-2', 'user', results.content)
+            apply((draft) => {
+              draft.messages = [...draft.messages, assistant, results]
+            })
+            return state
+          }),
+        } as unknown as Runner
+      },
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    await session.submit('run it')
+    const entries = session.transcript ?? []
+    const tools = entries.filter(isTranscriptToolEntry)
+    expect(tools).toEqual([
+      { id: 'tu-1', kind: 'tool', tool: 'Bash', input: { command: 'pnpm test' }, status: 'done' },
+      {
+        id: 'tu-2',
+        kind: 'tool',
+        tool: 'Write',
+        input: { path: 'a.ts', content: 'x=1' },
+        status: 'error',
+      },
+    ])
+    // 文本条目保持消息序；tool_result-only 的 user 消息不产生文本条目。
+    expect(
+      entries.filter((entry) => !isTranscriptToolEntry(entry)).map((entry) => entry.id),
+    ).toEqual(['user-1', 'asst-1'])
+  })
+
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })

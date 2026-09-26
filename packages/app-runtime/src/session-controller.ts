@@ -42,6 +42,8 @@ import type {
   SubmitOptions,
   TranscriptAttachment,
   TranscriptEntry,
+  TranscriptItem,
+  TranscriptToolEntry,
 } from './contracts'
 import {
   composeAttachmentInput,
@@ -189,22 +191,52 @@ export class SessionController<TStatusView = unknown> extends Service {
   private interactiveSession(): InteractiveSession<TStatusView> {
     // transcript 必须是 getter：runner 消息随 turn 增长，对象创建期的快照会让
     // Web 端 hydrate 拿到过期（通常为空）的历史。
-    const readTranscript = (): TranscriptEntry[] =>
-      (this.runner?.state.messages ?? []).flatMap((message) => {
-        const text = messageFullText(message.content)
-        if (
-          !text ||
-          (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
-        )
+    const readTranscript = (): TranscriptItem[] => {
+      const messages = this.runner?.state.messages ?? []
+      // tool_use 的终态由后续 user 消息里配对的 tool_result 定（isError → error）；
+      // 没有配对（中断/崩溃残留）保持 running——UI 呈现「未完成」是对的。
+      const toolStatus = new Map<string, 'done' | 'error'>()
+      for (const message of messages)
+        for (const part of message.content)
+          if (part.type === 'tool_result')
+            toolStatus.set(part.toolUseId, part.isError ? 'error' : 'done')
+      return messages.flatMap((message) => {
+        if (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
           return []
-        const attachments = transcriptAttachments(message.content)
-        const entry: TranscriptEntry = {
-          id: message.id,
-          role: message.role,
-          text,
-          ...(attachments.length ? { attachments } : {}),
-        }
-        return [entry]
+        const text = messageFullText(message.content)
+        const textEntries: TranscriptItem[] = text
+          ? (() => {
+              const attachments = transcriptAttachments(message.content)
+              const entry: TranscriptEntry = {
+                id: message.id,
+                role: message.role,
+                text,
+                ...(attachments.length ? { attachments } : {}),
+              }
+              return [entry]
+            })()
+          : []
+        // 只有 assistant 消息携带 tool_use（provider-kit ContentPart）。
+        const toolEntries: TranscriptItem[] =
+          message.role === 'assistant'
+            ? message.content
+                .filter(
+                  (part): part is Extract<typeof part, { type: 'tool_use' }> =>
+                    part.type === 'tool_use',
+                )
+                .map(
+                  (part): TranscriptToolEntry => ({
+                    id: part.id,
+                    kind: 'tool',
+                    tool: part.name,
+                    ...(part.input !== undefined && part.input !== null
+                      ? { input: part.input }
+                      : {}),
+                    status: toolStatus.get(part.id) ?? 'running',
+                  }),
+                )
+            : []
+        return [...textEntries, ...toolEntries]
       })
     return {
       id: this.runner!.state.id,

@@ -4,24 +4,33 @@ import {
   ArrowUpOutlined,
   CheckOutlined,
   CloseOutlined,
+  CopyOutlined,
   DownOutlined,
+  EditOutlined,
+  FileAddOutlined,
+  FileTextOutlined,
   FolderOutlined,
+  FolderOpenOutlined,
+  GlobalOutlined,
   HistoryOutlined,
   LinkOutlined,
   LoadingOutlined,
   PlusOutlined,
+  RightOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
   StopOutlined,
+  ThunderboltOutlined,
+  ToolOutlined,
 } from '@ant-design/icons'
 import { Alert, Button, Dropdown, Popover, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ModelsView, SessionSummary, StagedAttachment, WebApi } from '../lib/api'
 import type { ChatImage, ChatMessage, SubagentActivity, ToolCard } from '../lib/session-stream'
-import { chatImageSrc, useSessionStream } from '../lib/session-stream'
+import { chatImageSrc, toolLabel, useSessionStream } from '../lib/session-stream'
 import { BrandMark } from './BrandMark'
-import { ChangesPanel } from './ChangesPanel'
+import { ChangesCard } from './ChangesCard'
 import { Markdown } from './Markdown'
 import { PermissionLineageBadge } from './PermissionLineageBadge'
 import { NewChatIcon, WorkbenchIcon } from './WorkbenchPanel'
@@ -251,6 +260,8 @@ export function ChatPanel({
         const previewUrl = URL.createObjectURL(file)
         setImages((current) => [
           ...current,
+  onOpenChanges,
+  onOpenFile,
           { chip, mime: file.type, previewUrl, status: 'uploading' },
         ])
         void (async () => {
@@ -269,6 +280,10 @@ export function ChatPanel({
             stream.setNotice(cause instanceof Error ? cause.message : String(cause))
           }
         })()
+  /** 变更卡片「审查」：打开工作台「文件变更」标签页并定位该文件的 diff。 */
+  onOpenChanges(path: string): void
+  /** 变更卡片「打开」：工作台文件查看器。 */
+  onOpenFile(path: string): void
       }
     },
     [api, ensureSession, stream],
@@ -759,28 +774,9 @@ export function ChatPanel({
           >
             <div className="chat-disclaimer">回答由 AI 生成，仅供参考</div>
             {chat.messages.map(renderMessage)}
-            {chat.tools.map((tool) => {
-              const row = toolRowText(tool, chat.subagents)
-              return (
-                <div
-                  key={tool.toolUseId}
-                  className="tool-row"
-                  title={tool.tool === 'Task' ? tool.task?.prompt : undefined}
-                >
-                  <span className={`tool-dot ${tool.status}`} />
-                  <span className="tool-name">{row.name}</span>
-                  {tool.tool !== 'Task' && tool.target ? (
-                    <span className="tool-target">{tool.target}</span>
-                  ) : null}
-                  {tool.status === 'done' && (tool.linesAdded || tool.linesRemoved) ? (
-                    <span className="tool-delta">
-                      +{tool.linesAdded ?? 0} −{tool.linesRemoved ?? 0}
-                    </span>
-                  ) : null}
-                  <span className="tool-status">{row.status}</span>
-                </div>
-              )
-            })}
+            {chat.tools.map((tool) => (
+              <ToolRowCard key={tool.toolUseId} tool={tool} subagents={chat.subagents} />
+            ))}
             {running && !streamingReply && (
               <div className="think-row">
                 <LoadingOutlined />
@@ -857,3 +853,29 @@ export function ChatPanel({
                 </div>
               </div>
             )}
+            {chat.notice && (
+              <Alert type="warning" showIcon title={chat.notice} style={{ margin: '8px 0' }} />
+            )}
+            {chat.usage && (
+              <div className="chat-usage">
+                用量：in {chat.usage.input} / out {chat.usage.output}
+                {chat.usage.costUSD ? ` · $${chat.usage.costUSD.toFixed(4)}` : ''}
+              </div>
+            )}
+            {/* 会话文件变更卡片：钉在消息流末尾，turn 边沿刷新；审查/打开落工作台。 */}
+            <ChangesCard
+              api={api}
+              sessionId={sessionId}
+              turn={chat.turn}
+              onOpenChanges={onOpenChanges}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+
+          {/* composer */}
+          <div className="chat-composer">{composer}</div>
+        </div>
+      )}
+    </div>
+  )
+}
