@@ -85,6 +85,7 @@ export class RemoteHub implements GatewayHubLike {
   private readonly pending = new Map<string, RpcPending>()
   private readonly subscribers = new Set<(envelope: GatewayEnvelope) => void>()
   private closed = false
+  private askIdSnapshot: readonly string[] = []
 
   constructor(
     private readonly conn: WsConnection,
@@ -109,9 +110,11 @@ export class RemoteHub implements GatewayHubLike {
     this.activeState = active ?? undefined
     this.pendingIds = pendingPermissions
   }
+    pendingAsks?: readonly string[],
 
   start(input: { cwd: string }): Promise<{ id: string }> {
     return this.optimistic('hub.start', input, (result) => {
+    if (pendingAsks !== undefined) this.askIdSnapshot = pendingAsks
       const id = (result as { id?: unknown } | undefined)?.id
       if (typeof id === 'string')
         this.applyState({ id, ...(input.cwd ? { cwd: input.cwd } : {}) }, this.pendingIds)
@@ -227,6 +230,20 @@ export class RemoteHub implements GatewayHubLike {
 
   /** 链路断开：拒绝全部在途 RPC，后续调用按离线报 503。 */
   close(): void {
+  /** AskUserQuestion 作答隧道（布尔语义同 decide；本机投影幂等忽略过期作答）。 */
+  answerAsk(requestId: string, value: string | undefined): boolean {
+    const known = this.askIdSnapshot.includes(requestId)
+    if (!known || this.closed) return false
+    void this.call('hub.answerAsk', { requestId, ...(value === undefined ? {} : { value }) }).catch(
+      () => {},
+    )
+    return true
+  }
+
+  pendingAskIds(): readonly string[] {
+    return [...this.askIdSnapshot]
+  }
+
     if (this.closed) return
     this.closed = true
     for (const pending of this.pending.values()) {
@@ -409,7 +426,7 @@ export class UplinkRegistry {
           },
           this.log,
         )
-        hub.applyState(active ?? null, pendingPermissions)
+        hub.applyState(active ?? null, pendingPermissions, pendingAsks)
         registration = {
           client: input.client,
           info: {
@@ -432,6 +449,9 @@ export class UplinkRegistry {
           previous.conn.close(WS_CLOSE.policy, 'replaced by a newer uplink')
           this.log(`uplink replaced stale connection: ${input.client}`)
         }
+        const pendingAsks = Array.isArray(record.pendingAsks)
+          ? (record.pendingAsks as unknown[]).filter((id): id is string => typeof id === 'string')
+          : []
         this.instances.set(input.client, registration)
         this.log(
           `uplink registered: ${input.client} (${workspaceCwd})` +
@@ -469,7 +489,10 @@ export class UplinkRegistry {
                 (id): id is string => typeof id === 'string',
               )
             : []
-          hub.applyState(active, pendingPermissions)
+          const pendingAsks = Array.isArray(frame.pendingAsks)
+            ? (frame.pendingAsks as unknown[]).filter((id): id is string => typeof id === 'string')
+            : []
+          hub.applyState(active, pendingPermissions, pendingAsks)
           return
         }
         case 'rpc.result': {

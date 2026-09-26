@@ -31,6 +31,8 @@ import {
   createSkillDomain,
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
+  AskPromptController,
+  createAskUserInteraction,
   PermissionPromptController,
   ProductionPermissionSessionPolicy,
   SessionController,
@@ -79,6 +81,8 @@ import type { NativeBridge } from '@volund/tool-kit'
 import {
   BackgroundShells,
   builtinToolDomains,
+  ASK_USER_QUESTION_TOOL_NAME,
+  createAskUserQuestionTool,
   WebSearchTool,
 } from '@volund/tools'
 import {
@@ -978,6 +982,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // §22 W-07 多路审批：进程级共享队列是权限链的唯一 prompt 源——TUI 与 Web
   // 都订阅它，任一端决策全端清卡（不再经 setPermissionPromptHandler 抢单槽）。
   const permissionPrompts = new PermissionPromptController()
+  // AskUserQuestion 的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
+  // 问答卡都订阅它，任一端作答全端清卡。
+  const askPrompts = new AskPromptController()
   interactivePermissionPrompt = (request) => permissionPrompts.request(request)
   // §22 W-01：嵌入式 Web 控制台的 URL cell（startEmbedded 起服务后回填，状态面板 Web 行读取）。
   let webConsoleUrl: string | undefined
@@ -1009,6 +1016,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     if (!builtinToolsDisabled.has('volund.orchestration')) {
       webSearch: { tool: webSearchTool },
       for (const tool of createMemoryTools(memory)) names.add(tool.name)
+      names.add(ASK_USER_QUESTION_TOOL_NAME)
       names.add(SKILL_TOOL_NAME)
     }
     for (const loaded of loadedPluginEntries) {
@@ -1487,6 +1495,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           grantEphemeral: (rules) => permissionChain.grantEphemeral(rules),
           onWarn: (message) => logger.warn(message),
         }),
+      // AskUserQuestion：工具本体在 @volund/tools（零依赖，交互走 ToolUiPort
+      // 的 requestChoice 通道）；这里的宿主接缝按本会话冻结的权限快照决定
+      // 交互面——tui 进共享提问队列（TUI/Web/Mobile 任一端作答），line 终端
+      // 数字问答，none 由工具降级为「用户不可达」。
+      registry.register(createAskUserQuestionTool())
       )
     }
     // G 插件一等公民：已激活插件的工具贡献注册进本会话注册表——
@@ -1495,7 +1508,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // 已注册工具保留到会话结束（invoke 经已关闭的桥会以错误收场，不会静默）。
     for (const loaded of loadedPluginEntries) {
       if (!loaded.handle) continue
-      // AskUserQuestion：工具本体在 @volund/tools（零依赖，交互走 ToolUiPort
       for (const tool of loaded.handle.tools) {
         kernel.tools.registerPluginTool(loaded.name, {
           name: tool.name,
@@ -1554,7 +1566,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         },
         native,
         logger,
-        ui: { requestInput: promptLine },
+        ui: {
+          requestInput: promptLine,
+          requestChoice: createAskUserInteraction({
+            prompts: askPrompts,
+            mode: permissionSnapshot.interactionMode,
+            linePrompt: promptLineMaybe,
+          }),
+        },
       }),
       dispatchHook,
     )
@@ -1763,6 +1782,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         activePermissionControl?.set(mode)
         notifyPermissionMode(mode)
       },
+    askPrompts,
       subscribe: (listener) => {
         permissionModeListeners.add(listener)
         return () => permissionModeListeners.delete(listener)

@@ -213,6 +213,12 @@ export default function MobileApp() {
     ws.connect()
     wsRef.current = ws
     return () => {
+        // 提问应答：answered=false = 该提问已被他端作答/已过期——同款提示兜底。
+        if (frame.type === 'ask.answered') {
+          if (frame.answered === false)
+            dispatch({ type: 'notice', notice: '作答未生效：该提问已被处理或过期' })
+          return
+        }
       ws.close()
       wsRef.current = undefined
     }
@@ -365,6 +371,15 @@ export default function MobileApp() {
         </Badge>
         <div className="app-header-title">
           <Typography.Text strong>{title}</Typography.Text>
+  // AskUserQuestion 作答：value 缺省 = 跳过（模型自选默认继续）。
+  const answerAsk = useCallback((requestId: string, value?: string) => {
+    wsRef.current?.send({
+      type: 'ask.answer',
+      requestId,
+      ...(value === undefined ? {} : { value }),
+    })
+  }, [])
+
         </div>
         {activeSessionId && (
           <Typography.Text
@@ -464,6 +479,7 @@ export default function MobileApp() {
               onClick={() => {
                 if (key === 'sessions') void refreshSessions()
                 setTab(key)
+            onAnswerAsk={answerAsk}
               }}
             >
               {icon}

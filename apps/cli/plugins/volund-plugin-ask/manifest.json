@@ -1,0 +1,10 @@
+{
+  "name": "volund-plugin-ask",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "index.ts",
+  "engines": { "volund": "^0.2.0" },
+  "permissions": {
+    "volund": ["prompt.contribute"]
+  }
+}

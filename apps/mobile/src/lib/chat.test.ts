@@ -630,3 +630,28 @@ describe('迟到者运行态恢复', () => {
     expect(state.turn).toBe('running')
   })
 })
+describe('ask.request / ask.resolved（AskUserQuestion 问答卡）与 MCP 标签', () => {
+  const ask = {
+    id: 'ask-1',
+    question: '用哪个方案？',
+    options: [{ label: '方案 A', description: '快但糙' }, { label: '方案 B' }],
+  }
+
+  it('ask.request 全队列投影进卡，ask.resolved 清卡', () => {
+    const asked = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'ask.request', request: ask, requests: [ask] }),
+    })
+    expect(asked.asks).toEqual([ask])
+    // 旧网关只带队首的降级路径。
+    const legacy = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'ask.request', request: ask }),
+    })
+    expect(legacy.asks).toEqual([ask])
+    const resolved = reduceChatState(asked, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'ask.resolved' }),
+    })
+    expect(resolved.asks).toEqual([])
+})

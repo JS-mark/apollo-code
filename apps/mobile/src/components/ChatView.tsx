@@ -399,6 +399,7 @@ export function ChatView({
             accept={IMAGE_ACCEPT}
             multiple
             hidden
+  onAnswerAsk,
             onChange={(event) => {
               pickImages(event.target.files)
               // 允许重选同一文件（值不变不触发 change）。
@@ -416,6 +417,7 @@ export function ChatView({
           />
           {state.turn === 'running' ? (
             <Button type="text" danger icon={<StopOutlined />} onClick={onInterrupt}>
+  onAnswerAsk(requestId: string, value?: string): void
               中断
             </Button>
           ) : (
@@ -437,3 +439,6 @@ export function ChatView({
     </>
   )
 }
+          <AskStack
+            asks={state.asks}
+            onAnswer={(requestId, value) => onAnswerAsk(requestId, value)}

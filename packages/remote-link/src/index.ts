@@ -323,6 +323,7 @@ export class RemoteLink {
           channels: this.options.channels ?? ['mobile-web'],
           active: active ? { id: active.id, ...(active.cwd ? { cwd: active.cwd } : {}) } : null,
           pendingPermissions: hub.pendingPermissionIds(),
+          pendingAsks: [...(hub.pendingAskIds?.() ?? [])],
         },
       } satisfies MachineFrame),
     )
@@ -443,6 +444,15 @@ export class RemoteLink {
     if (method === 'hub.closeActive') return this.options.hub.closeActive()
     if (method === 'hub.decide')
       return this.options.hub.decide(String(params.requestId ?? ''), String(params.kind ?? ''))
+    if (method === 'hub.answerAsk') {
+      const answer = this.options.hub.answerAsk
+      if (!answer) throw new Error('ask answering is not supported by this hub')
+      return answer.call(
+        this.options.hub,
+        String(params.requestId ?? ''),
+        typeof params.value === 'string' ? params.value : undefined,
+      )
+    }
     if (method === 'sessions.list')
       return this.options.listSessions ? this.options.listSessions() : []
     if (method === 'session.transcript') {
@@ -475,7 +485,10 @@ export class RemoteLink {
 
   private signatureOf(): string {
     const active = this.options.hub.active
-    return `${active?.id ?? ''}|${this.options.hub.pendingPermissionIds().join(',')}`
+    return (
+      `${active?.id ?? ''}|${this.options.hub.pendingPermissionIds().join(',')}` +
+      `|${(this.options.hub.pendingAskIds?.() ?? []).join(',')}`
+    )
   }
 
   private pushState(): void {
@@ -510,6 +523,7 @@ export class RemoteLink {
     if (typeof body.access_token !== 'string' || typeof body.expires_in !== 'number')
       throw new Error('gateway token response is malformed')
     this.token = { value: body.access_token, expiresAtMs: this.now() + body.expires_in * 1000 }
+        pendingAsks: [...(this.options.hub.pendingAskIds?.() ?? [])],
     return body.access_token
   }
 

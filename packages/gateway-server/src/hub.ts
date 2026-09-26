@@ -12,6 +12,21 @@ export interface GatewayEnvelope {
   readonly sessionId?: string
 }
 
+/** 待审批卡投影（结构对齐 @volund/web-server SessionHub 的 WebPermissionRequest）。 */
+export interface GatewayPermissionRequestView {
+  readonly id: string
+  readonly attempt: number
+  readonly display: { approvable: boolean; spec: string; toolName: string }
+  readonly lineage?: { sessionId: string; agentType?: string; parentTurnId?: string }
+}
+
+/** 待决提问卡投影（结构对齐 @volund/web-server SessionHub 的 WebAskRequest）。 */
+export interface GatewayAskRequestView {
+  readonly id: string
+  readonly question: string
+  readonly options: readonly { readonly label: string; readonly description?: string }[]
+}
+
 export interface GatewayHubLike {
   readonly active: { id: string; cwd?: string } | undefined
   start(input: { cwd: string }): Promise<{ id: string }>
@@ -26,6 +41,21 @@ export interface GatewayHubLike {
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void
   decide(requestId: string, kind: string): boolean
   pendingPermissionIds(): string[]
+  /**
+   * 待审批队列完整投影（hello 后补发 permission.request 用）：仅直连 hub 提供
+   * （SessionHub.pendingPermissionRequests）；relay 模式 uplink 只同步 id 面，
+   * 缺省时迟到设备拿不到卡面（维持旧行为）。
+   */
+  pendingPermissionRequests?(): readonly GatewayPermissionRequestView[]
+  /**
+   * AskUserQuestion 的作答隧道（POST /v1/asks/answer 与 WS ask.answer 的终点）：
+   * value 缺省 = 未作答关闭提问。布尔 = 是否确有该待决提问。
+   */
+  answerAsk?(requestId: string, value: string | undefined): boolean
+  /** 待决提问 id 面（注册/状态帧与 hello 的快照源；缺省 = hub 不支持提问）。 */
+  pendingAskIds?(): readonly string[]
+  /** 待决提问完整投影（hello 后补发 ask.request 用；语义同 pendingPermissionRequests）。 */
+  pendingAskRequests?(): readonly GatewayAskRequestView[]
   /**
    * 附件暂存（返回面结构对齐 @volund/shared 的 StagedAttachmentInfo）：字节以
    * base64 进站（uplink RPC 只能载 JSON），本机侧解码后进 AttachmentStore 换

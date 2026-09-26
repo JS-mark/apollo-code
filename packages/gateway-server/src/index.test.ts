@@ -32,6 +32,7 @@ class FakeHub implements GatewayHubLike {
   }[] = []
   readonly staged: { mime: string; dataBase64: string }[] = []
   readonly decisions: [string, string][] = []
+  readonly askAnswers: [string, string | undefined][] = []
   private counter = 0
 
   get active(): { id: string; cwd?: string } | undefined {
@@ -104,6 +105,16 @@ class FakeHub implements GatewayHubLike {
       kind: 'image' as const,
       mime: input.mime,
       size: Buffer.from(input.dataBase64, 'base64').length,
+  answerAsk(requestId: string, value: string | undefined): boolean {
+    this.askAnswers.push([requestId, value])
+    return true
+  }
+
+  pendingAskIds(): readonly string[] {
+  pendingAskIds(): readonly string[] {
+    return this.askAnswers.map(([id]) => id)
+    return this.askAnswers.map(([id]) => id)
+  }
       handle: `handle-${this.staged.length}`,
     }
   }
@@ -927,6 +938,21 @@ describe('websocket channel', () => {
     expect(hub.submitted[0]?.attachments).toEqual([
       { kind: 'image', chip: '[image_1]', mime: 'image/png', size: 4, handle: 'handle-1' },
     ])
+    // AskUserQuestion 作答：value 透传；缺省 = 未作答（undefined）。
+    client.send({ type: 'ask.answer', requestId: 'ask-1', value: '方案 A', ref: 'a1' })
+    const answered = await client.nextMessage()
+    expect(answered.type).toBe('ask.answered')
+    expect(answered.requestId).toBe('ask-1')
+    expect(answered.answered).toBe(true)
+    expect(hub.askAnswers).toContainEqual(['ask-1', '方案 A'])
+
+    client.send({ type: 'ask.answer', requestId: 'ask-1', ref: 'a2' })
+    const dismissed = await client.nextMessage()
+    expect(dismissed.type).toBe('ask.answered')
+    expect(dismissed.answered).toBe(true)
+    expect(hub.askAnswers).toContainEqual(['ask-1', undefined])
+    expect(hello.pendingAsks).toEqual([])
+
     client.close()
   })
 

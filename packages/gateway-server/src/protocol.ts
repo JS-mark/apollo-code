@@ -39,6 +39,8 @@ export interface UplinkRegisterFrame {
     readonly channels: readonly string[]
     readonly active: ProtocolActiveState
     readonly pendingPermissions: readonly string[]
+    /** 待决提问 id 面（AskUserQuestion 工具；缺省 = 旧本机不报，网关按空处理）。 */
+    readonly pendingAsks?: readonly string[]
   }
 }
 
@@ -47,6 +49,8 @@ export interface UplinkStateFrame {
   readonly type: 'uplink.state'
   readonly active: ProtocolActiveState
   readonly pendingPermissions: readonly string[]
+  /** 语义同注册帧的 pendingAsks（缺省沿用上次值，首帧缺省 = 空队列）。 */
+  readonly pendingAsks?: readonly string[]
 }
 
 /** hub 事件透传（信封与 /v1/ws 下行 event 同形）。 */
@@ -103,6 +107,7 @@ export type HubRpcMethod =
   | 'hub.interrupt'
   | 'hub.closeActive'
   | 'hub.decide'
+  | 'hub.answerAsk'
   | 'hub.stageAttachment'
   | 'hub.readAttachment'
   | 'sessions.list'
@@ -162,6 +167,13 @@ export type ClientFrame =
  * turn.submit 的 attachments 字段校验（与 web-server 的 parseSubmitAttachments
  * 同语义）：形状不符 → undefined（400）；缺省 → []。
  */
+  | {
+      /** AskUserQuestion 的作答帧：value 缺省 = 未作答关闭提问。 */
+      readonly type: 'ask.answer'
+      readonly ref?: string
+      readonly requestId: string
+      readonly value?: string
+    }
 export function parseClientAttachments(
   value: unknown,
 ): readonly GatewaySubmitAttachment[] | undefined {
@@ -200,6 +212,8 @@ export interface ServerHelloFrame {
 }
 
 export type ServerFrame =
+  /** 待决提问 id 面（ask.answer 兜底校验用；缺省 = 旧网关）。 */
+  readonly pendingAsks?: readonly string[]
   | ServerHelloFrame
   | { readonly type: 'pong'; readonly ref?: string }
   | {
@@ -219,3 +233,9 @@ export type ServerFrame =
     }
   | ({ readonly type: 'event' } & GatewayEnvelope)
   | ({ readonly type: 'error'; readonly ref?: string } & ProtocolError)
+  | {
+      readonly type: 'ask.answered'
+      readonly ref?: string
+      readonly requestId: string
+      readonly answered: boolean
+    }

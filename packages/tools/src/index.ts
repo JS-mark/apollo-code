@@ -25,6 +25,7 @@ export { canonicalWebOrigin, isForbiddenAddress, WebFetchTool } from './web-fetc
 export type { WebFetchInput, WebFetchOptions } from './web-fetch'
 export * from './bash-shell'
 export * from './background-shells'
+export { createAskUserQuestionTool, ASK_USER_QUESTION_TOOL_NAME } from './ask-user'
 import { BackgroundShells } from './background-shells'
 import { minimalEnv, quoteShellArgument, resolvePwshPath, selectShell } from './bash-shell'
 

@@ -382,6 +382,16 @@ export class WebApi {
   }
 
   async sessions(): Promise<readonly SessionSummary[]> {
+  /** AskUserQuestion 作答（value 缺省 = 跳过，模型自选默认继续）。 */
+  async answerAsk(requestId: string, value?: string): Promise<void> {
+    await parseResponse(
+      await fetch('/api/v1/asks/answer', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ requestId, ...(value === undefined ? {} : { value }) }),
+      }),
+    )
+  }
     const data = await parseResponse<{ sessions: readonly SessionSummary[] }>(
       await fetch('/api/v1/sessions'),
     )

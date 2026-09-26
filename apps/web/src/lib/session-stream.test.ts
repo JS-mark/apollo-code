@@ -603,3 +603,76 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     })
   })
 })
+
+describe('ask.request / ask.resolved（AskUserQuestion 提问卡）', () => {
+  const ask = {
+    id: 'ask-1',
+    question: '用哪个方案？',
+    options: [{ label: '方案 A', description: '快但糙' }, { label: '方案 B' }],
+  }
+
+  it('ask.request 进卡（web 只读队首），ask.resolved 清卡', () => {
+    const asked = reduceChatState(
+      initialChatState,
+      envelope('view', { type: 'ask.request', request: ask, requests: [ask] }),
+    )
+    expect(asked.ask).toEqual(ask)
+    const resolved = reduceChatState(asked, envelope('view', { type: 'ask.resolved' }))
+    expect(resolved.ask).toBeUndefined()
+  })
+
+  it('mcpToolParts/toolLabel：mcp__server__tool 拆解展示，非 MCP 不受影响', async () => {
+    const { mcpToolParts } = await import('./session-stream')
+    expect(mcpToolParts('mcp__github__search_repos')).toEqual({
+      server: 'github',
+      name: 'search_repos',
+    })
+    expect(mcpToolParts('mcp__bad')).toBeUndefined()
+    expect(mcpToolParts('Bash')).toBeUndefined()
+    expect(toolLabel('mcp__github__search_repos')).toBe('MCP · github/search_repos')
+    expect(toolLabel('Bash')).toBe('终端')
+  })
+
+  it('MCP 工具的 tool.requested 不产 target（入参无统一语义），body 保留 JSON', () => {
+    const state = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'tool.requested',
+        payload: {
+          toolUseId: 'tu-mcp',
+          tool: 'mcp__github__search_repos',
+          input: { query: 'volund', path: '/tmp/x' },
+        },
+      }),
+    )
+    expect(state.tools).toHaveLength(1)
+    expect(state.tools[0]?.target).toBeUndefined()
+    expect(state.tools[0]?.body).toContain('volund')
+  })
+})
+
+describe('streamedChars（状态行 ↑ tokens 估算的数据源）', () => {
+  it('text delta 累计、turn.started 清零；非 text/工具事件不计数', () => {
+    let state = reduceMany(initialChatState, [
+      envelope('core', { type: 'turn.started' }),
+      envelope('core', {
+        type: 'stream.delta',
+        payload: { kind: 'text', messageId: 'm1', fragment: '12345678' },
+      }),
+      envelope('core', {
+        type: 'stream.delta',
+        payload: { kind: 'thinking', messageId: 'm1', fragment: '思考不算' },
+      }),
+      envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 'tu1', tool: 'Bash' },
+      }),
+    ])
+    expect(state.streamedChars).toBe(8)
+    state = reduceMany(state, [
+      envelope('core', { type: 'turn.completed', payload: {} }),
+      envelope('core', { type: 'turn.started' }),
+    ])
+    expect(state.streamedChars).toBe(0)
+  })
+})

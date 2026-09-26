@@ -14,8 +14,10 @@
  * 诚实边界：cursor 是内存态单调计数，重连经 GET transcript 快照 + 新 cursor 续传。
  */
 import type {
+  InteractiveAskRequest,
   InteractivePermissionDecision,
   InteractiveSession,
+  AskPromptController,
   InteractivePermissionRequest,
   PermissionPromptController,
   PermissionRequestLineage,
@@ -59,6 +61,13 @@ export interface WebPermissionRequest {
 
 export interface SessionHubPorts {
   readonly session: SessionControllerLike
+/** Web 提问卡（AskUserQuestion 工具的待决投影；问题与选项本就随 tool.requested 出站）。 */
+export interface WebAskRequest {
+  id: string
+  question: string
+  options: InteractiveAskRequest['options']
+}
+
   /**
    * 进程级共享审批队列（§22 W-07 多路分发）：TUI 与 Web 都是它的订阅者——
    * 任一端决策，全端清卡。装配侧（runtime）同时把它接进权限链的 prompt 源。
@@ -66,6 +75,10 @@ export interface SessionHubPorts {
   readonly permissions: PermissionPromptController
 }
 
+   * 进程级共享提问队列（AskUserQuestion 工具）：同款多路分发语义。
+   * 可选——未装配（旧宿主）时提问只走 TUI/line 本地通道，不出站。
+   */
+  readonly asks?: AskPromptController
 export interface SessionHubOptions {
   /** 嵌入式（随 TUI 启动）：只挂载既有会话，禁止 web 侧 start/resume/end。 */
   readonly embedded?: boolean
@@ -74,6 +87,19 @@ export interface SessionHubOptions {
 export class SessionHub {
   private interactive: InteractiveSession<unknown> | undefined
   /** 当前挂载是否归 hub 所有（standalone 自建=true；embedded 挂载=false）。 */
+/** InteractiveAskRequest → 出站投影（id/question/options 即作答面）。 */
+function projectAskRequest(request: InteractiveAskRequest): WebAskRequest {
+  return {
+    id: request.id,
+    question: request.question,
+    options: request.options.map((option) =>
+      option.description === undefined
+        ? { label: option.label }
+        : { label: option.label, description: option.description },
+    ),
+  }
+}
+
   private owned = false
   private cursor = 0
   private readonly subscribers = new Set<(envelope: WebEventEnvelope) => void>()
@@ -117,6 +143,22 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   get active(): { id: string; cwd?: string } | undefined {
     if (!this.interactive) return undefined
     return {
+    // 提问队列 → view 帧（ask.request/ask.resolved）：与审批队列同款签名重投影。
+    this.ports.asks?.subscribe((asks) => {
+      const signature = asks.map((ask) => ask.id).join(',')
+      const previous = this.lastAskSignature
+      if (signature === previous) return
+      this.lastAskSignature = signature
+      if (asks.length === 0) {
+        if (previous !== undefined) this.emit('view', { type: 'ask.resolved' })
+        return
+      }
+      const projected = asks.map(projectAskRequest)
+      this.emit('view', {
+        type: 'ask.request',
+        request: projected[0]!,
+        requests: projected,
+      })
       id: this.interactive.id,
       ...(this.interactive.cwd ? { cwd: this.interactive.cwd } : {}),
     }
@@ -329,4 +371,24 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
    */
   pendingPermissionRequests(): WebPermissionRequest[] {
     return this.ports.permissions.requests().map(projectPermissionRequest)
+  }
+  /** 作答落到共享提问队列（语义同 decide；重复/过期 answer 幂等忽略）。 */
+  answerAsk(requestId: string, value: string | undefined): boolean {
+    const asks = this.ports.asks
+    if (!asks) return false
+    if (!asks.requests().some((request) => request.id === requestId)) return false
+    asks.decide(requestId, value)
+    return true
+  }
+
+  pendingAskIds(): string[] {
+    return this.ports.asks?.requests().map((request) => request.id) ?? []
+  }
+
+  /**
+   * 待决提问队列的完整投影（gateway /v1/ws 握手补发用，语义同
+   * pendingPermissionRequests）；未装配提问队列时回空。
+   */
+  pendingAskRequests(): WebAskRequest[] {
+    return this.ports.asks?.requests().map(projectAskRequest) ?? []
   }

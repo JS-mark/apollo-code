@@ -91,6 +91,12 @@ export interface PermissionCard {
 
 export interface ChatState {
   messages: ChatMessage[]
+/** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影；web 只读队首）。 */
+export interface AskCard {
+  id: string
+  question: string
+  options: { label: string; description?: string }[]
+}
   tools: ToolCard[]
   /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
   subagents: Record<string, SubagentActivity>
@@ -109,6 +115,8 @@ export interface ChatState {
   /**
    * 会话权限档位（ask/auto/full）：唯一来源是本 reducer——挂载/切会话拉取 +
    * SSE permission.mode 帧同写这里（TUI /mode、他端选择器、权限卡 g 授权全同步）。
+  /** 待决提问（AskUserQuestion）：ask.request/resolved 视图帧同写这里。 */
+  ask: AskCard | undefined
    */
   permissionMode: 'ask' | 'auto' | 'full' | undefined
   notice: string | undefined
@@ -129,6 +137,7 @@ type Envelope = {
   streamVersion: number
   cursor: string
   kind: 'core' | 'view' | 'control'
+  ask: undefined,
   sessionId?: string
   event: {
     type: string
@@ -600,12 +609,16 @@ export function useSessionStream(enabled: boolean, sessionId: string | undefined
         const data = JSON.parse(raw.data as string) as Partial<Envelope>
         // hello/heartbeat 等控制帧不是业务信封：不进 reducer。
         if (!data || typeof data !== 'object' || !('event' in data)) return
+      request?: PermissionCard | AskCard
         const envelope = data as Envelope
         const wanted = sessionRef.current
         if (wanted && envelope.sessionId && envelope.sessionId !== wanted) return
         dispatch({ type: 'envelope', envelope })
       } catch {
         // 无法解析的帧忽略。
+    if (view.type === 'ask.request' && view.request)
+      return { ...state, ask: view.request as AskCard }
+    if (view.type === 'ask.resolved') return { ...state, ask: undefined }
       }
     }
     source.addEventListener('core', handler as EventListener)

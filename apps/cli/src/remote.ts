@@ -68,7 +68,11 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
     // 远程审批卡需要权限交互离开 'none'（与 web 嵌入式同门）。
     ports.session.configurePermissionInteraction?.({ mode: 'tui' })
     const sessionHub = new SessionHub(
-      { session: ports.session, permissions: ports.permissionPrompts },
+      {
+        session: ports.session,
+        permissions: ports.permissionPrompts,
+        ...(ports.askPrompts ? { asks: ports.askPrompts } : {}),
+      },
       { embedded: true },
     )
     sessionHub.attachActive()
@@ -118,6 +122,10 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       transcript: () => sessionHub.transcript(),
       // 模型清单与 Web 控制台同源（当前生效模型 + anthropic 别名候选）。
       listModels: () => listModels(ports, cwd),
+      // AskUserQuestion 作答隧道（WS ask.answer / 移动端问答卡）：队列在 hub 侧。
+      answerAsk: (requestId, value) => sessionHub.answerAsk(requestId, value),
+      pendingAskIds: () => sessionHub.pendingAskIds(),
+      pendingAskRequests: () => sessionHub.pendingAskRequests(),
     }
     link = createRemoteLink({
       // 拨号瞬间取 cachedConfig；缓存由 start() 与 refreshConfig()（web 写 [remote]

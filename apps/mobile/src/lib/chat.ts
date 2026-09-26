@@ -76,6 +76,11 @@ export interface ChatState {
   /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
   subagents: Record<string, SubagentActivity>
   turn: 'idle' | 'running'
+/** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影）。 */
+export interface AskCard {
+  id: string
+  question: string
+  options: { label: string; description?: string }[]
   permission: PermissionCard | undefined
   notice: string | undefined
 }
@@ -91,13 +96,20 @@ export const initialChatState: ChatState = {
 
 /** 本机离线提示文案（machine.online 到达时按文案匹配清除，不误清其他提示）。 */
 export const MACHINE_OFFLINE_NOTICE = '本机离线：桌面端隧道已断开，恢复后自动重连'
+  /** 待决提问队列（AskUserQuestion；hub 全量投影）：问答卡的数据源。 */
+  asks: AskCard[]
 
 /** 信封事件面：CoreEvent 透传（附录 D.3 冒泡 tag 在事件顶层，§2.7bis.5 U3）。 */
 export interface EnvelopeEvent {
   type: string
   payload?: Record<string, unknown>
-  /** view 帧（kind='view'）的权限请求面——`permission.request` 携带（§2.7bis.5 U4：lineage 经此盲转透传）。 */
-  request?: PermissionCard
+  /**
+   * view 帧（kind='view'）的卡面——`permission.request` 携带 PermissionCard
+   * （§2.7bis.5 U4：lineage 经此盲转透传），`ask.request` 携带 AskCard。
+   */
+  request?: PermissionCard | AskCard
+  /** view 帧队列全量投影（hub pending*Requests）：多 tab 切换数据源；旧网关缺省。 */
+  requests?: (PermissionCard | AskCard)[]
   /** CoreEvent 的 turnId——Task 卡与冒泡事件的归属键（tool.requested/started 携带）。 */
   turnId?: string
   /** 子代理冒泡 tag：EventBus.forward 打上，两字段同时出现。 */
@@ -113,6 +125,7 @@ export type StreamAction =
   | { type: 'notice'; notice: string | undefined }
   | { type: 'reset' }
 
+  asks: [],
 /** 只取 text part（thinking part 也有 text 字段，混进来会把思考内容粘进正文、破坏 markdown 结构）。 */
 function textOfContent(content: unknown): string {
   if (!Array.isArray(content)) return ''
@@ -498,3 +511,15 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       return initialChatState
   }
 }
+      request?: PermissionCard | AskCard
+      requests?: (PermissionCard | AskCard)[]
+    if (view.type === 'ask.request') {
+      const queue =
+        Array.isArray(view.requests) && view.requests.length > 0
+          ? (view.requests as AskCard[])
+          : view.request
+            ? [view.request as AskCard]
+            : []
+      return queue.length > 0 ? { ...state, asks: queue } : state
+    }
+    if (view.type === 'ask.resolved') return { ...state, asks: [] }

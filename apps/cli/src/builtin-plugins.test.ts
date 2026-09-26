@@ -22,6 +22,7 @@ import {
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const envPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-env')
+const askPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-ask')
 
 const dirs: string[] = []
 const handles: ActivatedLocalPlugin[] = []
@@ -99,6 +100,7 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
       expect(failed).toEqual([])
       // 目录发现顺序依文件系统而定，按名排序断言
       expect(loaded.map((item) => item.name).sort()).toEqual([
+        'volund-plugin-ask',
         'volund-plugin-env',
         'volund-plugin-manager',
       ])
@@ -202,6 +204,33 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
     const output = (await activated.commands[0]!.run([])) as string
     expect(output).toContain('No [env] variables configured')
     expect(output).toContain('pass_through_env')
+  }, 30_000)
+})
+
+describe('volund-plugin-ask（内置 AskUserQuestion 提示词引导，沙箱端到端）', () => {
+  it('contributes the ask guidance prompt fragment through the sandbox bridge', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-ask-'))
+    dirs.push(home)
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-data-'))
+    dirs.push(dataDir)
+    const activated = await activateLocalPlugin({
+      dir: askPluginDir,
+      volundVersion: '0.2.0',
+      dataDirRoot: dataDir,
+      services: {},
+    })
+    handles.push(activated)
+    expect(activated.manifest.name).toBe('volund-plugin-ask')
+    // 纯 prompt 贡献：无命令、无工具，恰好一个 fragment。
+    expect(activated.commands).toEqual([])
+    expect(activated.tools).toEqual([])
+    expect(activated.prompts).toHaveLength(1)
+    const fragment = activated.prompts[0]!
+    expect(fragment.id).toBe('ask-user-question')
+    expect(fragment.priority).toBe(600)
+    expect(fragment.content).toContain('AskUserQuestion')
+    expect(fragment.content).toContain('asks you to ask them questions')
   }, 30_000)
 })
 

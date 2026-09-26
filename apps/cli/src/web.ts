@@ -112,7 +112,11 @@ function buildServerOptions(
   // §22 W-07 多路审批：共享 PermissionPromptController（runtime 装配进权限链），
   // TUI 与 Web 订阅同一队列，任一端决策全端清卡。
   const sessionHub = new SessionHub(
-    { session: ports.session, permissions: ports.permissionPrompts! },
+    {
+      session: ports.session,
+      permissions: ports.permissionPrompts!,
+      ...(ports.askPrompts ? { asks: ports.askPrompts } : {}),
+    },
     { embedded: true },
   )
   const management: NonNullable<WebServerOptions['management']> = {

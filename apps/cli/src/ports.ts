@@ -52,6 +52,7 @@ export type {
 } from '@volund/app-runtime'
 // 本地类型化需引用（VolundPorts 聚合形状）
 import type {
+  AskPromptController,
   ContextPort,
   DoctorHealth,
   EvolutionPort,
@@ -271,6 +272,11 @@ export interface VolundPorts {
    * 实现必须幂等、单项失败不阻塞其他项。
    */
   shutdown?(): Promise<void>
+  /**
+   * AskUserQuestion 工具的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
+   * 问答卡都订阅它——任一端作答，全端清卡。
+   */
+  askPrompts?: AskPromptController
 }
 export function unavailablePorts(): VolundPorts {
   return {

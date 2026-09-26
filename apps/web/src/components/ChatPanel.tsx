@@ -505,6 +505,17 @@ export function ChatPanel({
       />
       <div className="composer-chips">
         <span className="composer-chip" title={cwd}>
+  // AskUserQuestion 作答：value 缺省 = 跳过（模型收到「未作答」并自选默认继续）。
+  const answerAsk = useCallback(
+    async (value?: string) => {
+      if (!chat.ask) return
+      try {
+        await api.answerAsk(chat.ask.id, value)
+      } catch (cause) {
+        stream.setNotice(cause instanceof Error ? cause.message : String(cause))
+      }
+    },
+    [api, chat.ask, stream],
           <FolderOutlined />
           {projectName}
         </span>
@@ -821,3 +832,28 @@ export function ChatPanel({
     </div>
   )
 }
+            {chat.ask && (
+              <div className="perm-card ask-card">
+                <Typography.Text strong>提问：{chat.ask.question}</Typography.Text>
+                <div className="ask-options">
+                  {chat.ask.options.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      className="ask-option"
+                      onClick={() => void answerAsk(option.label)}
+                    >
+                      <span className="ask-option-label">{option.label}</span>
+                      {option.description ? (
+                        <span className="ask-option-desc">{option.description}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+                <div className="perm-actions">
+                  <Button size="small" type="text" onClick={() => void answerAsk()}>
+                    跳过（不作答）
+                  </Button>
+                </div>
+              </div>
+            )}

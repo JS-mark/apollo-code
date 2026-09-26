@@ -157,6 +157,17 @@ afterEach(async () => {
 })
 
 function createLinkOptions(): RemoteLinkOptions {
+  readonly askAnswers: [string, string | undefined][] = []
+
+  answerAsk(requestId: string, value: string | undefined): boolean {
+    this.askAnswers.push([requestId, value])
+    return true
+  }
+
+  pendingAskIds(): readonly string[] {
+    return ['ask-1']
+  }
+
   return {
     config: () => ({
       gatewayUrl: base,
@@ -329,6 +340,41 @@ describe('RemoteLink', () => {
       { kind: 'image', chip: '[image_1]', mime: 'image/png', size: 4, handle: 'h-1' },
     ])
     ws.close()
+  it('tunnels ask.answer to the local hub answerAsk (AskUserQuestion)', async () => {
+    await startGateway()
+    link = createLink()
+    link.start()
+    await waitOnline(link)
+
+    const tokenRes = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      }),
+    })
+    const token = ((await tokenRes.json()) as { access_token: string }).access_token
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/v1/ws?access_token=${token}`)
+    const frames: Record<string, unknown>[] = []
+    ws.onmessage = (event) => frames.push(JSON.parse(String(event.data)) as Record<string, unknown>)
+    await new Promise<void>((resolve) => {
+      ws.onopen = () => resolve()
+    })
+    // 注册帧带上的 pendingAsks 快照使 RemoteHub.answerAsk 的 id 校验通过；
+    // value 缺省 = 未作答关闭。
+    ws.send(JSON.stringify({ type: 'ask.answer', requestId: 'ask-1', value: '方案 A' }))
+    ws.send(JSON.stringify({ type: 'ask.answer', requestId: 'ask-1' }))
+    const deadline = Date.now() + 5_000
+    while (hub.askAnswers.length < 2 && Date.now() < deadline) await sleep(20)
+    expect(hub.askAnswers).toEqual([
+      ['ask-1', '方案 A'],
+      ['ask-1', undefined],
+    ])
+    ws.close()
+  })
+
   })
 
   it('serves /v1/models from the machine over the uplink', async () => {

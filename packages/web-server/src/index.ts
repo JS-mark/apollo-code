@@ -1397,6 +1397,20 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           list: async () => ({
             summary: await mgmt.telemetry!.summary(),
             health: await mgmt.telemetry!.health(),
+    if (hub && path === '/api/v1/asks/answer' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const requestId = (body as { requestId?: unknown })?.requestId
+      const rawValue = (body as { value?: unknown })?.value
+      if (
+        typeof requestId !== 'string' ||
+        !(rawValue === undefined || typeof rawValue === 'string')
+      ) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'requestId is required' })
+        return
+      }
+      ok(res, { answered: hub.answerAsk(requestId, rawValue) })
+      return
+    }
           }),
           summary: async () => await mgmt.telemetry!.summary(),
           health: async () => await mgmt.telemetry!.health(),

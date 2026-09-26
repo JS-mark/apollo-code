@@ -92,6 +92,69 @@ interface PendingPermissionRequest {
   resolve(decision: InteractivePermissionDecision): void
 }
 
+/** 提问卡的一个候选项（AskUserQuestion 工具的 options 投影）。 */
+export interface InteractiveAskOption {
+  label: string
+  description?: string
+}
+
+/**
+ * 待决提问（AskUserQuestion 工具发起）：与权限卡同款跨端语义——TUI 渲染为
+ * 选项卡，Web/Mobile 渲染为问答卡；answer 按 request id 精确匹配。
+ */
+export interface InteractiveAskRequest {
+  id: string
+  question: string
+  options: readonly InteractiveAskOption[]
+}
+
+export type AskPromptListener = (requests: readonly InteractiveAskRequest[]) => void
+
+/**
+ * 待决提问队列（§22 W-07 同款多路分发）：TUI/Web/Mobile 都订阅它——任一端
+ * 作答全端清卡。decide 的 value 为 undefined = 用户关闭/未作答；重复/过期
+ * answer 静默忽略（调用方幂等）。
+ */
+export class AskPromptController {
+  private readonly pending: PendingAskRequest[] = []
+  private readonly listeners = new Set<AskPromptListener>()
+
+  subscribe(listener: AskPromptListener): () => void {
+    this.listeners.add(listener)
+    listener(this.requests())
+    return () => this.listeners.delete(listener)
+  }
+
+  request(request: InteractiveAskRequest): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      this.pending.push({ request, resolve })
+      this.notify()
+    })
+  }
+
+  decide(id: string, value: string | undefined): void {
+    const index = this.pending.findIndex((item) => item.request.id === id)
+    if (index < 0) return
+    const [pending] = this.pending.splice(index, 1)
+    pending?.resolve(value)
+    this.notify()
+  }
+
+  requests(): readonly InteractiveAskRequest[] {
+    return this.pending.map((item) => item.request)
+  }
+
+  private notify(): void {
+    const requests = this.requests()
+    for (const listener of this.listeners) listener(requests)
+  }
+}
+
+interface PendingAskRequest {
+  request: InteractiveAskRequest
+  resolve(value: string | undefined): void
+}
+
 export type PermissionInteractionMode = 'none' | 'line' | 'tui'
 
 export interface SubmitOptions {

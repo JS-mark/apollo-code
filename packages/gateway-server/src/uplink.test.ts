@@ -7,6 +7,16 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type {
+  GatewayChangesView,
+  GatewayEnvelope,
+  GatewayFileDiff,
+  GatewayHubLike,
+  GatewayUndoPreview,
+  GatewayUndoResult,
+} from './hub'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { GatewayEnvelope, GatewayHubLike } from './hub'
@@ -110,6 +120,58 @@ class LocalHub implements GatewayHubLike {
   listSessions(): Promise<readonly unknown[]> {
     this.listedSessions = true
     return Promise.resolve([{ id: 'sess-1', title: '本地会话' }])
+  deletedSessions: string[] = []
+
+  deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    this.deletedSessions.push(id)
+    return Promise.resolve({ deleted: true })
+  }
+
+  /** changes 隧道腿（消息流变更卡片）：计数器供用例断言。 */
+  changesListCalls = 0
+  diffPaths: string[] = []
+  undoCalls = 0
+
+  changesList(): Promise<GatewayChangesView> {
+    this.changesListCalls += 1
+    return Promise.resolve({
+      paths: [
+        {
+          path: '/local/workspace/a.ts',
+          created: false,
+          batches: 1,
+          lastModifiedAt: '2026-09-23 18:30',
+          allConsumed: false,
+          stats: { linesAdded: 3, linesRemoved: 1, truncated: false, deleted: false },
+        },
+      ],
+    })
+  }
+
+  changesDiff(path: string): Promise<GatewayFileDiff> {
+    this.diffPaths.push(path)
+    return Promise.resolve({
+      path,
+      tracked: true,
+      created: false,
+      beforeAvailable: true,
+      deleted: false,
+      truncated: false,
+      diff: `--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new`,
+      linesAdded: 3,
+      linesRemoved: 1,
+    })
+  }
+
+  changesUndoPreview(): Promise<GatewayUndoPreview> {
+    return Promise.resolve({ undoable: true, paths: ['/local/workspace/a.ts'], warnings: [] })
+  }
+
+  changesUndo(): Promise<GatewayUndoResult> {
+    this.undoCalls += 1
+    return Promise.resolve({ undone: true, paths: ['/local/workspace/a.ts'], warnings: [] })
+  }
+
   }
 
   emit(kind: string, event: unknown): void {

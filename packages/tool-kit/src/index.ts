@@ -28,6 +28,20 @@ export interface NativeBridge {
 }
 export interface ToolUiPort {
   requestInput(prompt: string): Promise<string>
+  /**
+   * 结构化单选提问（AskUserQuestion 等）：宿主决定交互面（TUI/Web 提问队列、
+   * 终端数字问答），返回选中项 label；undefined = 用户未作答/跳过。
+   * 可选——宿主未实现时调用方按「交互不可用」降级。
+   */
+  requestChoice?(request: ToolChoiceRequest): Promise<string | undefined>
+}
+export interface ToolChoiceOption {
+  label: string
+  description?: string
+}
+export interface ToolChoiceRequest {
+  question: string
+  options: readonly ToolChoiceOption[]
 }
 export interface ToolContext {
   readonly abortSignal: AbortSignal
