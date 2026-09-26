@@ -76,6 +76,10 @@ export interface SessionPort {
   onActivate?(listener: (session: InteractiveSession) => void): () => void
   resume(id: string): Promise<{ id: string }>
   list?(): Promise<readonly SessionCandidate[]>
+   * 删除会话档案（`volund sessions delete` / Web / 移动端共用；活动会话先 end
+   * 再删档并冷启动新会话）。缺省 = 该面未装配。
+   */
+  delete?(id: string): Promise<{ next?: string }>
   /** /model 选择落盘：钉住会话级模型（session.model_changed），resume 时恢复。 */
   setModel?(model: string): Promise<void>
   interrupt(): Promise<void>

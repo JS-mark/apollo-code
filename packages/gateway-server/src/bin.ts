@@ -146,6 +146,7 @@ async function main(): Promise<void> {
       'POST /v1/chat/completions',
       'GET /v1/models',
       'GET /v1/sessions',
+      'POST /v1/sessions/delete',
       'GET /v1/ws (websocket)',
       'GET /uplink (websocket, machine dial-out)',
       'POST /pairing/redeem',

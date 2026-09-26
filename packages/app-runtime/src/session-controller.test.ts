@@ -216,3 +216,108 @@ describe('SessionController', () => {
     await resumed.end()
   })
 })
+
+  it('deletes an inactive session archive (events, attachments, backup hook)', async () => {
+    const sessionsDir = await sessionsRoot()
+    const onDelete = vi.fn()
+    const controller = new SessionController(new Context(), {
+      sessionsDir,
+      createRunner: fakeFactory(),
+      onDelete,
+    })
+    const first = await controller.startInteractive({ cwd: process.cwd() })
+    await first.submit('hello')
+    await first.end()
+    // 附件目录（内容寻址布局可能不存在的场景也要能删）。
+    await mkdir(join(sessionsDir, first.id, 'attachments'), { recursive: true })
+    await writeFile(join(sessionsDir, first.id, 'attachments', 'a.png'), 'x')
+    // 切到第二个会话，让第一个成为非活动档案。
+    const second = await controller.startInteractive({ cwd: process.cwd() })
+
+    const result = await controller.delete(first.id)
+    expect(result).toEqual({})
+    expect(onDelete).toHaveBeenCalledWith(first.id)
+    expect(await new SessionStore(join(sessionsDir, `${first.id}.jsonl`)).load()).toEqual([])
+    expect(
+      await stat(join(sessionsDir, first.id)).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false)
+    expect((await controller.list()).map((entry) => entry.id)).not.toContain(first.id)
+    // 活动会话不受影响。
+    expect(controller.getActive()?.id).toBe(second.id)
+    await second.end()
+  })
+
+  it('deleting the active session ends it and cold-starts a fresh session in the same cwd', async () => {
+    const sessionsDir = await sessionsRoot()
+    const controller = new SessionController(new Context(), {
+      sessionsDir,
+      createRunner: fakeFactory(),
+    })
+    const session = await controller.startInteractive({ cwd: '/tmp/proj' })
+    await session.submit('hello')
+    const activations: string[] = []
+    controller.onActivate((active) => activations.push(active.id))
+
+    const result = await controller.delete(session.id)
+    expect(result.next).toBeDefined()
+    expect(result.next).not.toBe(session.id)
+    expect(activations).toEqual([result.next])
+    expect(controller.getActive()?.id).toBe(result.next)
+    expect(controller.getActive()?.cwd).toBe('/tmp/proj')
+    // 新会话事件流已建立（session.started 落盘），旧档案彻底消失。
+    const stored = await new SessionStore(join(sessionsDir, `${result.next}.jsonl`)).load()
+    expect(stored.some((entry) => entry.type === 'session.started')).toBe(true)
+    await expect(controller.resume(session.id)).rejects.toThrow()
+    expect((await controller.list()).map((entry) => entry.id)).not.toContain(session.id)
+  })
+
+  it('refuses deleting the active session while a turn is in flight', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let runs = 0
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: (state, events) => {
+        const base = fakeFactory()(state, events) as Runner
+        return {
+          ...base,
+          get state() {
+            return state
+          },
+          run: vi.fn(async (text: string) => {
+            runs += 1
+            if (runs === 1) await gate
+            return base.run(text)
+          }),
+        } as unknown as Runner
+      },
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    const flight = session.submit('one')
+    await expect(controller.delete(session.id)).rejects.toMatchObject({
+      code: 'session_turn_in_progress',
+    })
+    release()
+    await flight
+    // turn 终态后删除成功（活动会话路径）。
+    const result = await controller.delete(session.id)
+    expect(result.next).toBeDefined()
+  })
+
+  it('maps delete failures to session_id_invalid / session_not_found', async () => {
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: fakeFactory(),
+    })
+    await expect(controller.delete('not-a-session-id')).rejects.toMatchObject({
+      code: 'session_id_invalid',
+    })
+    await expect(controller.delete('01890a5d-ac96-774b-bcce-b302099a8057')).rejects.toMatchObject({
+      code: 'session_not_found',
+    })
+  })

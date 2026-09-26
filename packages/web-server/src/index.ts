@@ -544,6 +544,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         fail(res, 403, {
           code: 'web_origin_rejected',
           message: 'Origin does not match the loopback server',
+              sessionDelete: options.sessionHub !== undefined,
         })
         return
       }
@@ -1127,6 +1128,22 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         fail(res, 400, { code: 'web_schema_invalid', message: 'missing query parameter: path' })
         return
       }
+    // 会话删除（破坏性）：hub 底层端口未接线时 503（能力诚实降级），不存在 404，
+    // 删的是活动会话时宿主先 end 再冷启动并经 SSE 推 session.attached/deleted。
+    if (hub && path === '/api/v1/sessions/delete' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const id = (body as { id?: unknown })?.id
+      if (typeof id !== 'string' || !id) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'id is required' })
+        return
+      }
+      try {
+        ok(res, await hub.deleteSession(id))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
       if (!options.changes.previewUndoPath) {
         fail(res, 501, { code: 'web_state_conflict', message: 'per-file undo is not available' })
         return

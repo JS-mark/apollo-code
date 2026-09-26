@@ -68,3 +68,39 @@ describe('gatewayLabel', () => {
     expect(gatewayLabel()).toBe('gw.example.com')
   })
 })
+describe('GatewayApi.deleteSession', () => {
+  const token = 'tok'
+  const jsonOk = (body: unknown, status = 200) =>
+    ({ ok: status < 400, status, json: async () => body }) as unknown as Response
+  const realFetch = globalThis.fetch
+
+  afterEach(() => {
+    vi.stubGlobal('fetch', realFetch)
+  })
+
+  it('posts the id and returns the parsed result', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        calls.push({ url, init })
+        return jsonOk({ deleted: true })
+      }),
+    )
+    const api = new GatewayApi(token)
+    await expect(api.deleteSession('sess-1')).resolves.toEqual({ deleted: true })
+    expect(calls[0]?.url).toBe('/v1/sessions/delete')
+    expect(calls[0]?.init.method).toBe('POST')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ id: 'sess-1' })
+    expect(calls[0]?.init.headers).toMatchObject({ Authorization: 'Bearer tok' })
+  })
+
+  it('surfaces the gateway error message for non-2xx', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonOk({ error: { message: 'not found' } }, 404)),
+    )
+    const api = new GatewayApi(token)
+    await expect(api.deleteSession('sess-x')).rejects.toThrow('not found')
+  })
+})

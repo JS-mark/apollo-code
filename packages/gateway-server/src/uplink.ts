@@ -179,6 +179,10 @@ export class RemoteHub implements GatewayHubLike {
 
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
     this.subscribers.add(listener)
+  /** 删除会话档案（POST /v1/sessions/delete 的隧道腿）：本机侧含活动会话收尾。 */
+  deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    return this.call('sessions.delete', { id }) as Promise<{ deleted: true; next?: string }>
+  }
     return () => this.subscribers.delete(listener)
   }
 

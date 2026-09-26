@@ -799,6 +799,12 @@ export class BackupStore {
     }
     try {
       const manifestsRoot = this.root
+  /** 删除会话档案时的备份清理：整目录移除该会话的 manifest 与 objects。 */
+  async purgeSession(sessionId: string): Promise<void> {
+    validateSessionId(sessionId)
+    await rm(resolve(this.root, sessionId), { recursive: true, force: true })
+  }
+
       let entries
       try {
         entries = await readdir(manifestsRoot, { withFileTypes: true })

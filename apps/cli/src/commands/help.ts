@@ -102,6 +102,21 @@ Options:
   --yes                 Confirm clear non-interactively
 `
 
+const sessionsUsage = `Usage: ${commandName} sessions <command> [options]
+
+Lightweight management of saved sessions: list them, or delete one by id
+(unique prefix accepted). Deleting the active session ends it and starts a
+fresh one; its attachments and undo backups are removed with it.
+
+Commands:
+  list                       List saved sessions (default)
+  delete <session-id>        Delete a session archive (confirmation required)
+
+Options:
+  --json                 Emit one JSON document
+  --yes                  Confirm delete non-interactively
+`
+
 const doctorUsage = `Usage: ${commandName} doctor [--json] [--strict]
 
 Diagnose configuration, credentials, native packages, and sandbox readiness.
@@ -260,6 +275,7 @@ export const commandUsage: Readonly<Record<string, string>> = {
   status: statusUsage,
   config: configUsage,
   history: historyUsage,
+  sessions: sessionsUsage,
   doctor: doctorUsage,
   memory: memoryUsage,
   telemetry: telemetryUsage,
@@ -294,4 +310,5 @@ export const actionStyleCommands: ReadonlySet<string> = new Set([
   'hook',
   'config',
   'history',
+  'sessions',
 ])

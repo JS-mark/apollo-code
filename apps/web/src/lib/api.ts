@@ -29,6 +29,7 @@ export interface Bootstrap {
     embedded?: boolean
     models?: boolean
     permissionMode?: boolean
+    mutations?: { sessionDelete?: boolean; [key: string]: unknown }
     [key: string]: unknown
   }
 }
@@ -229,6 +230,16 @@ export class WebApi {
   async resumeSession(id: string): Promise<{ id: string }> {
     return parseResponse(
       await fetch('/api/v1/sessions/resume', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ id }),
+      }),
+    )
+  }
+  /** 删除会话档案；next = 删的是活动会话时宿主冷启动的新会话 id。 */
+  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    return parseResponse(
+      await fetch('/api/v1/sessions/delete', {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({ id }),

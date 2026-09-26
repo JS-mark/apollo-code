@@ -1659,6 +1659,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     onEnd: async (sessionId) => {
       permissionPolicy.releaseLineage(sessionId)
       await memory.flush()
+    // 删除会话档案后的备份清理（/undo、restore 的数据源一并回收）。
+    onDelete: async (sessionId) => {
+      await backups.purgeSession(sessionId)
+    },
     },
     onTerminalOutput: (input) => {
       streamToStdout = input.streamToStdout
@@ -1756,6 +1760,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           skills: appKernel.ui.panel<SkillsPanelController>('skills'),
           mcp: appKernel.ui.panel<McpPanelController>('mcp'),
           // SUBAGENTS-UI-r1：/subagents 运行管理面板（dispatcher 运行注册表）
+          // /sessions 删除流：宿主 controller 直删（活动会话先 end 再冷启动并经
+          // 激活推送换绑 TUI）；备份/附件清理在 controller.delete 内一并完成。
+          sessions: {
+            list: () => session.list(),
+            delete: (id) => session.delete(id),
+          },
           subagents: appKernel.ui.panel<SubagentsPanelController>('subagents'),
           // W-08 对齐：/changes 会话变更面板（BackupStore 背书；含面板内按路径撤销）
           changes: {

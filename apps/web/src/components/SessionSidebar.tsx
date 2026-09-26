@@ -5,7 +5,8 @@
  * - 「+」下拉：新建对话 / 新建分组（capability 未接线时只有新建对话）；
  * - 有用户分组时按分组展示（用户分组按创建序，未分组殿后），分组可折叠；
  * - 每个分组默认展示 5 条，「更多」每次再加载 5 条；
- * - 会话条目 ⋯ 菜单可把会话移动到其他分组；
+ * - 会话条目 ⋯ 菜单可复制会话 ID（连同设备 ID，便于用户反馈问题时自助取证）、
+ *   把会话移动到其他分组、删除会话（确认弹窗；能力位未接线时隐藏）；
  * - 无用户分组时退化为平铺全量列表（不截断历史）；搜索时平铺展示匹配项。
  */
 import {
@@ -32,12 +33,18 @@ interface SessionSidebarProps {
   groups: SessionGroupsView
   /** bootstrap capability.sessionGroups：未接线时隐藏分组入口、平铺展示。 */
   groupingEnabled: boolean
+  /** bootstrap capability.mutations.sessionDelete：未接线时隐藏删除入口。 */
+  deleteEnabled: boolean
+  /** bootstrap server.serverId：「复制会话 ID」一并带出，供排障对账。 */
+  serverId: string
   activeId: string | undefined
   /** 「最近会话」弹层的管理入口聚焦此搜索框。 */
   searchRef?: React.Ref<InputRef>
   onSelect(id: string): void
   onNewChat(): void
   onGroupsChanged(): void
+  /** 会话删除成功后回调（AppShell 负责刷新清单与活动会话复位；next = 宿主冷启动的新会话）。 */
+  onSessionDeleted(id: string, next: string | undefined): void
 }
 
 /** 会话条目的时间副标：HH:MM。 */
@@ -51,7 +58,7 @@ function timeLabel(updatedAt: string): string {
 type NameModal = { mode: 'create' } | { mode: 'rename'; group: SessionGroup } | null
 
 export function SessionSidebar(props: SessionSidebarProps) {
-  const { api, groupingEnabled, groups, sessions, activeId } = props
+  const { api, groupingEnabled, deleteEnabled, serverId, groups, sessions, activeId } = props
   const { message } = App.useApp()
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -59,6 +66,8 @@ export function SessionSidebar(props: SessionSidebarProps) {
   const [nameModal, setNameModal] = useState<NameModal>(null)
   const [nameValue, setNameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<SessionGroup | null>(null)
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<SessionSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const searching = query.trim().length > 0
   const filtered = useMemo(() => {
@@ -94,60 +103,104 @@ export function SessionSidebar(props: SessionSidebarProps) {
     setNameModal(null)
   }
 
-  const moveMenu = (session: SessionSummary): MenuProps => ({
-    items: [
-      {
-        key: 'move',
-        label: '移动到分组',
-        children: [
-          { key: 'move:', label: '未分组', disabled: groupOf(session.id) === null },
-          ...groups.groups.map((group) => ({
-            key: `move:${group.id}`,
-            label: group.name,
-            disabled: groupOf(session.id) === group.id,
-          })),
-        ],
-      },
-    ],
-    onClick: ({ key, domEvent }) => {
-      domEvent.stopPropagation()
-      if (!key.startsWith('move:')) return
-      const groupId = key.slice('move:'.length) || null
-      void runOp(
-        () => api.assignSessionGroup(session.id, groupId),
-        groupId ? '已移动会话' : '已移回未分组',
-      )
-    },
-  })
+  const submitDeleteSession = async () => {
+    const target = deleteSessionTarget
+    if (!target || deleting) return
+    setDeleting(true)
+    try {
+      const result = await api.deleteSession(target.id)
+      message.success('会话已删除')
+      setDeleteSessionTarget(null)
+      props.onSessionDeleted(target.id, result.next)
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
-  const renderItem = (session: SessionSummary) => (
-    <div
-      key={session.id}
-      className={session.id === activeId ? 'sg-item sg-item-active' : 'sg-item'}
-      onClick={() => props.onSelect(session.id)}
-    >
-      <div className="sg-avatar">V</div>
-      <div className="sg-item-text">
-        <Typography.Text strong ellipsis style={{ display: 'block' }}>
-          {session.title}
-        </Typography.Text>
-        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-          {timeLabel(session.updatedAt)} · {session.cwd.split('/').pop() ?? session.cwd}
-        </Typography.Text>
+  /** 会话条目 ⋯ 菜单：复制会话 ID + 移动到分组（分组能力开启时）+ 删除会话（删除能力开启时）。 */
+  const sessionMenu = (session: SessionSummary): MenuProps | undefined => {
+    const items: MenuProps['items'] = [
+      { key: 'copy-id', label: '复制会话 ID' },
+      ...(groupingEnabled
+        ? [
+            {
+              key: 'move',
+              label: '移动到分组',
+              children: [
+                { key: 'move:', label: '未分组', disabled: groupOf(session.id) === null },
+                ...groups.groups.map((group) => ({
+                  key: `move:${group.id}`,
+                  label: group.name,
+                  disabled: groupOf(session.id) === group.id,
+                })),
+              ],
+            },
+          ]
+        : []),
+      ...(deleteEnabled ? [{ key: 'delete', label: '删除会话', danger: true }] : []),
+    ]
+    if (items.length === 0) return undefined
+    return {
+      items,
+      onClick: ({ key, domEvent }) => {
+        domEvent.stopPropagation()
+        if (key === 'delete') {
+          setDeleteSessionTarget(session)
+          return
+        }
+        if (key === 'copy-id') {
+          // 排障取证：设备 ID（服务器实例）+ 会话 ID 一次带全，用户直接粘贴反馈。
+          void navigator.clipboard
+            .writeText(`设备ID: ${serverId}\n会话ID: ${session.id}`)
+            .then(() => message.success('已复制'))
+            .catch((cause: unknown) =>
+              message.error(cause instanceof Error ? cause.message : String(cause)),
+            )
+          return
+        }
+        if (!key.startsWith('move:')) return
+        const groupId = key.slice('move:'.length) || null
+        void runOp(
+          () => api.assignSessionGroup(session.id, groupId),
+          groupId ? '已移动会话' : '已移回未分组',
+        )
+      },
+    }
+  }
+
+  const renderItem = (session: SessionSummary) => {
+    const menu = sessionMenu(session)
+    return (
+      <div
+        key={session.id}
+        className={session.id === activeId ? 'sg-item sg-item-active' : 'sg-item'}
+        onClick={() => props.onSelect(session.id)}
+      >
+        <div className="sg-avatar">V</div>
+        <div className="sg-item-text">
+          <Typography.Text strong ellipsis style={{ display: 'block' }}>
+            {session.title}
+          </Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+            {timeLabel(session.updatedAt)} · {session.cwd.split('/').pop() ?? session.cwd}
+          </Typography.Text>
+        </div>
+        {menu && (
+          <Dropdown trigger={['click']} placement="bottomRight" menu={menu}>
+            <Button
+              className="sg-item-menu"
+              type="text"
+              size="small"
+              icon={<EllipsisOutlined />}
+              onClick={(event) => event.stopPropagation()}
+            />
+          </Dropdown>
+        )}
       </div>
-      {groupingEnabled && (
-        <Dropdown trigger={['click']} placement="bottomRight" menu={moveMenu(session)}>
-          <Button
-            className="sg-item-menu"
-            type="text"
-            size="small"
-            icon={<EllipsisOutlined />}
-            onClick={(event) => event.stopPropagation()}
-          />
-        </Dropdown>
-      )}
-    </div>
-  )
+    )
+  }
 
   const renderGroup = (group: SidebarGroup) => {
     const isCollapsed = collapsed[group.key] === true
@@ -312,6 +365,25 @@ export function SessionSidebar(props: SessionSidebarProps) {
         {deleteTarget && (
           <Typography.Text>
             删除分组「{deleteTarget.name}」？组内会话会移回「未分组」，会话本身不受影响。
+          </Typography.Text>
+        )}
+      </Modal>
+      <Modal
+        title="删除会话"
+        open={deleteSessionTarget !== null}
+        okText="删除"
+        okButtonProps={{ danger: true, loading: deleting }}
+        cancelText="取消"
+        onCancel={() => {
+          if (deleting) return
+          setDeleteSessionTarget(null)
+        }}
+        onOk={() => void submitDeleteSession()}
+      >
+        {deleteSessionTarget && (
+          <Typography.Text>
+            删除会话「{deleteSessionTarget.title}」？事件流、附件与撤销备份会一并清除，
+            此操作不可恢复。
           </Typography.Text>
         )}
       </Modal>

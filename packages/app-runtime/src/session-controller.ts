@@ -410,6 +410,43 @@ export class SessionController<TStatusView = unknown> extends Service {
     bytes: Uint8Array,
     mime: string,
   ): Promise<import('@volund/shared').PasteAttachmentResult> {
+  /**
+   * 删除会话档案（<id>.jsonl + <id>/attachments/；备份目录经 onDelete 钩子清）。
+   * 目标是当前活动会话时：turn 在途拒绝（session_turn_in_progress）；否则先
+   * end 落 session.ended（否则后续 append 会把文件原样重建），删档后立即以原
+   * cwd 冷启动新会话——单活动会话模型下进程不留悬挂的活动引用，TUI/Web/移动端
+   * 经 onActivate 广播跟随切到空会话。返回 next = 冷启动的新会话 id（非活动
+   * 删除省略），调用方可据此跟随切换。
+   */
+  async delete(id: string): Promise<{ next?: string }> {
+    if (!SESSION_ID_PATTERN.test(id))
+      throw new VolundError('session_id_invalid', `Invalid session id: ${id}`)
+    if (this.runner?.state.id === id) {
+      if (this.turnFlight)
+        throw new VolundError(
+          'session_turn_in_progress',
+          'A turn is already in flight for this session',
+        )
+      const cwd = this.runner.state.cwd
+      await this.end()
+      await this.removeArchive(id)
+      await this.options.onDelete?.(id)
+      const next = await this.startInteractive({ cwd })
+      return { next: next.id }
+    }
+    const entries = await new SessionStore(this.path(id)).load()
+    if (entries.length === 0) throw new VolundError('session_not_found', `Session not found: ${id}`)
+    await this.removeArchive(id)
+    await this.options.onDelete?.(id)
+    return {}
+  }
+
+  /** 会话档案的磁盘面：事件流本体 + 附件目录（后者可能不存在，force 静默）。 */
+  private async removeArchive(id: string): Promise<void> {
+    await rm(this.path(id), { force: true })
+    await rm(join(this.options.sessionsDir, id), { recursive: true, force: true })
+  }
+
     const runner = this.runner
     if (!runner) return { kind: 'unavailable', reason: 'no active session' }
     try {

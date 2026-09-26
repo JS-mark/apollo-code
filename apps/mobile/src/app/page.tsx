@@ -182,6 +182,18 @@ export default function MobileApp() {
         if (frame.type === 'session.attached' && typeof frame.id === 'string') {
           setActiveSessionId(frame.id)
           pendingStartRef.current = false
+        // 他端删除会话（web/TUI/另一台设备）：刷新清单；删的是当前会话时本机已
+        // end 并冷启动新会话——回退到新对话，后续 session.attached 帧会再跟随。
+        if (envelope.kind === 'view' && viewEvent?.type === 'session.deleted') {
+          const deletedId = typeof viewEvent.id === 'string' ? viewEvent.id : undefined
+          if (deletedId) {
+            void refreshSessions()
+            if (deletedId === activeSessionRef.current) {
+              setActiveSessionId(undefined)
+              dispatch({ type: 'reset' })
+            }
+          }
+          return
           const waiters = sessionWaitersRef.current
           sessionWaitersRef.current = []
           for (const resolve of waiters) resolve(frame.id)
@@ -319,6 +331,26 @@ export default function MobileApp() {
     diag('turn', 'interrupt')
     wsRef.current?.send({ type: 'turn.interrupt' })
   }, [])
+  /** 左滑删除确认后的落地：删当前会话跟随宿主冷启动的新会话（next），其余仅刷新清单。 */
+  const deleteSession = useCallback(
+    async (id: string) => {
+      const current = sessionRef.current
+      if (!current) return
+      try {
+        const result = await new GatewayApi(current.token).deleteSession(id)
+        if (id === activeSessionRef.current) {
+          setActiveSessionId(result.next)
+          dispatch({ type: 'reset' })
+          setTab('chat')
+        }
+        void refreshSessions()
+      } catch (cause) {
+        dispatch({
+          type: 'notice',
+          notice: cause instanceof Error ? cause.message : String(cause),
+        })
+      }
+    },
 
   const unpair = useCallback((notice?: string) => {
     wsRef.current?.close()
@@ -465,6 +497,7 @@ export default function MobileApp() {
           )}
         </div>
         <nav className="tabbar">
+            onDelete={(id) => void deleteSession(id)}
           {(
             [
               ['sessions', '会话', <HistoryOutlined key="icon" style={{ fontSize: 20 }} />],

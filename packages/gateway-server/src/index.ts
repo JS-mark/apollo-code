@@ -919,6 +919,29 @@ export async function createGatewayServer(
           return fail(
             res,
             new GatewayError(
+      // 会话删除（破坏性；relay 经隧道落到本机 SessionHub.deleteSession）。
+      // 不存在的 id 按本机错误码 404 透传；删活动会话时 next = 冷启动的新会话。
+      if (path === '/v1/sessions/delete' && req.method === 'POST') {
+        const body = await readJsonBody(req, maxBodyBytes)
+        const id = (body as { id?: unknown })?.id
+        if (typeof id !== 'string' || !id)
+          return fail(res, new GatewayError('gateway_schema_invalid', 400, 'id is required'))
+        const hubForAuth = resolveHub(auth)
+        if (!hubForAuth.deleteSession)
+          return fail(
+            res,
+            new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+          )
+        try {
+          ok(res, await hubForAuth.deleteSession(id))
+        } catch (cause) {
+          // hub 侧普通 Error（session_not_found / session_turn_in_progress…）
+          // 按既定归类映射 404/409，其余 502。
+          return fail(res, classifyHubError(cause))
+        }
+        return
+      }
+
               'gateway_unsupported_content',
               400,
               `unsupported attachment type: ${mime || '<missing>'}`,

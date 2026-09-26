@@ -33,6 +33,8 @@ class FakeHub implements GatewayHubLike {
   readonly staged: { mime: string; dataBase64: string }[] = []
   readonly decisions: [string, string][] = []
   readonly askAnswers: [string, string | undefined][] = []
+  /** 测试注入：删除会话的桩（GatewayHubLike.deleteSession 的可变镜像）。 */
+  deleteSession?: (id: string) => Promise<{ deleted: true; next?: string }>
   private counter = 0
 
   get active(): { id: string; cwd?: string } | undefined {
@@ -316,6 +318,52 @@ describe('models and sessions', () => {
 })
 
 describe('attachments upload', () => {
+  it('deletes a session through the hub and rejects a missing id', async () => {
+    await startServer()
+    const token = await fetchToken()
+    hub.deleteSession = async (id: string) => {
+      if (id === 'gone')
+        throw Object.assign(new Error('Session not found: gone'), { code: 'session_not_found' })
+      return { deleted: true as const }
+    }
+    const ok = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'sess-1' }),
+    })
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ deleted: true })
+    // hub 未实现删除面（直挂旧 hub）→ 503 诚实降级。
+    delete hub.deleteSession
+    const offline = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'sess-1' }),
+    })
+    expect(offline.status).toBe(503)
+    // 缺 id → 400。
+    const invalid = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(invalid.status).toBe(400)
+    // 本机错误码透传（404 session_not_found）。
+    hub.deleteSession = async (id: string) => {
+      if (id === 'gone')
+        throw Object.assign(new Error('Session not found: gone'), { code: 'session_not_found' })
+      return { deleted: true as const }
+    }
+    const missing = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'gone' }),
+    })
+    expect(missing.status).toBe(404)
+    expect(((await missing.json()) as { error: { code: string } }).error.code).toBe(
+      'gateway_session_not_found',
+    )
+  })
   it('stages image bytes and returns the hub handle', async () => {
     await startServer()
     const token = await fetchToken()

@@ -27,6 +27,7 @@ import { actionStyleCommands, commandUsage } from './commands/help'
 import { createHistoryCommand } from './commands/history'
 import { createMemoryCommand } from './commands/memory'
 import { createRemoteCommand } from './commands/remote'
+import { createSessionsCommand } from './commands/sessions'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
@@ -179,6 +180,7 @@ export async function runCli(
     trustCommand,
     createConfigCommand(io),
     createHistoryCommand(io),
+    createSessionsCommand(io),
     createStatusCommand({
       buildFallback: async (fallbackCwd) =>
         buildWelcomePanelData({

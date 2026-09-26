@@ -66,6 +66,7 @@ function hubWith(
   )
   return { hub, permissions }
 }
+        ...(options.delete ? { delete: options.delete } : {}),
 
 const permissionRequest = {
   id: 'perm-1',
@@ -321,3 +322,31 @@ describe('SessionHub', () => {
         },
       ],
     })
+  it('deleteSession delegates to the port and emits a session.deleted view frame', async () => {
+    const session = fakeSession()
+    const deleted: string[] = []
+    const { hub } = hubWith(session, {
+      delete: async (id) => {
+        deleted.push(id)
+        return id === 'sess-active' ? { next: 'sess-next' } : {}
+      },
+    })
+    await hub.start({ cwd: '/tmp/hub' })
+    const seen: unknown[] = []
+    hub.subscribe((envelope) => seen.push(envelope.event))
+    await expect(hub.deleteSession('sess-other')).resolves.toEqual({ deleted: true })
+    expect(deleted).toEqual(['sess-other'])
+    expect(seen).toContainEqual({ type: 'session.deleted', id: 'sess-other' })
+    // 删活动会话：next 透传（调用方跟随宿主冷启动的新会话）。
+    await expect(hub.deleteSession('sess-active')).resolves.toEqual({
+      deleted: true,
+      next: 'sess-next',
+    })
+  })
+  it('deleteSession without a wired port reports web_capability_unavailable', async () => {
+    const session = fakeSession()
+    const { hub } = hubWith(session)
+    await expect(hub.deleteSession('sess-any')).rejects.toMatchObject({
+      code: 'web_capability_unavailable',
+    })
+  })

@@ -26,6 +26,8 @@ export const BUILTIN_SLASH_COMMAND_NAMES = Object.freeze([
   'compact',
   'memory',
   'resume',
+  // /sessions（删除会话）：与 /resume 同属会话域保留名
+  'sessions',
   'model',
   'mode',
   // SKILLS-MCPS-r1：/skills 与 /mcp（业界单数惯例）为内置保留名；

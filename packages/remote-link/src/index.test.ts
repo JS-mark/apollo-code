@@ -95,6 +95,12 @@ class FakeHub implements GatewayHubLike {
     this.activeSession = undefined
   }
 
+  deletedSessions: string[] = []
+
+  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    this.deletedSessions.push(id)
+    return { deleted: true }
+  }
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -260,6 +266,15 @@ describe('RemoteLink', () => {
         if (frames.some((frame) => frame.type === 'turn.accepted')) {
           clearInterval(timer)
           resolve()
+    // /v1/sessions/delete 经 rpc 隧道落到本机 hub.deleteSession。
+    const deleteRes = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'sess-9' }),
+    })
+    expect(deleteRes.status).toBe(200)
+    expect(await deleteRes.json()).toEqual({ deleted: true })
+    expect(hub.deletedSessions).toEqual(['sess-9'])
         }
       }, 10)
     })

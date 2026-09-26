@@ -417,6 +417,8 @@ export function AppShell() {
               // 嵌入式同样允许切换：controller 激活后 TUI 经 onActivate 跟随。
               void resume(id)
             }}
+            deleteEnabled={bootstrap.capabilities.mutations?.sessionDelete === true}
+            serverId={bootstrap.server.serverId}
             onNewChat={() => {
               setActiveId(undefined)
               setRoute('chat')
@@ -432,6 +434,13 @@ export function AppShell() {
             }}
             ellipsis={{ tooltip: bootstrap.workspace.cwd }}
           >
+            onSessionDeleted={(id, next) => {
+              if (id === activeId) {
+                if (next) void resume(next)
+                else setActiveId(undefined)
+              }
+              void refreshSessions()
+            }}
             v{bootstrap.server.version} · {bootstrap.workspace.cwd}
           </Typography.Text>
         </div>

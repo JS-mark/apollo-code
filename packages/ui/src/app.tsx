@@ -240,6 +240,14 @@ export interface InteractiveAppOptions {
   }>
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
+   * 会话删除（/sessions）：委托宿主 SessionController.delete。删活动会话时宿主
+   * 先 end 再冷启动新会话并经 sessionActivation 推送换绑 facade，next 供本地
+   * 兜底同步；未接线时命令显示为不可用。
+   */
+  sessions?: {
+    list(): Promise<readonly SessionCandidate[]>
+    delete(id: string): Promise<{ next?: string }>
+  }
   slashCommandRegistry?: SlashCommandRegistry
   status?: string
   statusPanel?: StatusPanelData
@@ -336,6 +344,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     modelPickerOpen ||
     commandListView !== undefined
   const [registryCommands, setRegistryCommands] = useState(
+  // /sessions 删除流：候选 picker → 单条确认 picker（Enter 二次确认，Esc 退回）。
+  const [deleteCandidates, setDeleteCandidates] = useState<readonly SessionCandidate[]>()
+  const [deleteError, setDeleteError] = useState<string>()
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<SessionCandidate>()
     () => options.slashCommandRegistry?.snapshot() ?? [],
   )
   const activeEvents = activeSession?.events ?? options.events
@@ -949,6 +961,33 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     activeSession,
     currentModelId,
     exit,
+      // 会话删除：picker 选择 → 单条确认（破坏性动作两次 Enter），删活动会话后
+      // 宿主冷启动并经激活推送换绑。
+      options.sessions
+        ? {
+            name: 'sessions',
+            order: 160,
+            description: 'Delete a saved session',
+            run: async () => {
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setMemoryOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
+              setChangesPanelOpen(false)
+              setResumeCandidates(undefined)
+              setDeleteConfirmTarget(undefined)
+              setDeleteError(undefined)
+              setDeleteCandidates(await options.sessions!.list())
+              setState((current) => ({
+                ...current,
+                status: 'select session to delete',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('sessions', 'Delete a saved session', 160),
     options.memory,
     options.modelPicker,
     options.skills,
@@ -957,6 +996,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     activeOnExit,
     options.resume,
     options.slashCommands,
+    options.sessions,
     options.undo,
     pasteClipboardAndReport,
     registryCommands,
@@ -995,6 +1035,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       }
       history={historyEntries}
       initialValue={options.initialInput ?? ''}
+        deleteCandidates !== undefined ||
+        deleteConfirmTarget !== undefined ||
       placeholder={`Ask ${productIdentity.shortName} to inspect, change, test, or explain this repo`}
       slashCommands={slashCommands}
       terminalColumns={terminalSize.columns}
@@ -1365,6 +1407,46 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           <TabbedListView
             view={commandListView}
             onCancel={() => {
+      {deleteCandidates ? (
+        <SessionPicker
+          title="Delete session"
+          actionLabel="delete"
+          {...(deleteError ? { error: deleteError } : {})}
+          sessions={deleteCandidates}
+          onCancel={() => {
+            setDeleteCandidates(undefined)
+            setDeleteConfirmTarget(undefined)
+            setDeleteError(undefined)
+            setState((current) => ({ ...current, status: 'session delete cancelled' }))
+          }}
+          onSelect={(candidate) => {
+            // 破坏性动作的二次确认：单条 picker 再按 Enter 才真正删除。
+            setDeleteError(undefined)
+            setDeleteConfirmTarget(candidate)
+          }}
+        />
+      ) : null}
+      {deleteConfirmTarget ? (
+        <SessionPicker
+          title={`Confirm delete: ${deleteConfirmTarget.title}`}
+          actionLabel="confirm delete"
+          sessions={[deleteConfirmTarget]}
+          onCancel={() => {
+            setDeleteConfirmTarget(undefined)
+            setState((current) => ({ ...current, status: 'session delete cancelled' }))
+          }}
+          onSelect={(candidate) => {
+            void (async () => {
+              try {
+                const { next } = await options.sessions!.delete(candidate.id)
+                setDeleteCandidates(undefined)
+                setDeleteConfirmTarget(undefined)
+                setDeleteError(undefined)
+                // 删的是活动会话：宿主已冷启动并经激活推送换绑（transcript 已清），
+                // 这里按 next 兜底同步本地 sessionId；非活动删除只报结果。
+                setState((current) => {
+                  const switched = next !== undefined || current.sessionId === candidate.id
+                  return {
               setCommandListView(undefined)
               setState((current) => ({ ...current, status: 'closed' }))
             }}

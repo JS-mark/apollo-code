@@ -116,6 +116,9 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       },
       interrupt: () => sessionHub.interrupt(),
       closeActive: () => sessionHub.closeActive(),
+      // 会话删除（移动端 /v1/sessions/delete 的隧道终点）：SessionHub 内部经
+      // controller 落地，session.attached/deleted 视图帧随事件通道回推。
+      deleteSession: (id) => sessionHub.deleteSession(id),
       subscribe: (listener) => sessionHub.subscribe(listener),
       decide: (requestId, kind) => sessionHub.decide(requestId, kind),
       pendingPermissionIds: () => sessionHub.pendingPermissionIds(),

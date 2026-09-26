@@ -111,6 +111,7 @@ export type HubRpcMethod =
   | 'hub.stageAttachment'
   | 'hub.readAttachment'
   | 'sessions.list'
+  | 'sessions.delete'
   | 'session.transcript'
   | 'models.list'
 

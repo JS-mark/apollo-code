@@ -34,6 +34,8 @@ export interface SessionControllerLike {
   onActivate?(listener: (session: InteractiveSession<unknown>) => void): () => void
   interrupt(): Promise<void>
   end(): Promise<void>
+  delete?(id: string): Promise<{ next?: string }>
+  interrupt(): Promise<void>
   /** 是否有 turn 在途（SessionController.turnInFlight；测试假件可缺省视为空闲）。 */
   readonly turnInFlight?: boolean
 }
@@ -238,6 +240,22 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   }
 
   /** 嵌入式：会话生命周期（end）仍属 TUI；detach 语义保留在 closeActive。 */
+   * 删除会话档案（会话列表的破坏性操作）。端口未接线 → web_capability_unavailable
+   * （前端据此隐藏入口）；不存在 → session_not_found；删除当前挂载会话时
+   * controller 先 end 再冷启动新会话，onActivate 已把 hub 重挂到新会话
+   * （session.attached 帧），这里补发 session.deleted 供各端刷新会话清单。
+   */
+  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    const del = this.ports.session.delete
+    if (!del)
+      throw Object.assign(new Error('session deletion is not wired'), {
+        code: 'web_capability_unavailable',
+      })
+    const { next } = await del.call(this.ports.session, id)
+    this.emit('view', { type: 'session.deleted', id })
+    return { deleted: true, ...(next ? { next } : {}) }
+  }
+
 
   private attach(interactive: InteractiveSession<unknown>, owned: boolean): void {
     this.interactive = interactive

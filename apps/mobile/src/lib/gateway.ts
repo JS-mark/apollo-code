@@ -242,6 +242,23 @@ export class GatewayApi {
     if (res.status === 401) {
       notifyUnauthorized()
       throw new Error('凭证已失效，请重新配对')
+  /** 删除会话档案（网关经隧道落到本机；next = 删活动会话时本机冷启动的新会话 id）。 */
+  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    const res = await fetch(`${gatewayBase()}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (res.status === 401) {
+      notifyUnauthorized()
+      throw new Error('凭证已失效，请重新配对')
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => undefined)) as
+        | { error?: { message?: string } }
+        | undefined
+      throw new Error(body?.error?.message ?? `网关请求失败（${res.status}）`)
+    }
     }
     const body = (await res.json().catch(() => ({}))) as StagedAttachment & {
       error?: { message?: string }

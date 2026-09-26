@@ -16,6 +16,10 @@ export function SessionPicker(props: {
   now?: number
   pageSize?: number
   placeholder?: string
+  /** 面板标题（缺省 resume 语义）；/sessions 删除流复用同组件换文案。 */
+  title?: string
+  /** Enter 动作词（帮助行与标题语义联动）；缺省 resume。 */
+  actionLabel?: string
   onCancel(): void
   onSelect(session: SessionCandidate): void
 }) {
@@ -53,7 +57,7 @@ export function SessionPicker(props: {
   })
   return (
     <Box borderStyle="round" flexDirection="column" paddingX={1}>
-      <Text bold>Resume session</Text>
+      <Text bold>{props.title ?? 'Resume session'}</Text>
       <Box
         borderBottom
         borderColor="cyan"
@@ -77,7 +81,8 @@ export function SessionPicker(props: {
         )}
       </Box>
       <Text dimColor>
-        ↑/↓ select · PgUp/PgDn page · Home/End first/last · Enter resume · Esc cancel
+        ↑/↓ select · PgUp/PgDn page · Home/End first/last · Enter {props.actionLabel ?? 'resume'} ·
+        Esc cancel
       </Text>
       {props.error ? <Text color="red">{props.error}</Text> : null}
       {!state.sessions.length ? <Text>No saved sessions.</Text> : null}

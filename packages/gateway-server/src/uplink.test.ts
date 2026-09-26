@@ -305,6 +305,10 @@ class TestUplink {
       else if (method === 'hub.interrupt') result = await this.hub.interrupt()
       else if (method === 'hub.closeActive') result = await this.hub.closeActive()
       else if (method === 'hub.decide')
+      else if (method === 'sessions.delete') {
+        const del = this.hub.deleteSession
+        if (!del) throw new Error('session deletion is not supported by this hub')
+        result = await del.call(this.hub, String(params.id))
         result = this.hub.decide(String(params.requestId), String(params.kind))
       else if (method === 'sessions.list') result = await this.hub.listSessions()
       else throw new Error(`unknown method ${method}`)
@@ -510,6 +514,23 @@ describe('uplink relay', () => {
   it('serves /v1/ws through the remote hub and relays events', async () => {
     await startRelay()
     const uplink = await dialUplink()
+  it('routes /v1/sessions/delete over the tunnel to the machine hub', async () => {
+    await startRelay()
+    const uplink = await dialUplink()
+    const res = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${await tokenFor(base, { id: MACHINE.id, secret: MACHINE_SECRET })}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ id: 'sess-9' }),
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ deleted: true })
+    expect(hub.deletedSessions).toEqual(['sess-9'])
+    uplink.close()
+  })
+
     // 本机已有活动会话（state 帧同步到网关缓存）。
     await hub.start({ cwd: '/local/workspace' })
     uplink.pushState()

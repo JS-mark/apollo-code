@@ -455,6 +455,11 @@ export class RemoteLink {
     }
     if (method === 'sessions.list')
       return this.options.listSessions ? this.options.listSessions() : []
+    if (method === 'sessions.delete') {
+      const del = this.options.hub.deleteSession
+      if (!del) throw new Error('session deletion is not supported by this hub')
+      return del.call(this.options.hub, String(params.id ?? ''))
+    }
     if (method === 'session.transcript') {
       const transcript = (
         this.options.hub as unknown as {

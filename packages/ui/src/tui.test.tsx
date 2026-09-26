@@ -1212,6 +1212,50 @@ describe('renderInteractiveApp', () => {
         },
         resume: {
           list: vi.fn(async () => [candidate]),
+  it('lists /sessions delete flow: pick, confirm, and report', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const candidate = {
+      id: 'doomed-session',
+      cwd: '/target',
+      updatedAt: '2026-08-10T00:00:00Z',
+      title: 'Doomed work',
+    }
+    const del = vi.fn(async () => ({}))
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/sessions',
+        sessions: {
+          list: vi.fn(async () => [candidate]),
+          delete: del,
+        },
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    // 第一个 Enter：执行 /sessions 打开候选 picker。
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Delete session'))
+    await app.waitUntilRenderFlush()
+    // 第二个 Enter：选中候选 → 单条确认 picker（破坏性动作两次 Enter）。
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Confirm delete: Doomed work'))
+    await app.waitUntilRenderFlush()
+    // 第三个 Enter：确认 → 真正删除。
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('session deleted: Doomed work'))
+    expect(del).toHaveBeenCalledWith('doomed-session')
+    app.unmount()
+    await app.waitUntilExit()
+  })
           resume: vi.fn(async () => ({
             cwd: candidate.cwd,
             id: candidate.id,
