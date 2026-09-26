@@ -166,6 +166,22 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding: 16px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ant-color-fill-secondary) transparent;
+}
+/* WebKit 细滚动条：轨道透明、滑块跟随主题填充色，悬停加深。 */
+.chat-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: var(--ant-color-fill-secondary);
+  border-radius: 4px;
+}
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ant-color-fill);
 }
 .chat-disclaimer {
   text-align: center;
@@ -207,19 +223,44 @@ body {
   font-size: 12px;
   color: var(--ant-color-text-quaternary);
 }
-.msg-caret {
-  display: inline-block;
-  width: 8px;
+/* AI 回复中的俏皮「正在输入」三点：依次弹跳带挤压回弹（思考行与流式尾迹共用）。 */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   height: 16px;
-  margin-left: 2px;
-  vertical-align: -2px;
-  border-radius: 1px;
-  background: var(--ant-color-text-secondary);
-  animation: caret-blink 1s steps(1) infinite;
+  flex-shrink: 0;
 }
-@keyframes caret-blink {
-  50% {
-    opacity: 0;
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ant-color-primary);
+  opacity: 0.45;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-5px) scale(1.2);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots span {
+    animation: none;
+    opacity: 0.6;
   }
 }
 /* 思考行：进行中「◌ 思考中 · N 秒」，结算后「已思考 · X 秒 · N 个步骤」。 */
@@ -231,40 +272,57 @@ body {
   font-size: 13px;
   color: var(--ant-color-text-secondary);
 }
+/* 状态行内联中断（对齐 TUI 的 esc to interrupt；web 以可点按钮承载）。 */
+.think-interrupt {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--ant-color-error, #ff4d4f);
+  cursor: pointer;
+}
+.think-interrupt:hover {
+  text-decoration: underline;
+}
 .think-row.settled {
   font-weight: 500;
 }
-/* 工具活动：紧凑行 + 状态点。 */
+/* 工具调用：默认折叠一行（图标+中文标签+单行目标，图1），点击展开详情卡（图2）。 */
+.tool-block {
+  margin: 1px 0;
+}
 .tool-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px 0;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
   font-size: 12.5px;
+  font-family: inherit;
   color: var(--ant-color-text-secondary);
+  cursor: pointer;
 }
-.tool-dot {
-  width: 7px;
-  height: 7px;
+div.tool-row {
+  cursor: default;
+}
+.tool-row:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+div.tool-row:hover {
+  background: none;
+}
+.tool-glyph {
+  display: inline-flex;
   flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--ant-color-success);
-}
-.tool-dot.running {
-  background: var(--ant-color-primary);
-  animation: tool-pulse 1s ease-in-out infinite;
-}
-.tool-dot.error {
-  background: var(--ant-color-error);
-}
-@keyframes tool-pulse {
-  50% {
-    opacity: 0.35;
-  }
+  color: var(--ant-color-text-quaternary);
 }
 .tool-name {
-  font-family: var(--ant-font-family-code);
-  color: var(--ant-color-text);
+  flex-shrink: 0;
+  color: var(--ant-color-text-secondary);
 }
 .tool-target {
   font-family: var(--ant-font-family-code);
@@ -273,12 +331,105 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 .tool-delta {
   font-family: var(--ant-font-family-code);
   font-size: 12px;
   color: var(--ant-color-text-tertiary);
   flex-shrink: 0;
+}
+.tool-spin {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ant-color-primary);
+}
+/* 可展开行的右缘小箭头：收起朝右、展开转朝下。 */
+.tool-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ant-color-text-quaternary);
+  transition: transform 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+.tool-chevron.open {
+  transform: rotate(90deg);
+}
+.tool-status {
+  flex-shrink: 0;
+  color: var(--ant-color-text-quaternary);
+}
+.tool-status.error {
+  color: var(--ant-color-error);
+}
+/* 展开过渡：grid 0fr→1fr 撑开高度 + 淡入（卡片常驻 DOM，双向都有动画）。 */
+.tool-card-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin: 2px 0 6px;
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.645, 0.045, 0.355, 1),
+    opacity 0.2s cubic-bezier(0.215, 0.61, 0.355, 1),
+    visibility 0.24s;
+}
+.tool-card-wrap.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-chevron,
+  .tool-card-wrap {
+    transition: none;
+  }
+}
+/* 展开卡：小写工具名头 + 复制按钮 + 等宽正文（对齐参考稿）。 */
+.tool-card {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 10px;
+  background: var(--ant-color-bg-container);
+}
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 2px 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-fill-quaternary);
+}
+.tool-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+.tool-card-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--ant-color-text-quaternary);
+}
+.tool-card-status.error {
+  color: var(--ant-color-error);
+}
+.tool-card-body {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--ant-font-family-code);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 /* 权限请求卡片 */
 .perm-card {
@@ -298,6 +449,41 @@ body {
 .perm-actions {
   display: flex;
   gap: 8px;
+}
+/* AskUserQuestion 提问卡：青色系与权限卡的警示黄区分——问题是可选项不是风险。 */
+.ask-card {
+  border-color: var(--ant-color-info-border, #91caff);
+  background: var(--ant-color-info-bg, #e6f4ff);
+}
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.ask-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 12px;
+  border: 1px solid var(--ant-color-info-border, #91caff);
+  border-radius: 10px;
+  background: var(--ant-color-bg-container, #fff);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  transition: border-color 0.15s ease;
+}
+.ask-option:hover {
+  border-color: var(--ant-color-info, #1677ff);
+}
+.ask-option-label {
+  font-weight: 600;
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+}
+.ask-option-desc {
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
 }
 .chat-usage {
   margin-top: 6px;
@@ -853,14 +1039,32 @@ html[data-theme='light'] .rail-menu-item.disabled {
   border-bottom: 1px solid var(--ant-color-border-secondary);
 }
 .workbench-tabs {
-  padding: 0 8px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  /* 嵌在 .workbench-head 行内（浏览器标签栏式）：标题行 = 标题 + tabs + 控制按钮。 */
+  flex: 1;
+  min-width: 0;
+  margin: 0 -6px;
+  padding: 0 4px;
 }
 .workbench-tabs > .ant-tabs-nav {
   margin-bottom: 0;
 }
 .workbench-tabs > .ant-tabs-nav::before {
   border-bottom: 0;
+}
+/* 预览标签的图标前缀（与文件名留 4px 缝）。 */
+.workbench-tabs .wb-tab-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 浏览器地址栏式路径条：点击进入编辑态。 */
+.wb-addr {
+  cursor: text;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.wb-addr:hover {
+  background: var(--ant-color-fill-tertiary);
 }
 .workbench-body {
   flex: 1;
@@ -1038,6 +1242,14 @@ html[data-theme='light'] .rail-menu-item.disabled {
 .diff-hunk {
   color: var(--ant-color-info);
 }
+.diff-meta {
+  color: var(--ant-color-text-quaternary);
+}
+.diff-more {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
 .wb-file {
   display: flex;
   flex-direction: column;
@@ -1082,6 +1294,37 @@ html[data-theme='light'] .rail-menu-item.disabled {
   width: calc(100% - 16px);
   font-family: var(--ant-font-family-code);
   font-size: 12px;
+}
+/* ── 产物预览（图片/网页沙箱/PDF/Markdown 直出）───────────────────────── */
+.wb-preview {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.wb-preview-image {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12px;
+}
+.wb-preview-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  /* 亮底兜底：暗色主题下透明 iframe 有黑闪；HTML 产物自带自己的背景。 */
+  background: #fff;
+}
+.wb-preview-markdown {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
 }
 .wb-xterm {
   flex: 1;
@@ -1135,14 +1378,6 @@ html[data-theme='light'] .rail-menu-item.disabled {
 /* 管理页条目卡片 hover（WEB-EXT-MANAGE-MARKET-r1 视觉轮） */
 .manage-item-card:hover {
   border-color: var(--ant-color-primary, #1677ff);
-}
-.diff-meta {
-  color: var(--ant-color-text-quaternary);
-}
-.diff-more {
-  padding: 8px;
-  font-size: 12px;
-  color: var(--ant-color-text-secondary);
 }
 
 /* ── 文件变更面板（ChangesPane，工作台「文件变更」标签页内容） ── */

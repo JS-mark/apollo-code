@@ -81,6 +81,166 @@ const formatHHMM = (at: number): string => {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+/** AI 回复中的俏皮「正在输入」三点（思考行与流式尾迹共用；动效在 globals.css）。 */
+function TypingDots() {
+  return (
+    <span className="typing-dots" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+    </span>
+  )
+}
+
+/** 终端小图标（对齐参考稿的 >_ 方框；antd 无同形图标，内联一份）。 */
+function TerminalGlyph() {
+  return (
+    <svg width={13} height={13} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1" y="2.5" width="14" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M4 6l2.5 2L4 10"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M8 10.5h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** 折叠行工具图标：终端类走 >_ 方框，其余按语义映射 antd 图标。 */
+function ToolGlyph({ tool }: { tool: string }) {
+  const style = { fontSize: 13 }
+  switch (tool) {
+    case 'Bash':
+    case 'ShellOutput':
+    case 'KillShell':
+      return <TerminalGlyph />
+    case 'Read':
+      return <FileTextOutlined style={style} />
+    case 'Write':
+      return <FileAddOutlined style={style} />
+    case 'Edit':
+    case 'MultiEdit':
+      return <EditOutlined style={style} />
+    case 'Glob':
+      return <FolderOpenOutlined style={style} />
+    case 'Grep':
+    case 'WebSearch':
+      return <SearchOutlined style={style} />
+    case 'WebFetch':
+      return <GlobalOutlined style={style} />
+    case 'Skill':
+      return <ThunderboltOutlined style={style} />
+    default:
+      return <ToolOutlined style={style} />
+  }
+}
+
+/** 展开卡头部的复制按钮：Copy→Check +「已复制」（全产品统一惯例）。 */
+function ToolCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Tooltip title={copied ? '已复制' : '复制'}>
+      <Button
+        size="small"
+        type="text"
+        icon={copied ? <CheckOutlined /> : <CopyOutlined />}
+        aria-label={copied ? '已复制' : '复制'}
+        onClick={(event) => {
+          event.stopPropagation()
+          void navigator.clipboard.writeText(text).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          })
+        }}
+      />
+    </Tooltip>
+  )
+}
+
+/**
+ * 工具调用卡：默认折叠成一行（图标 + 中文标签 + 单行目标），点击展开成详情卡
+ * （小写工具名头 + 复制按钮 + 完整入参正文）；Task 卡沿用子代理聚合文案，可展开看
+ * 派发 prompt。无 body（迟到 started 建卡/无 input）时不可展开。
+ */
+function ToolRowCard({
+  tool,
+  subagents,
+}: {
+  tool: ToolCard
+  subagents: Record<string, SubagentActivity>
+}) {
+  const [open, setOpen] = useState(false)
+  const isTask = tool.tool === 'Task'
+  const row = toolRowText(tool, subagents)
+  const expandable = tool.body !== undefined
+  const head = (
+    <>
+      {isTask ? (
+        <span className="tool-name">{row.name}</span>
+      ) : (
+        <>
+          <span className="tool-glyph">
+            <ToolGlyph tool={tool.tool} />
+          </span>
+          <span className="tool-name">{toolLabel(tool.tool)}</span>
+          {tool.target ? <span className="tool-target">{tool.target}</span> : null}
+        </>
+      )}
+      {!isTask && tool.status === 'done' && (tool.linesAdded || tool.linesRemoved) ? (
+        <span className="tool-delta">
+          +{tool.linesAdded ?? 0} −{tool.linesRemoved ?? 0}
+        </span>
+      ) : null}
+      {tool.status === 'running' ? (
+        isTask ? (
+          <span className="tool-status">{row.status}</span>
+        ) : (
+          <LoadingOutlined className="tool-spin" />
+        )
+      ) : tool.status === 'error' ? (
+        <span className="tool-status error">失败</span>
+      ) : isTask ? (
+        <span className="tool-status">{row.status}</span>
+      ) : null}
+      {expandable ? <RightOutlined className={`tool-chevron${open ? ' open' : ''}`} /> : null}
+    </>
+  )
+  return (
+    <div className="tool-block">
+      {expandable ? (
+        <button
+          type="button"
+          className="tool-row"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {head}
+        </button>
+      ) : (
+        <div className="tool-row">{head}</div>
+      )}
+      {expandable && tool.body !== undefined && (
+        <div className={`tool-card-wrap${open ? ' open' : ''}`} aria-hidden={!open}>
+          <div className="tool-card">
+            <div className="tool-card-head">
+              <span className="tool-card-title">{tool.tool.toLowerCase()}</span>
+              {tool.status === 'running' ? <span className="tool-card-status">运行中…</span> : null}
+              {tool.status === 'error' ? (
+                <span className="tool-card-status error">失败</span>
+              ) : null}
+              <ToolCopyButton text={tool.body} />
+            </div>
+            <pre className="tool-card-body">{tool.body}</pre>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /**
  * 聊天视图（§22 W-04/W-05/W-07；布局对齐 CodeBuddy 参考：欢迎屏 + 居中会话头 +
  * 用户气泡右置/助手全文 + 思考行 + 圆角 composer 卡片）。
@@ -100,6 +260,8 @@ export function ChatPanel({
   workbenchOpen,
   onToggleConnect,
   onToggleWorkbench,
+  onOpenChanges,
+  onOpenFile,
   onResumeSession,
   onFocusSessionSearch,
   onSessionChange,
@@ -118,6 +280,10 @@ export function ChatPanel({
   workbenchOpen: boolean
   onToggleConnect(): void
   onToggleWorkbench(): void
+  /** 变更卡片「审查」：打开工作台「文件变更」标签页并定位该文件的 diff。 */
+  onOpenChanges(path: string): void
+  /** 变更卡片「打开」：工作台文件查看器。 */
+  onOpenFile(path: string): void
   /** 恢复历史会话（resume + 切路由由 AppShell 统一做）。 */
   onResumeSession(id: string): void
   /** 最近会话弹层底部「搜索并管理全部对话」：聚焦侧栏搜索框。 */
@@ -260,8 +426,6 @@ export function ChatPanel({
         const previewUrl = URL.createObjectURL(file)
         setImages((current) => [
           ...current,
-  onOpenChanges,
-  onOpenFile,
           { chip, mime: file.type, previewUrl, status: 'uploading' },
         ])
         void (async () => {
@@ -280,10 +444,6 @@ export function ChatPanel({
             stream.setNotice(cause instanceof Error ? cause.message : String(cause))
           }
         })()
-  /** 变更卡片「审查」：打开工作台「文件变更」标签页并定位该文件的 diff。 */
-  onOpenChanges(path: string): void
-  /** 变更卡片「打开」：工作台文件查看器。 */
-  onOpenFile(path: string): void
       }
     },
     [api, ensureSession, stream],
@@ -345,6 +505,19 @@ export function ChatPanel({
     [api, chat.permission, stream],
   )
 
+  // AskUserQuestion 作答：value 缺省 = 跳过（模型收到「未作答」并自选默认继续）。
+  const answerAsk = useCallback(
+    async (value?: string) => {
+      if (!chat.ask) return
+      try {
+        await api.answerAsk(chat.ask.id, value)
+      } catch (cause) {
+        stream.setNotice(cause instanceof Error ? cause.message : String(cause))
+      }
+    },
+    [api, chat.ask, stream],
+  )
+
   const end = useCallback(async () => {
     setBusy(true)
     try {
@@ -359,6 +532,15 @@ export function ChatPanel({
   const running = chat.turn === 'running'
   const lastMessage = chat.messages.at(-1)
   const streamingReply = lastMessage?.role === 'assistant' && lastMessage.streaming === true
+  // 状态行（对齐 TUI StreamingStatus：动词 · 秒数 · ↑ tokens · 中断）：
+  // 阶段取最后一个运行中的工具卡（无则在思考/等待模型）；tokens ≈ chars/4。
+  const runningTool = running ? chat.tools.findLast((tool) => tool.status === 'running') : undefined
+  const runningToolLabel = runningTool
+    ? runningTool.tool === 'Task'
+      ? '子代理'
+      : toolLabel(runningTool.tool)
+    : undefined
+  const streamedTokens = Math.round(chat.streamedChars / 4)
   const canSend =
     !busy && !running && (draft.trim().length > 0 || images.some((item) => item.status === 'ready'))
 
@@ -421,7 +603,7 @@ export function ChatPanel({
       statsRow,
       <div key={message.id} className="msg-row asst">
         <Markdown text={message.text} />
-        {message.streaming && <span className="msg-caret" />}
+        {message.streaming && <TypingDots />}
       </div>,
     ]
   }
@@ -520,17 +702,6 @@ export function ChatPanel({
       />
       <div className="composer-chips">
         <span className="composer-chip" title={cwd}>
-  // AskUserQuestion 作答：value 缺省 = 跳过（模型收到「未作答」并自选默认继续）。
-  const answerAsk = useCallback(
-    async (value?: string) => {
-      if (!chat.ask) return
-      try {
-        await api.answerAsk(chat.ask.id, value)
-      } catch (cause) {
-        stream.setNotice(cause instanceof Error ? cause.message : String(cause))
-      }
-    },
-    [api, chat.ask, stream],
           <FolderOutlined />
           {projectName}
         </span>
@@ -779,8 +950,19 @@ export function ChatPanel({
             ))}
             {running && !streamingReply && (
               <div className="think-row">
-                <LoadingOutlined />
-                {elapsed < 2 ? '准备中' : `思考中 · ${elapsed} 秒`}
+                <TypingDots />
+                <span>
+                  {runningTool ? `运行 ${runningToolLabel}` : elapsed < 2 ? '准备中' : '思考中'}
+                  {elapsed >= 2 ? ` · ${elapsed}s` : ''}
+                  {streamedTokens > 0 ? ` · ↑ ${streamedTokens} tokens` : ''}
+                </span>
+                <button
+                  type="button"
+                  className="think-interrupt"
+                  onClick={() => void api.interrupt()}
+                >
+                  中断
+                </button>
               </div>
             )}
             {chat.permission && (
@@ -807,27 +989,6 @@ export function ChatPanel({
                 </div>
               </div>
             )}
-            {chat.notice && (
-              <Alert type="warning" showIcon title={chat.notice} style={{ margin: '8px 0' }} />
-            )}
-            {chat.usage && (
-              <div className="chat-usage">
-                用量：in {chat.usage.input} / out {chat.usage.output}
-                {chat.usage.costUSD ? ` · $${chat.usage.costUSD.toFixed(4)}` : ''}
-              </div>
-            )}
-            {sessionId !== undefined && (
-              <ChangesPanel api={api} sessionId={sessionId} refreshKey={chat.turn} quietWhenEmpty />
-            )}
-          </div>
-
-          {/* composer */}
-          <div className="chat-composer">{composer}</div>
-        </div>
-      )}
-    </div>
-  )
-}
             {chat.ask && (
               <div className="perm-card ask-card">
                 <Typography.Text strong>提问：{chat.ask.question}</Typography.Text>

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ChatState } from './session-stream'
-import { initialChatState, reduceChatState, toolTargetLabel } from './session-stream'
+import {
+  initialChatState,
+  reduceChatState,
+  toolBodyLabel,
+  toolLabel,
+  toolTargetLabel,
+} from './session-stream'
 
 /** 构造信封：view 事件的字段（request/message）与 type 平级——与 SessionHub 的实际发射形状一致。 */
 function envelope(
@@ -172,8 +178,28 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(completed.tools[0]).toMatchObject({ status: 'done', linesAdded: 3, linesRemoved: 1 })
   })
 
+  it('tool.requested 落展开正文 body：Bash 存完整命令，started 保留', () => {
+    const requested = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'tool.requested',
+        payload: {
+          toolUseId: 'tu-2',
+          tool: 'Bash',
+          input: { command: 'pnpm build 2>&1\n| tail -15' },
+        },
+      }),
+    )
+    expect(requested.tools[0]?.body).toBe('pnpm build 2>&1\n| tail -15')
+    const started = reduceChatState(
+      requested,
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 'tu-2', tool: 'Bash' } }),
+    )
+    expect(started.tools[0]?.body).toBe('pnpm build 2>&1\n| tail -15')
+  })
+
   it('toolTargetLabel：取辨识度最高的参数并压成单行', () => {
-    expect(toolTargetLabel('Bash', { command: 'pnpm test' })).toBe('$ pnpm test')
+    expect(toolTargetLabel('Bash', { command: 'pnpm test' })).toBe('pnpm test')
     expect(toolTargetLabel('Read', { path: 'a/b.ts' })).toBe('a/b.ts')
     expect(toolTargetLabel('Grep', { pattern: 'foo' })).toBe('foo')
     expect(toolTargetLabel('unknown.Tool', { file_path: 'x' })).toBe('x')
@@ -182,6 +208,67 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(toolTargetLabel('Read', 'not-an-object')).toBeUndefined()
     // 超长截断。
     expect(toolTargetLabel('Read', { path: 'x'.repeat(100) })?.length).toBe(72)
+  })
+
+  it('toolBodyLabel：按工具拼展开正文，未知工具退回 JSON，超长截断', () => {
+    expect(toolBodyLabel('Bash', { command: 'a\nb' })).toBe('a\nb')
+    expect(toolBodyLabel('Write', { path: 'a.ts', content: 'x=1' })).toBe('a.ts\n\nx=1')
+    expect(toolBodyLabel('Edit', { path: 'a.ts', old_string: 'o', new_string: 'n' })).toBe(
+      'a.ts\n\n【旧】\no\n\n【新】\nn',
+    )
+    expect(toolBodyLabel('Read', { path: 'a.ts', offset: 2, limit: 10 })).toBe(
+      'a.ts\n\noffset: 2 · limit: 10',
+    )
+    expect(toolBodyLabel('WebFetch', { url: 'https://x', prompt: '摘要' })).toBe(
+      'https://x\n\n摘要',
+    )
+    // 正文参数缺失时不出空段；input 非对象省略。
+    expect(toolBodyLabel('Bash', {})).toBeUndefined()
+    expect(toolBodyLabel('Read', 'not-an-object')).toBeUndefined()
+    // 未知工具：入参 JSON 全量。
+    expect(toolBodyLabel('Mystery', { k: 'v' })).toBe('{\n  "k": "v"\n}')
+    // 超长截断（BODY_MAX=4000）。
+    const huge = toolBodyLabel('Bash', { command: 'x'.repeat(5000) })
+    expect(huge?.length).toBe(4000 + '\n…（已截断）'.length)
+    // 折叠行中文标签；未知工具原样。
+    expect(toolLabel('Bash')).toBe('终端')
+    expect(toolLabel('Mystery')).toBe('Mystery')
+  })
+
+  it('hydrate：快照 tool 条目重建工具卡（target/body），live 卡不被冲掉', () => {
+    const live = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'tool.requested',
+        payload: { toolUseId: 'tu-live', tool: 'Bash', input: { command: 'live-cmd' } },
+      }),
+    )
+    const state = reduceChatState(live, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm-1', role: 'user', text: '跑' },
+        { id: 'tu-1', kind: 'tool', tool: 'Bash', input: { command: 'pnpm test' }, status: 'done' },
+        {
+          id: 'tu-2',
+          kind: 'tool',
+          tool: 'Write',
+          input: { path: 'a.ts', content: 'x=1' },
+          status: 'error',
+        },
+        { id: 'tu-live', kind: 'tool', tool: 'Bash', input: { command: 'stale' }, status: 'done' },
+      ],
+    })
+    expect(state.messages.map((message) => message.id)).toEqual(['m-1'])
+    // 快照卡在前、live 卡保留在后；同 id 的快照条目被丢弃（live 优先）。
+    expect(state.tools.map((tool) => tool.toolUseId)).toEqual(['tu-1', 'tu-2', 'tu-live'])
+    expect(state.tools[0]).toMatchObject({
+      tool: 'Bash',
+      status: 'done',
+      target: 'pnpm test',
+      body: 'pnpm test',
+    })
+    expect(state.tools[1]).toMatchObject({ status: 'error', body: 'a.ts\n\nx=1' })
+    expect(state.tools[2]?.target).toBe('live-cmd')
   })
 
   it('permission.mode 帧更新档位：非法值忽略，本地动作同写一处', () => {
@@ -254,13 +341,13 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
         payload: { code: 'runner_error', context: { message: 'model does not support images' } },
       }),
     )
-    expect(state.notice).toBe('错误 runner_error: model does not support images')
+    expect(state.notice).toBe('runner_error: model does not support images')
     state = reduceChatState(
       state,
       envelope('core', { type: 'turn.aborted', payload: { reason: 'error' } }),
     )
     expect(state.turn).toBe('idle')
-    expect(state.notice).toBe('错误 runner_error: model does not support images')
+    expect(state.notice).toBe('runner_error: model does not support images')
   })
 
   it('control 帧（hello/heartbeat）不是业务信封：原样返回不抛错', () => {
@@ -336,7 +423,7 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
         payload: { code: 'stream_interrupted', context: { reason: 'read ECONNRESET' } },
       }),
     )
-    expect(state.notice).toBe('错误 stream_interrupted: read ECONNRESET')
+    expect(state.notice).toBe('stream_interrupted: read ECONNRESET')
   })
 
   it('message.appended 从 content 的 image part 取 handle 引用（跨端/重放消息回显）', () => {

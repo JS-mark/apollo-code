@@ -91,14 +91,15 @@ export interface PermissionCard {
   lineage?: PermissionLineage
 }
 
-export interface ChatState {
-  messages: ChatMessage[]
 /** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影；web 只读队首）。 */
 export interface AskCard {
   id: string
   question: string
   options: { label: string; description?: string }[]
 }
+
+export interface ChatState {
+  messages: ChatMessage[]
   tools: ToolCard[]
   /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
   subagents: Record<string, SubagentActivity>
@@ -114,11 +115,16 @@ export interface AskCard {
       }
     | undefined
   permission: PermissionCard | undefined
+  /** 待决提问（AskUserQuestion）：ask.request/resolved 视图帧同写这里。 */
+  ask: AskCard | undefined
+  /**
+   * 本回合累计的正文流字符（stream.delta text 追加，turn.started 清零）——
+   * 状态行的 ↑ tokens 估算数据源（≈ chars/4，与 TUI 同规则）。
+   */
+  streamedChars: number
   /**
    * 会话权限档位（ask/auto/full）：唯一来源是本 reducer——挂载/切会话拉取 +
    * SSE permission.mode 帧同写这里（TUI /mode、他端选择器、权限卡 g 授权全同步）。
-  /** 待决提问（AskUserQuestion）：ask.request/resolved 视图帧同写这里。 */
-  ask: AskCard | undefined
    */
   permissionMode: 'ask' | 'auto' | 'full' | undefined
   notice: string | undefined
@@ -131,6 +137,8 @@ export const initialChatState: ChatState = {
   turn: 'idle',
   usage: undefined,
   permission: undefined,
+  ask: undefined,
+  streamedChars: 0,
   permissionMode: undefined,
   notice: undefined,
 }
@@ -139,7 +147,6 @@ type Envelope = {
   streamVersion: number
   cursor: string
   kind: 'core' | 'view' | 'control'
-  ask: undefined,
   sessionId?: string
   event: {
     type: string
@@ -456,7 +463,7 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
             ...state.messages,
             { id, role: 'assistant' as const, text: fragment, streaming: true, at: Date.now() },
           ]
-      return { ...state, messages }
+      return { ...state, messages, streamedChars: state.streamedChars + fragment.length }
     }
     case 'stream.completed': {
       const id = String(payload.messageId)
@@ -468,7 +475,7 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       }
     }
     case 'turn.started':
-      return { ...state, turn: 'running', usage: undefined }
+      return { ...state, turn: 'running', usage: undefined, streamedChars: 0 }
     case 'turn.completed':
       return {
         ...state,
@@ -477,18 +484,19 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       }
     case 'turn.aborted': {
       // reason=error 时 error.raised 通常已给出具体原因，不覆盖；
-      // user_interrupt 才是「用户中断」语义。
+      // user_interrupt 才是「用户中断」语义。兜底串与 error.raised 通知同槽位，
+      // 保持英文（报错文案一律英文+code，code 缺省时至少语言一致）。
       const reason = payload.reason
       if (reason === 'error')
-        return { ...state, turn: 'idle', notice: state.notice ?? '本轮因错误中止' }
+        return { ...state, turn: 'idle', notice: state.notice ?? 'turn aborted due to an error' }
       if (reason === 'stream_interrupted')
-        return { ...state, turn: 'idle', notice: state.notice ?? '本轮流式中断' }
-      return { ...state, turn: 'idle', notice: '本轮已中断' }
+        return { ...state, turn: 'idle', notice: state.notice ?? 'stream interrupted' }
+      return { ...state, turn: 'idle', notice: 'turn interrupted' }
     }
     case 'tool.requested': {
-      // 附录 D.2：input 携带工具参数——requested 帧建卡并提取单行目标（started 帧
-      // 不带 input，对齐 TUI 活动行「先于权限判定建条目」的时序）；Task 卡同时摘
-      // agentType / prompt 首行摘要（§2.7bis.5 U3 折叠行）。
+      // 附录 D.2：input 携带工具参数——requested 帧建卡并提取单行目标 + 展开正文
+      // （started 帧不带 input，对齐 TUI 活动行「先于权限判定建条目」的时序）；
+      // Task 卡同时摘 agentType / prompt 首行摘要（§2.7bis.5 U3 折叠行）。
       const id = String(payload.toolUseId)
       const tool = String(payload.tool)
       // MCP 工具的入参无统一 target 语义（fallback 键多为猜测），只留 JSON 正文。
@@ -591,7 +599,8 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       const detail = context?.message ?? context?.reason ?? payload.message ?? ''
       return {
         ...state,
-        notice: `错误 ${String(payload.code ?? '')}: ${String(detail)}`,
+        // 通知格式 = `code: 细节`：code 面向 grep/遥测，细节由 runner 出英文人话。
+        notice: `${String(payload.code ?? '')}: ${String(detail)}`,
       }
     }
     default:
@@ -600,20 +609,23 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
   if (envelope.kind === 'view') {
     const view = event as unknown as {
       type: string
-      request?: PermissionCard
+      request?: PermissionCard | AskCard
       message?: string
       mode?: unknown
     }
     if (view.type === 'permission.request' && view.request)
-      return { ...state, permission: view.request }
+      return { ...state, permission: view.request as PermissionCard }
     if (view.type === 'permission.resolved') return { ...state, permission: undefined }
+    if (view.type === 'ask.request' && view.request)
+      return { ...state, ask: view.request as AskCard }
+    if (view.type === 'ask.resolved') return { ...state, ask: undefined }
     if (view.type === 'permission.mode') {
       if (view.mode === 'ask' || view.mode === 'auto' || view.mode === 'full')
         return { ...state, permissionMode: view.mode }
       return state
     }
     if (view.type === 'turn.failed')
-      return { ...state, turn: 'idle', notice: view.message ?? 'turn 失败' }
+      return { ...state, turn: 'idle', notice: view.message ?? 'turn failed' }
     // 会话重挂（TUI 侧 resume 等）：聊天状态归零，但进程级权限档位保留
     // （SSE permission.mode 帧会持续纠正，不需要随会话切换清空）。
     if (view.type === 'session.attached')
@@ -636,12 +648,19 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       // 合并而非整体替换：hydrate 与 SSE 并发（会话刚创建即发消息）时，
       // 快照后到达的 message.appended/stream.delta 不能被 transcript 冲掉；
       // 本地回声一律丢弃——其真实副本要么已在快照里，要么会经 appended 到达。
+      // 快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：target/body 从快照
+      // 携带的 input 现算，展开面与 live 卡一致；与 live 卡同 id 时以 live 为准。
       const messages: ChatMessage[] = []
+      const tools: ToolCard[] = []
       for (const entry of action.transcript) {
         const item = entry as {
           id?: string
           role?: string
           text?: string
+          kind?: string
+          tool?: string
+          input?: unknown
+          status?: string
           attachments?: readonly { chip?: string; kind?: string; mime?: string; handle?: string }[]
         }
         if (!item.id) continue
@@ -664,8 +683,6 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
         // 图片附件：handle 在 → 渲染真图并剥掉 text 里的 chip 占位；无 handle
         // （path 引用）字节不可回放，保留 chip 文本兜底。
         const attachments = (item.attachments ?? []).filter(
-      // 快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：target/body 从快照
-      // 携带的 input 现算，展开面与 live 卡一致；与 live 卡同 id 时以 live 为准。
           (attachment): attachment is { chip: string; mime?: string; handle: string } =>
             attachment.kind === 'image' &&
             typeof attachment.handle === 'string' &&
@@ -751,16 +768,12 @@ export function useSessionStream(enabled: boolean, sessionId: string | undefined
         const data = JSON.parse(raw.data as string) as Partial<Envelope>
         // hello/heartbeat 等控制帧不是业务信封：不进 reducer。
         if (!data || typeof data !== 'object' || !('event' in data)) return
-      request?: PermissionCard | AskCard
         const envelope = data as Envelope
         const wanted = sessionRef.current
         if (wanted && envelope.sessionId && envelope.sessionId !== wanted) return
         dispatch({ type: 'envelope', envelope })
       } catch {
         // 无法解析的帧忽略。
-    if (view.type === 'ask.request' && view.request)
-      return { ...state, ask: view.request as AskCard }
-    if (view.type === 'ask.resolved') return { ...state, ask: undefined }
       }
     }
     source.addEventListener('core', handler as EventListener)
