@@ -101,6 +101,7 @@ class FakeHub implements GatewayHubLike {
     this.deletedSessions.push(id)
     return { deleted: true }
   }
+
   /** changes 隧道腿（消息流变更卡片）：计数器供用例断言。 */
   changesListCalls = 0
   undoCalls = 0
@@ -142,6 +143,7 @@ class FakeHub implements GatewayHubLike {
     this.undoCalls += 1
     return { undone: true, paths: ['src/a.ts'], warnings: [] }
   }
+
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -153,6 +155,17 @@ class FakeHub implements GatewayHubLike {
 
   pendingPermissionIds(): string[] {
     return []
+  }
+
+  readonly askAnswers: [string, string | undefined][] = []
+
+  answerAsk(requestId: string, value: string | undefined): boolean {
+    this.askAnswers.push([requestId, value])
+    return true
+  }
+
+  pendingAskIds(): readonly string[] {
+    return ['ask-1']
   }
 
   emit(kind: string, event: unknown): void {
@@ -204,17 +217,6 @@ afterEach(async () => {
 })
 
 function createLinkOptions(): RemoteLinkOptions {
-  readonly askAnswers: [string, string | undefined][] = []
-
-  answerAsk(requestId: string, value: string | undefined): boolean {
-    this.askAnswers.push([requestId, value])
-    return true
-  }
-
-  pendingAskIds(): readonly string[] {
-    return ['ask-1']
-  }
-
   return {
     config: () => ({
       gatewayUrl: base,
@@ -264,6 +266,16 @@ describe('RemoteLink', () => {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(await sessionsRes.json()).toEqual({ sessions: [{ id: 'sess-9', title: '本机会话' }] })
+
+    // /v1/sessions/delete 经 rpc 隧道落到本机 hub.deleteSession。
+    const deleteRes = await fetch(`${base}/v1/sessions/delete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'sess-9' }),
+    })
+    expect(deleteRes.status).toBe(200)
+    expect(await deleteRes.json()).toEqual({ deleted: true })
+    expect(hub.deletedSessions).toEqual(['sess-9'])
   })
 
   it('serves a mobile ws client end-to-end (turn + events)', async () => {
@@ -307,15 +319,6 @@ describe('RemoteLink', () => {
         if (frames.some((frame) => frame.type === 'turn.accepted')) {
           clearInterval(timer)
           resolve()
-    // /v1/sessions/delete 经 rpc 隧道落到本机 hub.deleteSession。
-    const deleteRes = await fetch(`${base}/v1/sessions/delete`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'sess-9' }),
-    })
-    expect(deleteRes.status).toBe(200)
-    expect(await deleteRes.json()).toEqual({ deleted: true })
-    expect(hub.deletedSessions).toEqual(['sess-9'])
         }
       }, 10)
     })
@@ -334,6 +337,41 @@ describe('RemoteLink', () => {
       }, 10)
     })
     expect(hub.submitted).toEqual([{ prompt: '在吗' }])
+    ws.close()
+  })
+
+  it('tunnels ask.answer to the local hub answerAsk (AskUserQuestion)', async () => {
+    await startGateway()
+    link = createLink()
+    link.start()
+    await waitOnline(link)
+
+    const tokenRes = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      }),
+    })
+    const token = ((await tokenRes.json()) as { access_token: string }).access_token
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/v1/ws?access_token=${token}`)
+    const frames: Record<string, unknown>[] = []
+    ws.onmessage = (event) => frames.push(JSON.parse(String(event.data)) as Record<string, unknown>)
+    await new Promise<void>((resolve) => {
+      ws.onopen = () => resolve()
+    })
+    // 注册帧带上的 pendingAsks 快照使 RemoteHub.answerAsk 的 id 校验通过；
+    // value 缺省 = 未作答关闭。
+    ws.send(JSON.stringify({ type: 'ask.answer', requestId: 'ask-1', value: '方案 A' }))
+    ws.send(JSON.stringify({ type: 'ask.answer', requestId: 'ask-1' }))
+    const deadline = Date.now() + 5_000
+    while (hub.askAnswers.length < 2 && Date.now() < deadline) await sleep(20)
+    expect(hub.askAnswers).toEqual([
+      ['ask-1', '方案 A'],
+      ['ask-1', undefined],
+    ])
     ws.close()
   })
 
@@ -396,41 +434,6 @@ describe('RemoteLink', () => {
       { kind: 'image', chip: '[image_1]', mime: 'image/png', size: 4, handle: 'h-1' },
     ])
     ws.close()
-  it('tunnels ask.answer to the local hub answerAsk (AskUserQuestion)', async () => {
-    await startGateway()
-    link = createLink()
-    link.start()
-    await waitOnline(link)
-
-    const tokenRes = await fetch(`${base}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-      }),
-    })
-    const token = ((await tokenRes.json()) as { access_token: string }).access_token
-    const ws = new WebSocket(`${base.replace('http', 'ws')}/v1/ws?access_token=${token}`)
-    const frames: Record<string, unknown>[] = []
-    ws.onmessage = (event) => frames.push(JSON.parse(String(event.data)) as Record<string, unknown>)
-    await new Promise<void>((resolve) => {
-      ws.onopen = () => resolve()
-    })
-    // 注册帧带上的 pendingAsks 快照使 RemoteHub.answerAsk 的 id 校验通过；
-    // value 缺省 = 未作答关闭。
-    ws.send(JSON.stringify({ type: 'ask.answer', requestId: 'ask-1', value: '方案 A' }))
-    ws.send(JSON.stringify({ type: 'ask.answer', requestId: 'ask-1' }))
-    const deadline = Date.now() + 5_000
-    while (hub.askAnswers.length < 2 && Date.now() < deadline) await sleep(20)
-    expect(hub.askAnswers).toEqual([
-      ['ask-1', '方案 A'],
-      ['ask-1', undefined],
-    ])
-    ws.close()
-  })
-
   })
 
   it('serves /v1/models from the machine over the uplink', async () => {
@@ -463,10 +466,56 @@ describe('RemoteLink', () => {
     expect(body.data[0]).toMatchObject({ id: 'anthropic/mimo-v2.5-pro', label: 'mimo（默认）' })
   })
 
+  it('serves session changes (list/diff/undo) from the machine over the uplink', async () => {
+    await startGateway()
+    link = createLink()
+    link.start()
+    await waitOnline(link)
+
+    const tokenRes = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      }),
+    })
+    const token = ((await tokenRes.json()) as { access_token: string }).access_token
+    const headers = { Authorization: `Bearer ${token}` }
+
+    // 列表：stats 加码面随隧道透传（消息流变更卡片数据源）。
+    const list = await fetch(`${base}/v1/sessions/active/changes`, { headers })
+    expect(list.status).toBe(200)
+    const view = (await list.json()) as {
+      paths: { path: string; stats?: { linesAdded: number } }[]
+    }
+    expect(view.paths[0]).toMatchObject({ path: 'src/a.ts', stats: { linesAdded: 3 } })
+    expect(hub.changesListCalls).toBe(1)
+
+    // 单文件 diff。
+    const diff = await fetch(
+      `${base}/v1/sessions/active/changes/diff?path=${encodeURIComponent('src/a.ts')}`,
+      { headers },
+    )
+    expect(diff.status).toBe(200)
+    expect(((await diff.json()) as { linesRemoved: number }).linesRemoved).toBe(1)
+
+    // undo 预览 → 执行（破坏性操作经隧道落到本机 BackupStore）。
+    const preview = await fetch(`${base}/v1/sessions/active/changes/undo/preview`, { headers })
+    expect(((await preview.json()) as { undoable: boolean }).undoable).toBe(true)
+    const undo = await fetch(`${base}/v1/sessions/active/changes/undo`, {
+      method: 'POST',
+      headers,
+    })
+    expect(undo.status).toBe(200)
+    expect(((await undo.json()) as { undone: boolean }).undone).toBe(true)
+    expect(hub.undoCalls).toBe(1)
+  })
+
   it('serves attachment bytes back through the uplink tunnel', async () => {
     await startGateway()
     link = createLink()
-  it('serves session changes (list/diff/undo) from the machine over the uplink', async () => {
     link.start()
     await waitOnline(link)
 

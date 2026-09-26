@@ -1,6 +1,5 @@
 import type { InteractiveSession } from '@volund/app-runtime'
 import { AskPromptController, PermissionPromptController } from '@volund/app-runtime'
-import { PermissionPromptController } from '@volund/app-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { SessionHub } from './session-hub'
@@ -45,10 +44,19 @@ function fakeSession(
 
 function hubWith(
   session: FakeSession,
+  options: {
+    embedded?: boolean
+    permissions?: PermissionPromptController
+    asks?: AskPromptController
+    turnInFlight?: boolean
+    delete?(id: string): Promise<{ next?: string }>
+  } = {},
+): { hub: SessionHub; permissions: PermissionPromptController; asks?: AskPromptController } {
   const permissions = options.permissions ?? new PermissionPromptController()
   const hub = new SessionHub(
     {
       permissions,
+      ...(options.asks ? { asks: options.asks } : {}),
       session: {
         async startInteractive() {
           return session
@@ -58,15 +66,18 @@ function hubWith(
         },
         getActive: () => session,
         onActivate: () => () => {},
+        ...(options.delete ? { delete: options.delete } : {}),
+        get turnInFlight() {
+          return options.turnInFlight ?? false
+        },
         async interrupt() {},
         async end() {},
       },
     },
     options.embedded !== undefined ? { embedded: options.embedded } : {},
   )
-  return { hub, permissions }
+  return { hub, permissions, ...(options.asks ? { asks: options.asks } : {}) }
 }
-        ...(options.delete ? { delete: options.delete } : {}),
 
 const permissionRequest = {
   id: 'perm-1',
@@ -96,35 +107,23 @@ describe('SessionHub', () => {
     await hub.start({ cwd: '/tmp/hub' })
     const seen: unknown[] = []
     hub.subscribe((envelope) => seen.push(envelope.event))
-    // 共享队列进请求 → SSE 推卡
+    // 共享队列进请求 → view 推卡（request=队首，requests=完整队列投影）
     const pending = permissions.request(permissionRequest)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(hub.pendingPermissionIds()).toEqual(['perm-1'])
     expect(seen).toContainEqual({
       type: 'permission.request',
       request: { id: 'perm-1', attempt: 1, display: permissionRequest.display },
+      requests: [{ id: 'perm-1', attempt: 1, display: permissionRequest.display }],
     })
     // decide 解析 → 队列清空 → SSE 清卡
     expect(hub.decide('perm-1', 'allow-once')).toBe(true)
     expect(hub.decide('perm-1', 'allow-once')).toBe(false)
     await expect(pending).resolves.toEqual({ kind: 'allow-once' })
-    // 共享队列进请求 → view 推卡（request=队首，requests=完整队列投影）
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(seen).toContainEqual({ type: 'permission.resolved' })
   })
 
-  it('permission.request projection carries subagent lineage; main-agent requests omit it（§2.7bis.5 U4 / §22 W-07）', async () => {
-    const session = fakeSession()
-      requests: [{ id: 'perm-1', attempt: 1, display: permissionRequest.display }],
-    const { hub, permissions } = hubWith(session)
-    await hub.start({ cwd: '/tmp/hub' })
-    const seen: unknown[] = []
-    hub.subscribe((envelope) => seen.push(envelope.event))
-
-    // 子代理请求：lineage 透传进 view 帧（gateway 盲转给 Mobile 的同一份投影）。
-    const subagent = permissions.request({
-      ...permissionRequest,
-      id: 'perm-sub',
   it('projects the full pending queue and re-projects when a non-first request is decided（Mobile 多 tab 数据源）', async () => {
     const session = fakeSession()
     const { hub, permissions } = hubWith(session)
@@ -161,6 +160,17 @@ describe('SessionHub', () => {
     expect(seen.at(-1)).toMatchObject({ type: 'permission.resolved' })
   })
 
+  it('permission.request projection carries subagent lineage; main-agent requests omit it（§2.7bis.5 U4 / §22 W-07）', async () => {
+    const session = fakeSession()
+    const { hub, permissions } = hubWith(session)
+    await hub.start({ cwd: '/tmp/hub' })
+    const seen: unknown[] = []
+    hub.subscribe((envelope) => seen.push(envelope.event))
+
+    // 子代理请求：lineage 透传进 view 帧（gateway 盲转给 Mobile 的同一份投影）。
+    const subagent = permissions.request({
+      ...permissionRequest,
+      id: 'perm-sub',
       lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -172,6 +182,14 @@ describe('SessionHub', () => {
         display: permissionRequest.display,
         lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
       },
+      requests: [
+        {
+          id: 'perm-sub',
+          attempt: 1,
+          display: permissionRequest.display,
+          lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
+        },
+      ],
     })
     permissions.decide('perm-sub', { kind: 'deny' })
     await expect(subagent).resolves.toEqual({ kind: 'deny' })
@@ -183,14 +201,6 @@ describe('SessionHub', () => {
       .filter(
         (event): event is { type: string; request: Record<string, unknown> } =>
           typeof event === 'object' &&
-      requests: [
-        {
-          id: 'perm-sub',
-          attempt: 1,
-          display: permissionRequest.display,
-          lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
-        },
-      ],
           event !== null &&
           (event as { type?: unknown }).type === 'permission.request',
       )
@@ -300,7 +310,7 @@ describe('SessionHub', () => {
     expect(found?.mime).toBe('image/png')
     expect([...(found?.bytes ?? [])]).toEqual([1, 2])
   })
-})
+
   it('rejects start/resume while a turn is in flight（session_turn_in_progress）', async () => {
     const session = fakeSession()
     const { hub } = hubWith(session, { turnInFlight: true })
@@ -313,15 +323,7 @@ describe('SessionHub', () => {
     })
     expect(hub.active).toBeUndefined()
   })
-})
-      requests: [
-        {
-          id: 'ask-1',
-          question: '用哪个方案？',
-          options: [{ label: '方案 A', description: '快' }, { label: '方案 B' }],
-        },
-      ],
-    })
+
   it('deleteSession delegates to the port and emits a session.deleted view frame', async () => {
     const session = fakeSession()
     const deleted: string[] = []
@@ -343,6 +345,7 @@ describe('SessionHub', () => {
       next: 'sess-next',
     })
   })
+
   it('deleteSession without a wired port reports web_capability_unavailable', async () => {
     const session = fakeSession()
     const { hub } = hubWith(session)
@@ -350,3 +353,51 @@ describe('SessionHub', () => {
       code: 'web_capability_unavailable',
     })
   })
+})
+
+describe('SessionHub 提问队列（AskUserQuestion）', () => {
+  it('ask requests come from the shared queue; answerAsk resolves them', async () => {
+    const session = fakeSession()
+    const asks = new AskPromptController()
+    const { hub } = hubWith(session, { asks })
+    await hub.start({ cwd: '/tmp/hub' })
+    const seen: unknown[] = []
+    hub.subscribe((envelope) => seen.push(envelope.event))
+    const pending = asks.request({
+      id: 'ask-1',
+      question: '用哪个方案？',
+      options: [{ label: '方案 A', description: '快' }, { label: '方案 B' }],
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(hub.pendingAskIds()).toEqual(['ask-1'])
+    expect(seen).toContainEqual({
+      type: 'ask.request',
+      request: {
+        id: 'ask-1',
+        question: '用哪个方案？',
+        options: [{ label: '方案 A', description: '快' }, { label: '方案 B' }],
+      },
+      requests: [
+        {
+          id: 'ask-1',
+          question: '用哪个方案？',
+          options: [{ label: '方案 A', description: '快' }, { label: '方案 B' }],
+        },
+      ],
+    })
+    expect(hub.answerAsk('ask-1', '方案 B')).toBe(true)
+    expect(hub.answerAsk('ask-1', '方案 B')).toBe(false)
+    await expect(pending).resolves.toBe('方案 B')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(seen).toContainEqual({ type: 'ask.resolved' })
+    expect(hub.pendingAskRequests()).toEqual([])
+  })
+
+  it('answerAsk without a wired asks queue reports false', async () => {
+    const session = fakeSession()
+    const { hub } = hubWith(session)
+    await hub.start({ cwd: '/tmp/hub' })
+    expect(hub.answerAsk('ask-1', '方案 A')).toBe(false)
+    expect(hub.pendingAskIds()).toEqual([])
+  })
+})

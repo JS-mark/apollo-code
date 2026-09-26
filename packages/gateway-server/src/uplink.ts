@@ -85,11 +85,11 @@ interface RpcPending {
 export class RemoteHub implements GatewayHubLike {
   private activeState: { id: string; cwd?: string } | undefined
   private pendingIds: readonly string[] = []
+  private askIdSnapshot: readonly string[] = []
   private nextRpcId = 0
   private readonly pending = new Map<string, RpcPending>()
   private readonly subscribers = new Set<(envelope: GatewayEnvelope) => void>()
   private closed = false
-  private askIdSnapshot: readonly string[] = []
 
   constructor(
     private readonly conn: WsConnection,
@@ -110,15 +110,15 @@ export class RemoteHub implements GatewayHubLike {
   applyState(
     active: { id: string; cwd?: string } | null,
     pendingPermissions: readonly string[],
+    pendingAsks?: readonly string[],
   ): void {
     this.activeState = active ?? undefined
     this.pendingIds = pendingPermissions
+    if (pendingAsks !== undefined) this.askIdSnapshot = pendingAsks
   }
-    pendingAsks?: readonly string[],
 
   start(input: { cwd: string }): Promise<{ id: string }> {
     return this.optimistic('hub.start', input, (result) => {
-    if (pendingAsks !== undefined) this.askIdSnapshot = pendingAsks
       const id = (result as { id?: unknown } | undefined)?.id
       if (typeof id === 'string')
         this.applyState({ id, ...(input.cwd ? { cwd: input.cwd } : {}) }, this.pendingIds)
@@ -126,10 +126,17 @@ export class RemoteHub implements GatewayHubLike {
   }
 
   resume(id: string): Promise<{ id: string }> {
-    return this.optimistic('hub.resume', { id }, (result) => {
-      const resumed = (result as { id?: unknown } | undefined)?.id
-      if (typeof resumed === 'string') this.applyState({ id: resumed }, this.pendingIds)
-    }) as Promise<{ id: string }>
+    // 60s：大 session 全量 load+replay+建 runner 可能超过默认 15s（对齐附件腿；
+    // 超时后本机侧 resume 仍会完成，宽限只是少一次「报错但随后又切过去」的假失败）。
+    return this.optimistic(
+      'hub.resume',
+      { id },
+      (result) => {
+        const resumed = (result as { id?: unknown } | undefined)?.id
+        if (typeof resumed === 'string') this.applyState({ id: resumed }, this.pendingIds)
+      },
+      60_000,
+    ) as Promise<{ id: string }>
   }
 
   submit(input: {
@@ -172,6 +179,11 @@ export class RemoteHub implements GatewayHubLike {
     return this.call('sessions.list', {}) as Promise<readonly unknown[]>
   }
 
+  /** 删除会话档案（POST /v1/sessions/delete 的隧道腿）：本机侧含活动会话收尾。 */
+  deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    return this.call('sessions.delete', { id }) as Promise<{ deleted: true; next?: string }>
+  }
+
   /** 活动会话持久化快照（移动端刷新后以 transcript 为准重建视图）。 */
   transcript(): Promise<{ id?: string; cwd?: string; transcript: readonly unknown[] }> {
     return this.call('session.transcript', {}) as Promise<{
@@ -181,18 +193,6 @@ export class RemoteHub implements GatewayHubLike {
     }>
   }
 
-  subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
-    this.subscribers.add(listener)
-  /** 删除会话档案（POST /v1/sessions/delete 的隧道腿）：本机侧含活动会话收尾。 */
-  deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
-    return this.call('sessions.delete', { id }) as Promise<{ deleted: true; next?: string }>
-  }
-    return () => this.subscribers.delete(listener)
-  }
-
-  decide(requestId: string, kind: string): boolean {
-    const known = this.pendingIds.includes(requestId)
-    if (!known || this.closed) return false
   /** 会话文件变更聚合（GET /v1/sessions/active/changes 的隧道腿；每路径带行统计）。 */
   changesList(): Promise<GatewayChangesView> {
     return this.call('changes.list', {}) as Promise<GatewayChangesView>
@@ -212,6 +212,14 @@ export class RemoteHub implements GatewayHubLike {
     return this.call('changes.undo', {}) as Promise<GatewayUndoResult>
   }
 
+  subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
+    this.subscribers.add(listener)
+    return () => this.subscribers.delete(listener)
+  }
+
+  decide(requestId: string, kind: string): boolean {
+    const known = this.pendingIds.includes(requestId)
+    if (!known || this.closed) return false
     // 布尔语义 = 「是否在待审批列表」（ws.ts 的 permission.decided 应答面）；
     // 决策本体 fire-and-forget——本机队列幂等，重复/过期决策被静默忽略。
     void this.call('hub.decide', { requestId, kind }).catch(() => {})
@@ -220,6 +228,20 @@ export class RemoteHub implements GatewayHubLike {
 
   pendingPermissionIds(): string[] {
     return [...this.pendingIds]
+  }
+
+  /** AskUserQuestion 作答隧道（布尔语义同 decide；本机投影幂等忽略过期作答）。 */
+  answerAsk(requestId: string, value: string | undefined): boolean {
+    const known = this.askIdSnapshot.includes(requestId)
+    if (!known || this.closed) return false
+    void this.call('hub.answerAsk', { requestId, ...(value === undefined ? {} : { value }) }).catch(
+      () => {},
+    )
+    return true
+  }
+
+  pendingAskIds(): readonly string[] {
+    return [...this.askIdSnapshot]
   }
 
   /** 本机事件帧：扇出给网关侧订阅者（broadcaster/审批兜底）。 */
@@ -257,20 +279,6 @@ export class RemoteHub implements GatewayHubLike {
 
   /** 链路断开：拒绝全部在途 RPC，后续调用按离线报 503。 */
   close(): void {
-  /** AskUserQuestion 作答隧道（布尔语义同 decide；本机投影幂等忽略过期作答）。 */
-  answerAsk(requestId: string, value: string | undefined): boolean {
-    const known = this.askIdSnapshot.includes(requestId)
-    if (!known || this.closed) return false
-    void this.call('hub.answerAsk', { requestId, ...(value === undefined ? {} : { value }) }).catch(
-      () => {},
-    )
-    return true
-  }
-
-  pendingAskIds(): readonly string[] {
-    return [...this.askIdSnapshot]
-  }
-
     if (this.closed) return
     this.closed = true
     for (const pending of this.pending.values()) {
@@ -311,8 +319,9 @@ export class RemoteHub implements GatewayHubLike {
     method: HubRpcMethod,
     params: Record<string, unknown>,
     apply: (result: unknown) => void,
+    timeoutMs?: number,
   ): Promise<unknown> {
-    return this.call(method, params).then(
+    return this.call(method, params, timeoutMs).then(
       (result) => {
         apply(result)
         return result
@@ -440,6 +449,9 @@ export class UplinkRegistry {
               (id): id is string => typeof id === 'string',
             )
           : []
+        const pendingAsks = Array.isArray(record.pendingAsks)
+          ? (record.pendingAsks as unknown[]).filter((id): id is string => typeof id === 'string')
+          : []
         const channels = Array.isArray(record.channels)
           ? (record.channels as unknown[]).filter(
               (channel): channel is string => typeof channel === 'string',
@@ -476,9 +488,6 @@ export class UplinkRegistry {
           previous.conn.close(WS_CLOSE.policy, 'replaced by a newer uplink')
           this.log(`uplink replaced stale connection: ${input.client}`)
         }
-        const pendingAsks = Array.isArray(record.pendingAsks)
-          ? (record.pendingAsks as unknown[]).filter((id): id is string => typeof id === 'string')
-          : []
         this.instances.set(input.client, registration)
         this.log(
           `uplink registered: ${input.client} (${workspaceCwd})` +

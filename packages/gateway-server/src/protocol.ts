@@ -167,11 +167,6 @@ export type ClientFrame =
       readonly requestId: string
       readonly kind: string
     }
-
-/**
- * turn.submit 的 attachments 字段校验（与 web-server 的 parseSubmitAttachments
- * 同语义）：形状不符 → undefined（400）；缺省 → []。
- */
   | {
       /** AskUserQuestion 的作答帧：value 缺省 = 未作答关闭提问。 */
       readonly type: 'ask.answer'
@@ -179,6 +174,11 @@ export type ClientFrame =
       readonly requestId: string
       readonly value?: string
     }
+
+/**
+ * turn.submit 的 attachments 字段校验（与 web-server 的 parseSubmitAttachments
+ * 同语义）：形状不符 → undefined（400）；缺省 → []。
+ */
 export function parseClientAttachments(
   value: unknown,
 ): readonly GatewaySubmitAttachment[] | undefined {
@@ -212,13 +212,13 @@ export interface ServerHelloFrame {
   readonly version: string
   readonly session: ProtocolActiveState
   readonly pendingPermissions: readonly string[]
+  /** 待决提问 id 面（ask.answer 兜底校验用；缺省 = 旧网关）。 */
+  readonly pendingAsks?: readonly string[]
   /** 握手瞬间是否有 turn 在途（迟到者据此恢复运行态/中断按钮）。 */
   readonly turnRunning: boolean
 }
 
 export type ServerFrame =
-  /** 待决提问 id 面（ask.answer 兜底校验用；缺省 = 旧网关）。 */
-  readonly pendingAsks?: readonly string[]
   | ServerHelloFrame
   | { readonly type: 'pong'; readonly ref?: string }
   | {
@@ -236,11 +236,11 @@ export type ServerFrame =
       readonly requestId: string
       readonly decided: boolean
     }
-  | ({ readonly type: 'event' } & GatewayEnvelope)
-  | ({ readonly type: 'error'; readonly ref?: string } & ProtocolError)
   | {
       readonly type: 'ask.answered'
       readonly ref?: string
       readonly requestId: string
       readonly answered: boolean
     }
+  | ({ readonly type: 'event' } & GatewayEnvelope)
+  | ({ readonly type: 'error'; readonly ref?: string } & ProtocolError)

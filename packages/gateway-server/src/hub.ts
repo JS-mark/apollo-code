@@ -69,6 +69,7 @@ export interface GatewayHubLike {
   readAttachment?(handle: string): Promise<GatewayAttachmentBytes | undefined>
   /** 模型清单（relay 经隧道取自本机）；缺省 = hub 不支持，/v1/models 回空列表。 */
   listModels?(): Promise<GatewayModelsView>
+  /**
    * 删除会话档案（POST /v1/sessions/delete 的隧道终点）：仅 relay 场景由 RemoteHub
    * 经 uplink RPC 提供；删活动会话时本机先 end 再冷启动，session.attached/deleted
    * 视图帧经事件通道回推各端。缺省 = hub 不支持（直挂旧 hub），端点按离线应答。
@@ -76,7 +77,6 @@ export interface GatewayHubLike {
   deleteSession?(id: string): Promise<{ deleted: true; next?: string }>
   /**
    * 会话文件变更聚合（GET /v1/sessions/active/changes 的隧道腿；消息流变更卡片
-}
    * 数据源）：每路径带净效果行统计。缺省 = hub 不支持，端点回空列表。
    */
   changesList?(): Promise<GatewayChangesView>
@@ -85,6 +85,7 @@ export interface GatewayHubLike {
   /** undo 预览/执行（POST .../changes/undo 的隧道腿）：本机侧消费最近备份批次。 */
   changesUndoPreview?(): Promise<GatewayUndoPreview>
   changesUndo?(): Promise<GatewayUndoResult>
+}
 
 /** 附件字节（uplink 回程的 base64 载荷 + 回放用的 Content-Type）。 */
 export interface GatewayAttachmentBytes {

@@ -49,12 +49,16 @@ class FakeHub implements GatewayHubLike {
   }
 
   async resume(id: string): Promise<{ id: string }> {
+    if (this.resumeFailure) throw this.resumeFailure
     if (id !== 'existing-sess')
       throw new Error(`Session not found or has no resumable events: ${id}`)
     this.activeSession = { id }
     this.emit('view', { type: 'session.attached', id })
     return { id }
   }
+
+  /** 测试注入：resume 的抛错形状（默认 undefined=正常路径）。 */
+  resumeFailure: Error | undefined
 
   async submit(input: {
     prompt: string
@@ -101,22 +105,21 @@ class FakeHub implements GatewayHubLike {
     return true
   }
 
-  async stageAttachment(input: { mime: string; dataBase64: string }) {
-    this.staged.push(input)
-    return {
-      kind: 'image' as const,
-      mime: input.mime,
-      size: Buffer.from(input.dataBase64, 'base64').length,
   answerAsk(requestId: string, value: string | undefined): boolean {
     this.askAnswers.push([requestId, value])
     return true
   }
 
   pendingAskIds(): readonly string[] {
-  pendingAskIds(): readonly string[] {
-    return this.askAnswers.map(([id]) => id)
     return this.askAnswers.map(([id]) => id)
   }
+
+  async stageAttachment(input: { mime: string; dataBase64: string }) {
+    this.staged.push(input)
+    return {
+      kind: 'image' as const,
+      mime: input.mime,
+      size: Buffer.from(input.dataBase64, 'base64').length,
       handle: `handle-${this.staged.length}`,
     }
   }
@@ -315,9 +318,7 @@ describe('models and sessions', () => {
     const body = (await response.json()) as { sessions: { id: string }[] }
     expect(body.sessions[0]?.id).toBe('existing-sess')
   })
-})
 
-describe('attachments upload', () => {
   it('deletes a session through the hub and rejects a missing id', async () => {
     await startServer()
     const token = await fetchToken()
@@ -364,6 +365,9 @@ describe('attachments upload', () => {
       'gateway_session_not_found',
     )
   })
+})
+
+describe('attachments upload', () => {
   it('stages image bytes and returns the hub handle', async () => {
     await startServer()
     const token = await fetchToken()
@@ -934,6 +938,21 @@ describe('websocket channel', () => {
     expect(decided.type).toBe('permission.decided')
     expect(hub.decisions).toContainEqual(['perm-9', 'allow-once'])
 
+    // AskUserQuestion 作答：value 透传；缺省 = 未作答（undefined）。
+    client.send({ type: 'ask.answer', requestId: 'ask-1', value: '方案 A', ref: 'a1' })
+    const answered = await client.nextMessage()
+    expect(answered.type).toBe('ask.answered')
+    expect(answered.requestId).toBe('ask-1')
+    expect(answered.answered).toBe(true)
+    expect(hub.askAnswers).toContainEqual(['ask-1', '方案 A'])
+
+    client.send({ type: 'ask.answer', requestId: 'ask-1', ref: 'a2' })
+    const dismissed = await client.nextMessage()
+    expect(dismissed.type).toBe('ask.answered')
+    expect(dismissed.answered).toBe(true)
+    expect(hub.askAnswers).toContainEqual(['ask-1', undefined])
+    expect(hello.pendingAsks).toEqual([])
+
     client.send({ type: 'session.end', ref: 'e1' })
     const ended = await client.nextMessage()
     expect(ended.type).toBe('session.ended')
@@ -986,21 +1005,6 @@ describe('websocket channel', () => {
     expect(hub.submitted[0]?.attachments).toEqual([
       { kind: 'image', chip: '[image_1]', mime: 'image/png', size: 4, handle: 'handle-1' },
     ])
-    // AskUserQuestion 作答：value 透传；缺省 = 未作答（undefined）。
-    client.send({ type: 'ask.answer', requestId: 'ask-1', value: '方案 A', ref: 'a1' })
-    const answered = await client.nextMessage()
-    expect(answered.type).toBe('ask.answered')
-    expect(answered.requestId).toBe('ask-1')
-    expect(answered.answered).toBe(true)
-    expect(hub.askAnswers).toContainEqual(['ask-1', '方案 A'])
-
-    client.send({ type: 'ask.answer', requestId: 'ask-1', ref: 'a2' })
-    const dismissed = await client.nextMessage()
-    expect(dismissed.type).toBe('ask.answered')
-    expect(dismissed.answered).toBe(true)
-    expect(hub.askAnswers).toContainEqual(['ask-1', undefined])
-    expect(hello.pendingAsks).toEqual([])
-
     client.close()
   })
 
@@ -1022,6 +1026,69 @@ describe('websocket channel', () => {
     expect(error.type).toBe('error')
     expect(error.code).toBe('gateway_schema_invalid')
     expect(String(error.message)).toContain('attachments')
+    client.close()
+  })
+
+  it('maps hub busy errors on session.resume to 409 gateway_session_busy', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const client = await wsConnect('/v1/ws', { authorization: `Bearer ${token}` })
+    await client.nextMessage()
+    // 本机侧 turn 在途（不占 gateway 队列）时 resume 撞上 SessionHub 守卫——
+    // 没有 classifyHubError 会落成 502，mobile 无从区分「稍候重试」与「网关坏了」。
+    hub.resumeFailure = Object.assign(new Error('A turn is already in flight for this session'), {
+      code: 'session_turn_in_progress',
+    })
+    client.send({ type: 'session.resume', id: 'existing-sess', ref: 'r1' })
+    const error = await client.nextMessage()
+    expect(error.type).toBe('error')
+    expect(error.code).toBe('gateway_session_busy')
+    expect(error.ref).toBe('r1')
+    hub.resumeFailure = undefined
+    // 守卫解除后同一连接可正常 resume（错误没有污染连接状态）。
+    client.send({ type: 'session.resume', id: 'existing-sess', ref: 'r2' })
+    const broadcast = await client.nextMessage() // session.attached 广播事件
+    expect(broadcast.type).toBe('event')
+    const attached = await client.nextMessage()
+    expect(attached.type).toBe('session.attached')
+    expect(attached.ref).toBe('r2')
+    client.close()
+  })
+
+  it('maps unknown resume ids to 404 gateway_session_not_found', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const client = await wsConnect('/v1/ws', { authorization: `Bearer ${token}` })
+    await client.nextMessage()
+    client.send({ type: 'session.resume', id: 'missing-sess', ref: 'r1' })
+    const error = await client.nextMessage()
+    expect(error.type).toBe('error')
+    expect(error.code).toBe('gateway_session_not_found')
+    client.close()
+  })
+
+  it('给 permission.request 事件帧盖 expiresAt 戳（审批卡倒计时数据源）', async () => {
+    await startServer({ permissionTimeoutMs: 60_000 })
+    const token = await fetchToken()
+    const client = await wsConnect('/v1/ws', { authorization: `Bearer ${token}` })
+    await client.nextMessage() // hello
+    const sentAt = Date.now()
+    hub.emit('view', {
+      type: 'permission.request',
+      request: {
+        id: 'perm-exp',
+        attempt: 1,
+        display: { approvable: true, spec: 'x', toolName: 'Bash' },
+      },
+    })
+    const frame = await client.nextMessage()
+    expect(frame.type).toBe('event')
+    const event = frame.event as { type?: string; expiresAt?: number }
+    expect(event.type).toBe('permission.request')
+    // 截止 = 盖章时刻 + permissionTimeoutMs；允许时钟推进的少量误差。
+    const slack = sentAt + 60_000 - (event.expiresAt ?? 0)
+    expect(slack).toBeGreaterThanOrEqual(0)
+    expect(slack).toBeLessThan(5_000)
     client.close()
   })
 })

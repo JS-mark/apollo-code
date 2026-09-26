@@ -17,14 +17,12 @@ import type {
   GatewayUndoPreview,
   GatewayUndoResult,
 } from './hub'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-
-import type { GatewayEnvelope, GatewayHubLike } from './hub'
 import { createGatewayServer } from './index'
 import type { GatewayServerHandle } from './index'
 import { deriveSigningKey, hashGatewayClientREFID_014Q } from './oauth'
 import type { GatewayOAuthClient } from './oauth'
 import { PairingStore } from './pairing'
+import { RemoteHub } from './uplink'
 
 const MACHINE_SECRET = 'm'.repeat(43)
 const OTHER_SECRET = 'o'.repeat(43)
@@ -120,6 +118,8 @@ class LocalHub implements GatewayHubLike {
   listSessions(): Promise<readonly unknown[]> {
     this.listedSessions = true
     return Promise.resolve([{ id: 'sess-1', title: '本地会话' }])
+  }
+
   deletedSessions: string[] = []
 
   deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
@@ -170,8 +170,6 @@ class LocalHub implements GatewayHubLike {
   changesUndo(): Promise<GatewayUndoResult> {
     this.undoCalls += 1
     return Promise.resolve({ undone: true, paths: ['/local/workspace/a.ts'], warnings: [] })
-  }
-
   }
 
   emit(kind: string, event: unknown): void {
@@ -305,13 +303,18 @@ class TestUplink {
       else if (method === 'hub.interrupt') result = await this.hub.interrupt()
       else if (method === 'hub.closeActive') result = await this.hub.closeActive()
       else if (method === 'hub.decide')
+        result = this.hub.decide(String(params.requestId), String(params.kind))
+      else if (method === 'sessions.list') result = await this.hub.listSessions()
+      else if (method === 'changes.list') result = await this.hub.changesList()
+      else if (method === 'changes.diff')
+        result = await this.hub.changesDiff(String(params.path ?? ''))
+      else if (method === 'changes.undoPreview') result = await this.hub.changesUndoPreview()
+      else if (method === 'changes.undo') result = await this.hub.changesUndo()
       else if (method === 'sessions.delete') {
         const del = this.hub.deleteSession
         if (!del) throw new Error('session deletion is not supported by this hub')
         result = await del.call(this.hub, String(params.id))
-        result = this.hub.decide(String(params.requestId), String(params.kind))
-      else if (method === 'sessions.list') result = await this.hub.listSessions()
-      else throw new Error(`unknown method ${method}`)
+      } else throw new Error(`unknown method ${method}`)
       this.ws.send(JSON.stringify({ type: 'rpc.result', id, ok: true, result }))
     } catch (cause) {
       this.ws.send(
@@ -511,9 +514,6 @@ describe('uplink relay', () => {
     uplink.close()
   })
 
-  it('serves /v1/ws through the remote hub and relays events', async () => {
-    await startRelay()
-    const uplink = await dialUplink()
   it('routes /v1/sessions/delete over the tunnel to the machine hub', async () => {
     await startRelay()
     const uplink = await dialUplink()
@@ -531,6 +531,9 @@ describe('uplink relay', () => {
     uplink.close()
   })
 
+  it('serves /v1/ws through the remote hub and relays events', async () => {
+    await startRelay()
+    const uplink = await dialUplink()
     // 本机已有活动会话（state 帧同步到网关缓存）。
     await hub.start({ cwd: '/local/workspace' })
     uplink.pushState()
@@ -575,6 +578,9 @@ describe('uplink relay', () => {
         (frame.event as { type?: string })?.type === 'machine.offline',
     )
 
+    // 重连即踢旧连接：握手绑死的旧 RemoteHub 已 close，不踢则该连接上的
+    // resume/submit/interrupt 永远 503（界面却显示在线——REST 每请求现查注册表）。
+    // 客户端收到的最后一帧是 machine.online，随后被服务端以 1012 主动关闭。
     uplink = await dialUplink()
     await client.expect(
       (frame) =>
@@ -582,8 +588,47 @@ describe('uplink relay', () => {
         frame.kind === 'view' &&
         (frame.event as { type?: string })?.type === 'machine.online',
     )
-    client.close()
+    await client.waitClosed()
+    expect(client.closeCode).toBe(1012)
+    expect(client.closeReason).toBe('machine_reconnected')
+
+    // 重连后重新拨号：hello 带新会话面，恢复可用。
+    const fresh = new WsClient(
+      base,
+      await tokenFor(base, { id: MACHINE.id, secret: MACHINE_SECRET }),
+    )
+    await fresh.waitOpen()
+    const hello = await fresh.expect((frame) => frame.type === 'hello')
+    expect(hello.serverId).toBeTruthy()
+    fresh.close()
     uplink.close()
+  })
+
+  it('does not kick the other machine when one machine reconnects', async () => {
+    await startRelay()
+    const uplinkA = await dialUplink()
+    const hubB = new LocalHub()
+    const uplinkB = new TestUplink(
+      base,
+      await tokenFor(base, { id: OTHER.id, secret: OTHER_SECRET }),
+      hubB,
+    )
+    await uplinkB.waitOpen()
+    uplinkB.register()
+    await uplinkB.waitRegistered()
+
+    const clientB = new WsClient(base, await tokenFor(base, { id: OTHER.id, secret: OTHER_SECRET }))
+    await clientB.waitOpen()
+    await clientB.expect((frame) => frame.type === 'hello')
+
+    // 机器 A 重连：只踢 A 的存量连接，B 不动。
+    uplinkA.close()
+    await sleep(50)
+    await dialUplink()
+    await sleep(100)
+    expect(clientB.closed).toBe(false)
+    clientB.close()
+    uplinkB.close()
   })
 
   it('rejects /v1/ws when the machine is offline', async () => {
@@ -861,6 +906,41 @@ describe('uplink 来源 ip 遥测', () => {
   })
 })
 
+describe('RemoteHub RPC 超时面', () => {
+  it('hub.resume tolerates slow replay up to 60s; hub.submit keeps the 15s budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const sent: string[] = []
+      // RemoteHub 只用 conn.send / conn.close——最小结构假件即可（不触 WsConnection 构造）。
+      const fakeConn = {
+        send: (payload: string) => {
+          sent.push(payload)
+        },
+        close: () => {},
+      } as unknown as import('./websocket').WsConnection
+      const hub = new RemoteHub(fakeConn, 15_000, () => {})
+
+      const resumeExpectation = expect(hub.resume('sess-big')).rejects.toThrow(
+        'uplink rpc timeout: hub.resume',
+      )
+      // 15s 不应超时（默认预算），59s 时仍挂着，60s 触发。
+      await vi.advanceTimersByTimeAsync(15_000)
+      await vi.advanceTimersByTimeAsync(44_000)
+      await vi.advanceTimersByTimeAsync(1_000)
+      await resumeExpectation
+
+      const submitExpectation = expect(hub.submit({ prompt: 'hi' })).rejects.toThrow(
+        'uplink rpc timeout: hub.submit',
+      )
+      await vi.advanceTimersByTimeAsync(15_000)
+      await submitExpectation
+      expect(sent).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('跨设备 turn 中断', () => {
   it('interrupts a running turn and broadcasts abort to every connected device', async () => {
     hub.autoComplete = false
@@ -939,6 +1019,7 @@ describe('uplink rpc 失败日志', () => {
     uplink.close()
   })
 })
+
 describe('changes 隧道腿（移动端消息流变更卡片）', () => {
   it('serves changes list/diff/undo through the tunnel', async () => {
     await startRelay([MACHINE])

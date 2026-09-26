@@ -16,9 +16,9 @@
 import type {
   InteractiveAskRequest,
   InteractivePermissionDecision,
+  InteractivePermissionRequest,
   InteractiveSession,
   AskPromptController,
-  InteractivePermissionRequest,
   PermissionPromptController,
   PermissionRequestLineage,
 } from '@volund/app-runtime'
@@ -32,12 +32,12 @@ export interface SessionControllerLike {
   getActive?(): InteractiveSession<unknown> | undefined
   /** 嵌入式：会话激活订阅（TUI resume/新建后重挂）。 */
   onActivate?(listener: (session: InteractiveSession<unknown>) => void): () => void
-  interrupt(): Promise<void>
-  end(): Promise<void>
-  delete?(id: string): Promise<{ next?: string }>
-  interrupt(): Promise<void>
   /** 是否有 turn 在途（SessionController.turnInFlight；测试假件可缺省视为空闲）。 */
   readonly turnInFlight?: boolean
+  /** 删除会话档案（SessionController.delete；未接线 → hub 报 web_capability_unavailable）。 */
+  delete?(id: string): Promise<{ next?: string }>
+  interrupt(): Promise<void>
+  end(): Promise<void>
 }
 
 /** CoreEvent 透传信封（§22.8.3；不改 payload）。 */
@@ -61,8 +61,6 @@ export interface WebPermissionRequest {
   lineage?: PermissionRequestLineage
 }
 
-export interface SessionHubPorts {
-  readonly session: SessionControllerLike
 /** Web 提问卡（AskUserQuestion 工具的待决投影；问题与选项本就随 tool.requested 出站）。 */
 export interface WebAskRequest {
   id: string
@@ -70,25 +68,35 @@ export interface WebAskRequest {
   options: InteractiveAskRequest['options']
 }
 
+export interface SessionHubPorts {
+  readonly session: SessionControllerLike
   /**
    * 进程级共享审批队列（§22 W-07 多路分发）：TUI 与 Web 都是它的订阅者——
    * 任一端决策，全端清卡。装配侧（runtime）同时把它接进权限链的 prompt 源。
    */
   readonly permissions: PermissionPromptController
-}
-
+  /**
    * 进程级共享提问队列（AskUserQuestion 工具）：同款多路分发语义。
    * 可选——未装配（旧宿主）时提问只走 TUI/line 本地通道，不出站。
    */
   readonly asks?: AskPromptController
+}
+
 export interface SessionHubOptions {
   /** 嵌入式（随 TUI 启动）：只挂载既有会话，禁止 web 侧 start/resume/end。 */
   readonly embedded?: boolean
 }
 
-export class SessionHub {
-  private interactive: InteractiveSession<unknown> | undefined
-  /** 当前挂载是否归 hub 所有（standalone 自建=true；embedded 挂载=false）。 */
+/** InteractivePermissionRequest → 出站投影（display 面即可决策面；spec/input 不出站）。 */
+function projectPermissionRequest(request: InteractivePermissionRequest): WebPermissionRequest {
+  return {
+    id: request.id,
+    attempt: request.attempt,
+    display: request.display,
+    ...(request.lineage ? { lineage: request.lineage } : {}),
+  }
+}
+
 /** InteractiveAskRequest → 出站投影（id/question/options 即作答面）。 */
 function projectAskRequest(request: InteractiveAskRequest): WebAskRequest {
   return {
@@ -102,17 +110,22 @@ function projectAskRequest(request: InteractiveAskRequest): WebAskRequest {
   }
 }
 
+export class SessionHub {
+  private interactive: InteractiveSession<unknown> | undefined
+  /** 当前挂载是否归 hub 所有（standalone 自建=true；embedded 挂载=false）。 */
   private owned = false
   private cursor = 0
   private readonly subscribers = new Set<(envelope: WebEventEnvelope) => void>()
   private unsubscribeSession: (() => void) | undefined
   private unsubscribeActivate: (() => void) | undefined
+  /**
    * 上次投影的队列签名（待审批 id 逗连）。undefined = 尚未投影过（初始空队列
    * 不发 resolved）；队首之外的变动（中间请求被决策）也会改签名——Mobile 的
    * 多请求 tab 靠完整重投影跟随队列。
    */
   private lastPermissionSignature: string | undefined
   /** 上次投影的提问队列签名（语义同 lastPermissionSignature）。 */
+  private lastAskSignature: string | undefined
 
   constructor(
     private readonly ports: SessionHubPorts,
@@ -122,15 +135,6 @@ function projectAskRequest(request: InteractiveAskRequest): WebAskRequest {
     // 队列）；Web 只读 request（队首），Mobile 读 requests 做多 tab。清空发
     // resolved（任一端决策，全端清卡）。
     this.ports.permissions.subscribe((requests) => {
-/** InteractivePermissionRequest → 出站投影（display 面即可决策面；spec/input 不出站）。 */
-function projectPermissionRequest(request: InteractivePermissionRequest): WebPermissionRequest {
-  return {
-    id: request.id,
-    attempt: request.attempt,
-    display: request.display,
-    ...(request.lineage ? { lineage: request.lineage } : {}),
-  }
-}
       const signature = requests.map((request) => request.id).join(',')
       const previous = this.lastPermissionSignature
       if (signature === previous) return
@@ -139,12 +143,13 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
         if (previous !== undefined) this.emit('view', { type: 'permission.resolved' })
         return
       }
+      const projected = requests.map(projectPermissionRequest)
+      this.emit('view', {
+        type: 'permission.request',
+        request: projected[0]!,
+        requests: projected,
+      })
     })
-  }
-
-  get active(): { id: string; cwd?: string } | undefined {
-    if (!this.interactive) return undefined
-    return {
     // 提问队列 → view 帧（ask.request/ask.resolved）：与审批队列同款签名重投影。
     this.ports.asks?.subscribe((asks) => {
       const signature = asks.map((ask) => ask.id).join(',')
@@ -161,6 +166,12 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
         request: projected[0]!,
         requests: projected,
       })
+    })
+  }
+
+  get active(): { id: string; cwd?: string } | undefined {
+    if (!this.interactive) return undefined
+    return {
       id: this.interactive.id,
       ...(this.interactive.cwd ? { cwd: this.interactive.cwd } : {}),
     }
@@ -187,13 +198,6 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   private emit(kind: WebEventEnvelope['kind'], event: unknown): void {
     this.cursor += 1
     const envelope: WebEventEnvelope = {
-      const projected = requests.map(projectPermissionRequest)
-      this.emit('view', {
-        type: 'permission.request',
-        request: projected[0]!,
-        requests: projected,
-      })
-    })
       streamVersion: 1,
       cursor: String(this.cursor),
       kind,
@@ -204,10 +208,24 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   }
 
   /**
+   * 单 runner 在途守卫：turn 进行中 start/resume 会在本机侧整体换掉 runner
+   * （SessionController.activate 不查 turnFlight）——在途回复的事件流随旧总线
+   * 消失、所有 UI 静默丢轮。fail closed 报 session_turn_in_progress（gateway
+   * 映射 409 gateway_session_busy），等 turn 终态或先 interrupt。
+   */
+  private assertNoTurnInFlight(): void {
+    if (this.ports.session.turnInFlight === true)
+      throw Object.assign(new Error('A turn is already in flight for this session'), {
+        code: 'session_turn_in_progress',
+      })
+  }
+
+  /**
    * 新建会话。standalone：先收掉原活动会话（owned 结束）；embedded：detach 后
    * 经 controller 激活——onActivate 让 TUI 跟随切换，hub 不拥有会话（owned=false）。
    */
   async start(input: { cwd: string }): Promise<{ id: string }> {
+    this.assertNoTurnInFlight()
     await this.closeActive()
     const interactive = await this.ports.session.startInteractive!({ cwd: input.cwd })
     this.attach(interactive, !this.embedded)
@@ -215,10 +233,28 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   }
 
   async resume(id: string): Promise<{ id: string }> {
+    this.assertNoTurnInFlight()
     await this.closeActive()
     const interactive = await this.ports.session.resumeInteractive!(id)
     this.attach(interactive, !this.embedded)
     return { id: interactive.id }
+  }
+
+  /**
+   * 删除会话档案（会话列表的破坏性操作）。端口未接线 → web_capability_unavailable
+   * （前端据此隐藏入口）；不存在 → session_not_found；删除当前挂载会话时
+   * controller 先 end 再冷启动新会话，onActivate 已把 hub 重挂到新会话
+   * （session.attached 帧），这里补发 session.deleted 供各端刷新会话清单。
+   */
+  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
+    const del = this.ports.session.delete
+    if (!del)
+      throw Object.assign(new Error('session deletion is not wired'), {
+        code: 'web_capability_unavailable',
+      })
+    const { next } = await del.call(this.ports.session, id)
+    this.emit('view', { type: 'session.deleted', id })
+    return { deleted: true, ...(next ? { next } : {}) }
   }
 
   /**
@@ -240,22 +276,6 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   }
 
   /** 嵌入式：会话生命周期（end）仍属 TUI；detach 语义保留在 closeActive。 */
-   * 删除会话档案（会话列表的破坏性操作）。端口未接线 → web_capability_unavailable
-   * （前端据此隐藏入口）；不存在 → session_not_found；删除当前挂载会话时
-   * controller 先 end 再冷启动新会话，onActivate 已把 hub 重挂到新会话
-   * （session.attached 帧），这里补发 session.deleted 供各端刷新会话清单。
-   */
-  async deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
-    const del = this.ports.session.delete
-    if (!del)
-      throw Object.assign(new Error('session deletion is not wired'), {
-        code: 'web_capability_unavailable',
-      })
-    const { next } = await del.call(this.ports.session, id)
-    this.emit('view', { type: 'session.deleted', id })
-    return { deleted: true, ...(next ? { next } : {}) }
-  }
-
 
   private attach(interactive: InteractiveSession<unknown>, owned: boolean): void {
     this.interactive = interactive
@@ -267,25 +287,12 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
     })
     this.emit('view', { type: 'session.attached', id: interactive.id, cwd: interactive.cwd })
   }
-   * 单 runner 在途守卫：turn 进行中 start/resume 会在本机侧整体换掉 runner
-   * （SessionController.activate 不查 turnFlight）——在途回复的事件流随旧总线
-   * 消失、所有 UI 静默丢轮。fail closed 报 session_turn_in_progress（gateway
-   * 映射 409 gateway_session_busy），等 turn 终态或先 interrupt。
-   */
-  private assertNoTurnInFlight(): void {
-    if (this.ports.session.turnInFlight === true)
-      throw Object.assign(new Error('A turn is already in flight for this session'), {
-        code: 'session_turn_in_progress',
-      })
-  }
-
 
   /** 只摘挂载不结束会话（embedded 重挂/摘挂路径）。 */
   private detach(): void {
     this.unsubscribeSession?.()
     this.unsubscribeSession = undefined
     this.interactive = undefined
-    this.assertNoTurnInFlight()
     this.owned = false
   }
 
@@ -293,7 +300,6 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
     const interactive = this.interactive
     const owned = this.owned
     this.detach()
-    this.assertNoTurnInFlight()
     if (!interactive) return
     // embedded 挂载不拥有会话：detach 即止（TUI 的会话由 TUI 收尾）。
     if (!owned) return
@@ -382,14 +388,7 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   pendingPermissionIds(): string[] {
     return this.ports.permissions.requests().map((request) => request.id)
   }
-}
-   * 待审批队列的完整投影（gateway /v1/ws 握手补发用）：迟到接入的设备拿不到
-   * 之前的 permission.request 帧——靠 hello 后一次性补投。仅直连 hub 提供；
-   * relay 模式 uplink 只同步 id 面，缺省即回退旧行为。
-   */
-  pendingPermissionRequests(): WebPermissionRequest[] {
-    return this.ports.permissions.requests().map(projectPermissionRequest)
-  }
+
   /** 作答落到共享提问队列（语义同 decide；重复/过期 answer 幂等忽略）。 */
   answerAsk(requestId: string, value: string | undefined): boolean {
     const asks = this.ports.asks
@@ -410,3 +409,13 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
   pendingAskRequests(): WebAskRequest[] {
     return this.ports.asks?.requests().map(projectAskRequest) ?? []
   }
+
+  /**
+   * 待审批队列的完整投影（gateway /v1/ws 握手补发用）：迟到接入的设备拿不到
+   * 之前的 permission.request 帧——靠 hello 后一次性补投。仅直连 hub 提供；
+   * relay 模式 uplink 只同步 id 面，缺省即回退旧行为。
+   */
+  pendingPermissionRequests(): WebPermissionRequest[] {
+    return this.ports.permissions.requests().map(projectPermissionRequest)
+  }
+}

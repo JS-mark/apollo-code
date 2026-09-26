@@ -26,7 +26,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import type { Duplex } from 'node:stream'
 
-import { handleChatCompletion } from './chat'
+import { classifyHubError, handleChatCompletion } from './chat'
 import type { GatewayEnvelope, GatewayHubLike, GatewayModelListing, GatewayModelsView } from './hub'
 import type { GatewayOAuthClient, GatewayTokenClaims } from './oauth'
 import type { GeneratedGatewayClient } from './oauth'
@@ -36,7 +36,7 @@ import type { PairedDeviceRecord } from './pairing'
 import { GatewayError, TurnQueue } from './queue'
 import { StaticSiteServer } from './static'
 import { UplinkRegistry } from './uplink'
-import { acceptWebSocket, WsConnection } from './websocket'
+import { acceptWebSocket, WS_CLOSE, WsConnection } from './websocket'
 import { attachWsConnection, WsBroadcaster } from './ws'
 
 export type { ChatCompletionParsed, TurnOutcome } from './chat'
@@ -370,10 +370,17 @@ export async function createGatewayServer(
   let permissionSource: string | undefined
   if (permissionTimeoutMs > 0) {
     envelopeListeners.add((source, envelope) => {
-      const event = envelope.event as { type?: unknown; request?: { id?: unknown } }
+      const event = envelope.event as {
+        type?: unknown
+        request?: { id?: unknown }
+        expiresAt?: number
+      }
       if (envelope.kind === 'view' && event?.type === 'permission.request') {
         const requestId = typeof event.request?.id === 'string' ? event.request.id : undefined
         if (!requestId) return
+        // 审批卡倒计时的数据源：自动 deny 的时钟权威在网关，经手时把绝对截止
+        // （epoch ms）盖在帧上随广播下发；旧客户端不认识该字段，零影响。
+        event.expiresAt = Date.now() + permissionTimeoutMs
         permissionSource = source
         if (permissionTimer) clearTimeout(permissionTimer)
         permissionTimer = setTimeout(() => {
@@ -398,6 +405,18 @@ export async function createGatewayServer(
     envelopeListeners.add(subscribe)
     return () => envelopeListeners.delete(subscribe)
   })
+
+  // uplink 重连 → 踢掉该机器的存量 /v1/ws 连接：它们的握手绑死了已 close 的旧
+  // RemoteHub，不踢则 resume/submit/interrupt 永远 503，而 REST 每请求现查注册表
+  // 照常可用——表象即「界面在线、命令全失败」。machine.online 在注册表登记新 hub
+  // 之后才广播，此刻该机器的存量连接必然全是旧绑定；被踢客户端按瞬断退避重连，
+  // 握手即解析到新 hub。
+  if (options.relay)
+    registry.subscribe((client, envelope) => {
+      const event = envelope.event as { type?: unknown } | undefined
+      if (envelope.kind === 'view' && event?.type === 'machine.online')
+        broadcaster.closeClient(client, WS_CLOSE.serviceRestart, 'machine_reconnected')
+    })
 
   const authenticate = async (req: IncomingMessage): Promise<AuthContext | undefined> => {
     const token = bearerToken(req)
@@ -690,6 +709,7 @@ export async function createGatewayServer(
       // （与设备 token 的一次性下发同一模型）；未装配铸造面时明确关闭。
       if (redeemed.record.kind === 'machine') {
         if (!registerMachine)
+          // 单行构造：verify-error-codes 的字面量扫描认不出跨行 new XxxError('code', …)。
           return fail(
             res,
             new GatewayError(
@@ -899,26 +919,6 @@ export async function createGatewayServer(
         return
       }
 
-      if (path === '/v1/sessions/active/transcript' && req.method === 'GET') {
-        // 活动会话快照（relay 经隧道取自本机；直挂模式 hub 未实现该面则空视图）。
-        const hubForAuth = resolveHub(auth) as unknown as {
-          transcript?(): Promise<{ transcript?: readonly unknown[] }>
-        }
-        try {
-          ok(res, hubForAuth.transcript ? await hubForAuth.transcript() : { transcript: [] })
-        } catch (cause) {
-          return fail(res, cause instanceof GatewayError ? cause : offline())
-        }
-        return
-      }
-
-      // ── 附件上传（图片字节 → 经隧道进本机 AttachmentStore 暂存 → handle 引用）──
-      if (path === '/v1/attachments' && req.method === 'POST') {
-        const mime = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase()
-        if (!ATTACHMENT_MIMES.has(mime))
-          return fail(
-            res,
-            new GatewayError(
       // 会话删除（破坏性；relay 经隧道落到本机 SessionHub.deleteSession）。
       // 不存在的 id 按本机错误码 404 透传；删活动会话时 next = 冷启动的新会话。
       if (path === '/v1/sessions/delete' && req.method === 'POST') {
@@ -942,19 +942,19 @@ export async function createGatewayServer(
         return
       }
 
-              'gateway_unsupported_content',
-              400,
-              `unsupported attachment type: ${mime || '<missing>'}`,
-            ),
-          )
-        // Content-Length 预检给出明确的 413（chunked 缺长时 oversized 落进下面的 400）。
-        const declared = Number(req.headers['content-length'] ?? 0)
-        if (declared > maxAttachmentBytes)
-          return fail(
-            res,
-            new GatewayError(
-              'gateway_unsupported_content',
-              413,
+      if (path === '/v1/sessions/active/transcript' && req.method === 'GET') {
+        // 活动会话快照（relay 经隧道取自本机；直挂模式 hub 未实现该面则空视图）。
+        const hubForAuth = resolveHub(auth) as unknown as {
+          transcript?(): Promise<{ transcript?: readonly unknown[] }>
+        }
+        try {
+          ok(res, hubForAuth.transcript ? await hubForAuth.transcript() : { transcript: [] })
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
       // ── 会话文件变更（移动端消息流变更卡片；relay 经隧道取自本机 BackupStore）──
       if (path === '/v1/sessions/active/changes' && req.method === 'GET') {
         const hubForAuth = resolveHub(auth)
@@ -969,6 +969,75 @@ export async function createGatewayServer(
       if (path === '/v1/sessions/active/changes/diff' && req.method === 'GET') {
         const target = url.searchParams.get('path')
         if (!target)
+          return fail(
+            res,
+            new GatewayError('gateway_schema_invalid', 400, 'missing query parameter: path'),
+          )
+        const hubForAuth = resolveHub(auth)
+        if (!hubForAuth.changesDiff)
+          return fail(
+            res,
+            new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+          )
+        try {
+          ok(res, await hubForAuth.changesDiff(target))
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      if (path === '/v1/sessions/active/changes/undo/preview' && req.method === 'GET') {
+        const hubForAuth = resolveHub(auth)
+        if (!hubForAuth.changesUndoPreview)
+          return fail(
+            res,
+            new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+          )
+        try {
+          ok(res, await hubForAuth.changesUndoPreview())
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      // 撤销最近批次（破坏性；preview → 确认 → 执行的 destructive 门与 Web 一致）。
+      if (path === '/v1/sessions/active/changes/undo' && req.method === 'POST') {
+        const hubForAuth = resolveHub(auth)
+        if (!hubForAuth.changesUndo)
+          return fail(
+            res,
+            new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+          )
+        try {
+          ok(res, await hubForAuth.changesUndo())
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      // ── 附件上传（图片字节 → 经隧道进本机 AttachmentStore 暂存 → handle 引用）──
+      if (path === '/v1/attachments' && req.method === 'POST') {
+        const mime = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase()
+        if (!ATTACHMENT_MIMES.has(mime))
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_unsupported_content',
+              400,
+              `unsupported attachment type: ${mime || '<missing>'}`,
+            ),
+          )
+        // Content-Length 预检给出明确的 413（chunked 缺长时 oversized 落进下面的 400）。
+        const declared = Number(req.headers['content-length'] ?? 0)
+        if (declared > maxAttachmentBytes)
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_unsupported_content',
+              413,
               `attachment exceeds ${maxAttachmentBytes} bytes`,
             ),
           )

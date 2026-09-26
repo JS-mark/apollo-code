@@ -523,6 +523,7 @@ export class RemoteLink {
         type: 'uplink.state',
         active: active ? { id: active.id, ...(active.cwd ? { cwd: active.cwd } : {}) } : null,
         pendingPermissions: this.options.hub.pendingPermissionIds(),
+        pendingAsks: [...(this.options.hub.pendingAskIds?.() ?? [])],
       } satisfies MachineFrame),
     )
   }
@@ -548,7 +549,6 @@ export class RemoteLink {
     if (typeof body.access_token !== 'string' || typeof body.expires_in !== 'number')
       throw new Error('gateway token response is malformed')
     this.token = { value: body.access_token, expiresAtMs: this.now() + body.expires_in * 1000 }
-        pendingAsks: [...(this.options.hub.pendingAskIds?.() ?? [])],
     return body.access_token
   }
 

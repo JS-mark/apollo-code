@@ -9,6 +9,7 @@
  * - `turn.submit`      {prompt, model?, attachments?} → `turn.accepted`（串行排队，忙时等锁）
  * - `turn.interrupt`                        → `turn.interrupt_requested`
  * - `permission.decide` {requestId, kind}   → `permission.decided`
+ * - `ask.answer`       {requestId, value?}  → `ask.answered`
  *
  * 服务端 → 客户端帧：
  * - `hello`（握手成功即发，含 serverId/version/当前活动会话）
@@ -22,6 +23,7 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 
+import { classifyHubError } from './chat'
 import type { GatewayEnvelope, GatewayHubLike } from './hub'
 import { parseClientAttachments } from './protocol'
 import { GatewayError, TurnQueue } from './queue'
@@ -87,10 +89,43 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
     version: deps.version,
     session: deps.hub.active ?? null,
     pendingPermissions: deps.hub.pendingPermissionIds(),
+    pendingAsks: deps.hub.pendingAskIds?.() ?? [],
     // 迟到者恢复：turn 进行中接入的设备拿不到 turn.started 事件——
     // 用队列锁状态把运行态一次性补给 hello（终态事件随订阅正常送达）。
     turnRunning: deps.queue.locked,
   })
+  // 迟到者恢复（审批面）：接入前已在队列里的权限请求不会再有 permission.request
+  // 帧了——握手后一次性补投完整队列（display 投影，与订阅帧同形状）。直连 hub
+  // 才有此面；relay 的 uplink 只同步 id，缺省跳过维持旧行为。
+  const pendingRequests = deps.hub.pendingPermissionRequests?.() ?? []
+  if (pendingRequests.length > 0)
+    send({
+      type: 'event',
+      streamVersion: 1,
+      cursor: '0',
+      kind: 'view',
+      ...(deps.hub.active ? { sessionId: deps.hub.active.id } : {}),
+      event: {
+        type: 'permission.request',
+        request: pendingRequests[0],
+        requests: pendingRequests,
+      },
+    })
+  // 迟到者恢复（提问面）：同款补投（ask.request 全队列）。
+  const pendingAsks = deps.hub.pendingAskRequests?.() ?? []
+  if (pendingAsks.length > 0)
+    send({
+      type: 'event',
+      streamVersion: 1,
+      cursor: '0',
+      kind: 'view',
+      ...(deps.hub.active ? { sessionId: deps.hub.active.id } : {}),
+      event: {
+        type: 'ask.request',
+        request: pendingAsks[0],
+        requests: pendingAsks,
+      },
+    })
 
   conn.onMessage = (text) => {
     void handleFrame(text).catch((cause) => {
@@ -142,7 +177,26 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
         send({
           type: 'permission.decided',
           ...(ref ? { ref } : {}),
-          accepted: deps.hub.decide(requestId, kind),
+          requestId,
+          decided: deps.hub.decide(requestId, kind),
+        })
+        return
+      }
+      case 'ask.answer': {
+        const requestId = body.requestId
+        const rawValue = body.value
+        if (
+          typeof requestId !== 'string' ||
+          !(rawValue === undefined || typeof rawValue === 'string')
+        ) {
+          replyError(ref, new GatewayError('gateway_schema_invalid', 400, 'requestId is required'))
+          return
+        }
+        send({
+          type: 'ask.answered',
+          ...(ref ? { ref } : {}),
+          requestId,
+          answered: deps.hub.answerAsk?.(requestId, rawValue) ?? false,
         })
         return
       }
@@ -184,13 +238,16 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
               await deps.hub.resume(id)
             } catch (cause) {
               release()
+              // classifyHubError 与 chat/completions 同一张映射表：Session not
+              // found → 404，session_turn_in_progress/busy → 409（本机在途 turn
+              // 未结束），其余 → 502。
               replyError(
                 ref,
                 /not found|invalid session/i.test(
                   cause instanceof Error ? cause.message : String(cause),
                 )
                   ? new GatewayError('gateway_session_not_found', 404, `session not found: ${id}`)
-                  : cause,
+                  : classifyHubError(cause),
               )
               return
             }
@@ -240,7 +297,7 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
             })
           } catch (cause) {
             release()
-            replyError(ref, cause)
+            replyError(ref, classifyHubError(cause))
             return
           }
           send({ type: 'turn.accepted', ...(ref ? { ref } : {}) })
@@ -248,7 +305,7 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
           return
         } catch (cause) {
           release()
-          replyError(ref, cause)
+          replyError(ref, classifyHubError(cause))
         }
         return
       }
@@ -300,6 +357,17 @@ export class WsBroadcaster {
   closeDevice(deviceId: string): void {
     for (const [conn, meta] of this.connections) {
       if (meta.deviceId === deviceId) conn.close(WS_CLOSE.policy, 'device_revoked')
+    }
+  }
+
+  /**
+   * uplink 重连：该机器的存量客户端连接还绑着已 close 的旧 RemoteHub，命令面
+   * 会一直 503——注册成功即整体踢掉（serviceRestart 关闭码），客户端按瞬断
+   * 退避重连，握手时重新解析到新 hub。
+   */
+  closeClient(client: string, code: number, reason: string): void {
+    for (const [conn, meta] of this.connections) {
+      if (meta.client === client) conn.close(code, reason)
     }
   }
 

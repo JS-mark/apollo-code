@@ -25,6 +25,8 @@ export const WS_CLOSE = {
   invalidPayload: 1007,
   policy: 1008,
   tooBig: 1009,
+  /** 服务端侧链路重建（uplink 重连）：客户端应按瞬断重连，不是策略拒绝。 */
+  serviceRestart: 1012,
 } as const
 
 export interface WsConnectionOptions {
