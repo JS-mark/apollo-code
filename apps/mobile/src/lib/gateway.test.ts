@@ -1,7 +1,7 @@
 /** 网关基址解析（REM-r1 移动站独立部署）：#gw= → localStorage → 同源。 */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { gatewayBase, gatewayLabel, setGatewayBase } from './gateway'
+import { gatewayBase, gatewayLabel, GatewayApi, GatewayWs, setGatewayBase } from './gateway'
 
 const store = new Map<string, string>()
 const localStorageStub = {
@@ -68,6 +68,106 @@ describe('gatewayLabel', () => {
     expect(gatewayLabel()).toBe('gw.example.com')
   })
 })
+
+/** 可控的假 WebSocket：实例表驱动 onopen/onclose；发帧只记录不传输。 */
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+  readonly sent: string[] = []
+  readyState = FakeWebSocket.CONNECTING
+  onopen: (() => void) | undefined
+  onclose: ((event: { code: number; reason: string }) => void) | undefined
+  onerror: (() => void) | undefined
+  onmessage: ((event: { data: unknown }) => void) | undefined
+
+  constructor(readonly url: string) {
+    FakeWebSocket.instances.push(this)
+  }
+
+  send(payload: string): void {
+    this.sent.push(payload)
+  }
+
+  close(): void {
+    this.readyState = FakeWebSocket.CLOSED
+    this.onclose?.({ code: 1000, reason: '' })
+  }
+
+  open(): void {
+    this.readyState = FakeWebSocket.OPEN
+    this.onopen?.()
+  }
+
+  drop(code = 1006, reason = ''): void {
+    this.readyState = FakeWebSocket.CLOSED
+    this.onclose?.({ code, reason })
+  }
+}
+
+const noopHandlers = {
+  onOpenChange: () => {},
+  onHello: () => {},
+  onEvent: () => {},
+  onFrame: () => {},
+}
+
+describe('GatewayWs 出站队列（断线丢帧修复）', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.useFakeTimers()
+    return () => vi.useRealTimers()
+  })
+
+  it('queues frames while disconnected and flushes them in order on reconnect', () => {
+    const ws = new GatewayWs('tok', noopHandlers)
+    ws.connect()
+    const first = FakeWebSocket.instances[0]!
+    // 连接尚未 open 就发送：帧进站而非丢失。
+    ws.send({ type: 'session.resume', id: 'sess-1', ref: 'r1' })
+    expect(first.sent).toEqual([])
+    first.open()
+    expect(first.sent).toHaveLength(1)
+    expect(JSON.parse(first.sent[0]!)).toMatchObject({ type: 'session.resume', id: 'sess-1' })
+
+    // 断线窗口再发一帧；重连成功后按序补发。
+    first.drop()
+    ws.send({ type: 'turn.submit', prompt: 'hello', ref: 't1' })
+    vi.advanceTimersByTime(2_500)
+    const second = FakeWebSocket.instances[1]!
+    expect(second).toBeDefined()
+    second.open()
+    expect(second.sent).toHaveLength(1)
+    expect(JSON.parse(second.sent[0]!)).toMatchObject({ type: 'turn.submit', prompt: 'hello' })
+    ws.close()
+  })
+
+  it('caps the outbox and drops the oldest frames first', () => {
+    const ws = new GatewayWs('tok', noopHandlers)
+    ws.connect()
+    // 不 open：全部入队。
+    for (let i = 0; i < 70; i++) ws.send({ type: 'ping', ref: `p${i}` })
+    const first = FakeWebSocket.instances[0]!
+    first.open()
+    expect(first.sent).toHaveLength(64)
+    // 最旧的 6 条（p0..p5）被丢弃，队首是 p6。
+    expect(JSON.parse(first.sent[0]!)).toMatchObject({ ref: 'p6' })
+    expect(JSON.parse(first.sent[63]!)).toMatchObject({ ref: 'p69' })
+    ws.close()
+  })
+
+  it('send after close() is a no-op (no outbox growth)', () => {
+    const ws = new GatewayWs('tok', noopHandlers)
+    ws.connect()
+    ws.close()
+    ws.send({ type: 'ping' })
+    expect(FakeWebSocket.instances[0]!.sent).toEqual([])
+  })
+})
+
 describe('GatewayApi.deleteSession', () => {
   const token = 'tok'
   const jsonOk = (body: unknown, status = 200) =>

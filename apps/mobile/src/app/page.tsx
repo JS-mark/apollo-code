@@ -9,8 +9,6 @@
 import { CommentOutlined, HistoryOutlined, UserOutlined, WifiOutlined } from '@ant-design/icons'
 import { App as AntApp, Badge, ConfigProvider, Select, theme as antdTheme, Typography } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
-import zhCN from 'antd/locale/zh_CN'
-import { App as AntApp, Badge, Select, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { ChatView, type SubmitImage } from '../components/ChatView'
@@ -24,7 +22,6 @@ import {
   reduceChatState,
   type ChatMessageImage,
 } from '../lib/chat'
-import { diag } from '../lib/diag'
 import {
   clearSession,
   GatewayApi,
@@ -33,11 +30,11 @@ import {
   loadSession,
   saveModelOverride,
   setUnauthorizedHandler,
-import { ThemeModeProvider, useThemeMode } from '../lib/theme'
   type MobileSession,
   type SessionSummary,
   type StagedAttachment,
 } from '../lib/gateway'
+import { ThemeModeProvider, useThemeMode } from '../lib/theme'
 
 type Tab = 'sessions' | 'chat' | 'mine'
 
@@ -69,6 +66,7 @@ export default function Page() {
 function MobileApp() {
   const [session, setSession] = useState<MobileSession | undefined>()
   const [booted, setBooted] = useState(false)
+  // tab 持久化：刷新回到原视图（会话选中本身由 hello 帧恢复，见 onHello）。
   const [tab, setTab] = useState<Tab>('sessions')
   /** 欢迎页：连接就绪自动进入；跳过/进入后为 true，本次运行内不再回闪。 */
   const [welcomed, setWelcomed] = useState(false)
@@ -89,6 +87,8 @@ function MobileApp() {
   const wsRef = useRef<GatewayWs | undefined>(undefined)
   const sessionRef = useRef(session)
   sessionRef.current = session
+  // 会话级网关 REST 面（变更卡片等直取）；token 维度 memoize，随配对/解绑重建。
+  const gateway = useMemo(() => (session ? new GatewayApi(session.token) : undefined), [session])
   // onEvent 的事件过滤须读最新 activeSessionId（WS 闭包只在 token 变化时重建）。
   const activeSessionRef = useRef(activeSessionId)
   activeSessionRef.current = activeSessionId
@@ -100,8 +100,15 @@ function MobileApp() {
   useEffect(() => {
     setSession(loadSession())
     setModelOverride(loadModelOverride())
+    // 恢复上次视图（SSR 首帧后读 localStorage，避免水合不匹配）。
+    const storedTab = window.localStorage.getItem('volund-mobile-tab')
+    if (storedTab === 'chat' || storedTab === 'sessions' || storedTab === 'mine') setTab(storedTab)
     setBooted(true)
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('volund-mobile-tab', tab)
+  }, [tab])
 
   const refreshSessions = useCallback(async () => {
     const current = sessionRef.current
@@ -115,7 +122,6 @@ function MobileApp() {
     } finally {
       setSessionsLoading(false)
     }
-  const gateway = useMemo(() => (session ? new GatewayApi(session.token) : undefined), [session])
   }, [])
 
   const refreshModels = useCallback(async () => {
@@ -176,9 +182,19 @@ function MobileApp() {
         // 本机重连上线：uplink 断开期间的流式/终态事件已丢失，重新水合 transcript 收口，
         // 否则断线期的半截回复会一直卡在 streaming 或干脆缺失。
         const viewEvent = envelope.event as { type?: string; id?: unknown } | undefined
-        if (envelope.kind === 'view' && viewEvent?.type === 'machine.online') {
-          diag('machine', '本机上线 → 重新水合')
-          void hydrate()
+        if (envelope.kind === 'view' && viewEvent?.type === 'machine.online') void hydrate()
+        // 他端删除会话（web/TUI/另一台设备）：刷新清单；删的是当前会话时本机已
+        // end 并冷启动新会话——回退到新对话，后续 session.attached 帧会再跟随。
+        if (envelope.kind === 'view' && viewEvent?.type === 'session.deleted') {
+          const deletedId = typeof viewEvent.id === 'string' ? viewEvent.id : undefined
+          if (deletedId) {
+            void refreshSessions()
+            if (deletedId === activeSessionRef.current) {
+              setActiveSessionId(undefined)
+              dispatch({ type: 'reset' })
+            }
+          }
+          return
         }
         // 活动会话切换广播（桌面 TUI 切换 / 任一设备 resume，同会话也会重发）：
         // 同会话的 echo 忽略——多设备共用会话时它不该清掉别人的上下文；
@@ -197,21 +213,23 @@ function MobileApp() {
         dispatch({ type: 'envelope', envelope })
       },
       onFrame: (frame) => {
+        // 审批应答：decided/accepted=false = 该请求已被他端决策/超时兜底处理——
+        // 队列投影会自行刷新卡面，这里给一句明确提示（否则点了像没生效）。
+        // （decided 为现行字段名；accepted 兼容旧网关。）
+        if (frame.type === 'permission.decided') {
+          if (frame.decided === false || frame.accepted === false)
+            dispatch({ type: 'notice', notice: '审批未生效：该请求已被处理或过期' })
+          return
+        }
+        // 提问应答：answered=false = 该提问已被他端作答/已过期——同款提示兜底。
+        if (frame.type === 'ask.answered') {
+          if (frame.answered === false)
+            dispatch({ type: 'notice', notice: '作答未生效：该提问已被处理或过期' })
+          return
+        }
         if (frame.type === 'session.attached' && typeof frame.id === 'string') {
           setActiveSessionId(frame.id)
           pendingStartRef.current = false
-        // 他端删除会话（web/TUI/另一台设备）：刷新清单；删的是当前会话时本机已
-        // end 并冷启动新会话——回退到新对话，后续 session.attached 帧会再跟随。
-        if (envelope.kind === 'view' && viewEvent?.type === 'session.deleted') {
-          const deletedId = typeof viewEvent.id === 'string' ? viewEvent.id : undefined
-          if (deletedId) {
-            void refreshSessions()
-            if (deletedId === activeSessionRef.current) {
-              setActiveSessionId(undefined)
-              dispatch({ type: 'reset' })
-            }
-          }
-          return
           const waiters = sessionWaitersRef.current
           sessionWaitersRef.current = []
           for (const resolve of waiters) resolve(frame.id)
@@ -243,16 +261,9 @@ function MobileApp() {
     ws.connect()
     wsRef.current = ws
     return () => {
-        // 提问应答：answered=false = 该提问已被他端作答/已过期——同款提示兜底。
-        if (frame.type === 'ask.answered') {
-          if (frame.answered === false)
-            dispatch({ type: 'notice', notice: '作答未生效：该提问已被处理或过期' })
-          return
-        }
       ws.close()
       wsRef.current = undefined
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   useEffect(() => {
@@ -320,40 +331,11 @@ function MobileApp() {
     setTab('chat')
   }, [])
 
-  const newChat = useCallback(() => {
-    // 单 runner：先收掉当前会话，再开新的（TUI 跟随切换）。
-    wsRef.current?.send({ type: 'session.end', ref: 'end-before-new' })
-    setActiveSessionId(undefined)
-    dispatch({ type: 'reset' })
-    setTab('chat')
-    // 显式新建：立即 session.start，session.attached 到达前聊天页走水合骨架。
-    setHydrating(true)
-    pendingStartRef.current = true
-    wsRef.current?.send({ type: 'session.start', ref: 'new-chat' })
-  }, [])
-
-  const decide = useCallback((requestId: string, kind: 'allow' | 'deny') => {
-    wsRef.current?.send({ type: 'permission.decide', requestId, kind })
-  }, [])
-
-  /** handle 引用图片 → objectURL（字节缓存留在 gateway 层；objectURL 生命周期归组件）。 */
-  const resolveAttachment = useCallback(async (handle: string): Promise<string> => {
-    const current = sessionRef.current
-    if (!current) throw new Error('未配对')
-    const blob = await new GatewayApi(current.token).downloadAttachment(handle)
-    return URL.createObjectURL(blob)
-  }, [])
-
-  const interrupt = useCallback(() => {
-    wsRef.current?.send({ type: 'turn.interrupt' })
-  }, [])
   /** 左滑删除确认后的落地：删当前会话跟随宿主冷启动的新会话（next），其余仅刷新清单。 */
   const deleteSession = useCallback(
     async (id: string) => {
       const current = sessionRef.current
       if (!current) return
-  // kind 走完整决策档位（allow-once/…/deny-forever），gateway 原样透传共享审批队列。
-  const decide = useCallback((requestId: string, kind: string) => {
       try {
         const result = await new GatewayApi(current.token).deleteSession(id)
         if (id === activeSessionRef.current) {
@@ -369,6 +351,49 @@ function MobileApp() {
         })
       }
     },
+    [refreshSessions],
+  )
+
+  const newChat = useCallback(() => {
+    // 单 runner：先收掉当前会话，再开新的（TUI 跟随切换）。
+    wsRef.current?.send({ type: 'session.end', ref: 'end-before-new' })
+    setActiveSessionId(undefined)
+    dispatch({ type: 'reset' })
+    setTab('chat')
+    // 显式新建：立即 session.start，session.attached 到达前聊天页走水合骨架。
+    setHydrating(true)
+    pendingStartRef.current = true
+    wsRef.current?.send({ type: 'session.start', ref: 'new-chat' })
+  }, [])
+
+  // kind 走完整决策档位（allow-once/…/deny-forever），gateway 原样透传共享审批队列。
+  const decide = useCallback((requestId: string, kind: string) => {
+    wsRef.current?.send({ type: 'permission.decide', requestId, kind })
+  }, [])
+
+  // AskUserQuestion 作答：value 缺省 = 跳过（模型自选默认继续）。
+  const answerAsk = useCallback((requestId: string, value?: string) => {
+    wsRef.current?.send({
+      type: 'ask.answer',
+      requestId,
+      ...(value === undefined ? {} : { value }),
+    })
+  }, [])
+
+  /** handle 引用图片 → objectURL（字节缓存留在 gateway 层；objectURL 生命周期归组件）。 */
+  const resolveAttachment = useCallback(async (handle: string): Promise<string> => {
+    const current = sessionRef.current
+    if (!current) throw new Error('未配对')
+    const blob = await new GatewayApi(current.token).downloadAttachment(handle)
+    return URL.createObjectURL(blob)
+  }, [])
+
+  const interrupt = useCallback(() => {
+    wsRef.current?.send({ type: 'turn.interrupt' })
+  }, [])
+
+  // 停摆兜底：终态帧丢失时收口流式气泡并提示（ChatView 判定窗口，reducer 落地）。
+  const stall = useCallback(() => dispatch({ type: 'turn-stalled' }), [])
 
   const unpair = useCallback((notice?: string) => {
     wsRef.current?.close()
@@ -421,15 +446,6 @@ function MobileApp() {
         </Badge>
         <div className="app-header-title">
           <Typography.Text strong>{title}</Typography.Text>
-  // AskUserQuestion 作答：value 缺省 = 跳过（模型自选默认继续）。
-  const answerAsk = useCallback((requestId: string, value?: string) => {
-    wsRef.current?.send({
-      type: 'ask.answer',
-      requestId,
-      ...(value === undefined ? {} : { value }),
-    })
-  }, [])
-
         </div>
         {activeSessionId && (
           <Typography.Text
@@ -452,94 +468,84 @@ function MobileApp() {
   if (!booted) return null
   if (!session)
     return (
-      <AntApp>
-        <PairView
-          notice={revokedNotice}
-          onPaired={() => {
-            setRevokedNotice(undefined)
-            setSession(loadSession())
-          }}
-        />
-      </AntApp>
+      <PairView
+        notice={revokedNotice}
+        onPaired={() => {
+          setRevokedNotice(undefined)
+          setSession(loadSession())
+        }}
+      />
     )
-  if (!welcomed)
-    return (
-      <AntApp>
-        <WelcomeView connected={connected} onSkip={() => setWelcomed(true)} />
-      </AntApp>
-    )
+  if (!welcomed) return <WelcomeView connected={connected} onSkip={() => setWelcomed(true)} />
 
   return (
-    <AntApp>
-      <div className="app">
-        {header}
-        <div className="app-body">
-          {tab === 'chat' ? (
-            <ChatView
-              state={state}
-              connected={connected}
-              loading={hydrating}
-              activeSessionId={activeSessionId}
-              onEcho={(text, images: readonly ChatMessageImage[]) =>
-                dispatch({ type: 'echo', text, ...(images.length ? { images } : {}) })
-              }
-              onSubmit={submitTurn}
-              onStage={stageImage}
-              onInterrupt={interrupt}
-              onDecide={decide}
-              resolveAttachment={resolveAttachment}
-              onGoSessions={() => {
-                void refreshSessions()
-                setTab('sessions')
-              }}
-            />
-          ) : tab === 'sessions' ? (
-            <SessionsView
-              sessions={sessions}
+    <div className="app">
+      {header}
+      <div className="app-body">
+        {tab === 'chat' ? (
+          <ChatView
+            state={state}
+            connected={connected}
+            loading={hydrating}
+            activeSessionId={activeSessionId}
             gateway={gateway}
-              loading={sessionsLoading}
-              activeId={activeSessionId}
-              onRefresh={() => void refreshSessions()}
-              onResume={resumeSession}
-              onNewChat={newChat}
-            />
-          ) : (
-            <>
-              <MineView
-                session={session}
-                connected={connected}
-                activeSessionId={activeSessionId}
-                onUnpair={unpair}
-              />
-              <DiagPanel />
-            </>
-          )}
-        </div>
-        <nav className="tabbar">
-            onDelete={(id) => void deleteSession(id)}
-          {(
-            [
-              ['sessions', '会话', <HistoryOutlined key="icon" style={{ fontSize: 20 }} />],
-              ['chat', '对话', <CommentOutlined key="icon" style={{ fontSize: 20 }} />],
-              ['mine', '我的', <UserOutlined key="icon" style={{ fontSize: 20 }} />],
-            ] as const
-          ).map(([key, label, icon]) => (
-            <button
-              key={key}
-              type="button"
-              className={`tabbar-item${tab === key ? ' active' : ''}`}
-              onClick={() => {
-                if (key === 'sessions') void refreshSessions()
-                setTab(key)
+            onEcho={(text, images: readonly ChatMessageImage[]) =>
+              dispatch({ type: 'echo', text, ...(images.length ? { images } : {}) })
+            }
+            onSubmit={submitTurn}
+            onStage={stageImage}
+            onInterrupt={interrupt}
+            onDecide={decide}
             onAnswerAsk={answerAsk}
-              }}
-            >
-              {icon}
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
+            resolveAttachment={resolveAttachment}
+            onGoSessions={() => {
+              void refreshSessions()
+              setTab('sessions')
+            }}
+            onStall={stall}
+          />
+        ) : tab === 'sessions' ? (
+          <SessionsView
+            sessions={sessions}
+            loading={sessionsLoading}
+            activeId={activeSessionId}
+            deviceId={session.deviceId}
+            onRefresh={() => void refreshSessions()}
+            onResume={resumeSession}
+            onNewChat={newChat}
+            onDelete={(id) => void deleteSession(id)}
+          />
+        ) : (
+          <MineView
+            session={session}
+            connected={connected}
+            activeSessionId={activeSessionId}
+            onUnpair={unpair}
+          />
+        )}
       </div>
-    </AntApp>
+      <nav className="tabbar">
+        {(
+          [
+            ['sessions', '会话', <HistoryOutlined key="icon" style={{ fontSize: 20 }} />],
+            ['chat', '对话', <CommentOutlined key="icon" style={{ fontSize: 20 }} />],
+            ['mine', '我的', <UserOutlined key="icon" style={{ fontSize: 20 }} />],
+          ] as const
+        ).map(([key, label, icon]) => (
+          <button
+            key={key}
+            type="button"
+            className={`tabbar-item${tab === key ? ' active' : ''}`}
+            onClick={() => {
+              if (key === 'sessions') void refreshSessions()
+              setTab(key)
+            }}
+          >
+            {icon}
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+    </div>
   )
 }

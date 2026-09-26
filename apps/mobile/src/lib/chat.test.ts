@@ -2,7 +2,15 @@
 import { describe, expect, it } from 'vitest'
 
 import type { EnvelopeEvent } from './chat'
-import { initialChatState, reduceChatState } from './chat'
+import {
+  chatFeed,
+  initialChatState,
+  mcpToolParts,
+  reduceChatState,
+  toolBodyLabel,
+  toolLabel,
+  toolTargetLabel,
+} from './chat'
 
 const envelope = (kind: string, event: EnvelopeEvent, sessionId = 's1') => ({
   kind,
@@ -205,7 +213,7 @@ describe('mobile chat reducer', () => {
         },
       }),
     })
-    expect(state.permission?.lineage).toEqual(lineage)
+    expect(state.permissions[0]?.lineage).toEqual(lineage)
     state = reduceChatState(initialChatState, {
       type: 'envelope',
       envelope: envelope('view', {
@@ -217,7 +225,76 @@ describe('mobile chat reducer', () => {
         },
       }),
     })
-    expect(state.permission?.lineage).toBeUndefined()
+    expect(state.permissions[0]?.lineage).toBeUndefined()
+  })
+
+  it('permission.request 优先收完整队列（requests）；旧网关单卡（request）降级为单项数组', () => {
+    const card = (id: string) => ({
+      id,
+      attempt: 1,
+      display: { approvable: true, spec: '{}', toolName: 'Bash' },
+    })
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'permission.request', requests: [card('a'), card('b')] }),
+    })
+    expect(state.permissions.map((permission) => permission.id)).toEqual(['a', 'b'])
+    state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'permission.request', request: card('solo') }),
+    })
+    expect(state.permissions.map((permission) => permission.id)).toEqual(['solo'])
+    // 空投影（requests 空数组且无 request）：不吞掉已有卡面，也不造空数组噪音。
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'permission.request', requests: [] }),
+    })
+    expect(state.permissions.map((permission) => permission.id)).toEqual(['solo'])
+  })
+
+  it('permission.request 的 expiresAt 摊给队列每张卡；旧网关缺省不添字段', () => {
+    const card = (id: string) => ({
+      id,
+      attempt: 1,
+      display: { approvable: true, spec: '{}', toolName: 'Bash' },
+    })
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', {
+        type: 'permission.request',
+        requests: [card('a'), card('b')],
+        expiresAt: 1_700_000_000_000,
+      }),
+    })
+    expect(state.permissions.map((permission) => permission.expiresAt)).toEqual([
+      1_700_000_000_000, 1_700_000_000_000,
+    ])
+    // 旧网关：帧上无 expiresAt → 卡面不添噪音字段（不渲染倒计时）。
+    state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'permission.request', request: card('solo') }),
+    })
+    expect(state.permissions[0]?.expiresAt).toBeUndefined()
+  })
+
+  it('permission.resolved 清空待审批队列', () => {
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', {
+        type: 'permission.request',
+        request: {
+          id: 'p-1',
+          attempt: 1,
+          display: { approvable: true, spec: '{}', toolName: 'Bash' },
+        },
+      }),
+    })
+    expect(state.permissions).toHaveLength(1)
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'permission.resolved' }),
+    })
+    expect(state.permissions).toHaveLength(0)
   })
 
   it('shows an offline notice on machine.offline and clears only it on machine.online', () => {
@@ -288,7 +365,52 @@ describe('mobile chat reducer', () => {
         payload: { toolUseId: 'tu1', isError: false },
       }),
     })
-    expect(state.tools).toEqual([{ toolUseId: 'tu1', tool: 'bash', status: 'done' }])
+    expect(state.tools).toEqual([{ toolUseId: 'tu1', tool: 'bash', status: 'done', seq: 1 }])
+  })
+
+  it('tool.requested 为非 Task 工具建卡：单行目标 + 展开正文，started 不冲掉', () => {
+    let state = initialChatState
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.requested',
+        payload: {
+          toolUseId: 'tu2',
+          tool: 'Bash',
+          input: { command: 'pnpm --filter @volund/mobile build 2>&1 | tail -15' },
+        },
+      }),
+    })
+    expect(state.tools[0]).toMatchObject({
+      toolUseId: 'tu2',
+      tool: 'Bash',
+      status: 'running',
+      seq: 1,
+      target: 'pnpm --filter @volund/mobile build 2>&1 | tail -15',
+      body: 'pnpm --filter @volund/mobile build 2>&1 | tail -15',
+    })
+    expect(state.nextSeq).toBe(2)
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 'tu2', tool: 'Bash' },
+      }),
+    })
+    // started 不带 input：不冲掉 requested 帧落下的 target/body。
+    expect(state.tools[0]).toMatchObject({
+      status: 'running',
+      target: 'pnpm --filter @volund/mobile build 2>&1 | tail -15',
+      body: 'pnpm --filter @volund/mobile build 2>&1 | tail -15',
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.completed',
+        payload: { toolUseId: 'tu2', isError: true },
+      }),
+    })
+    expect(state.tools[0]).toMatchObject({ status: 'error' })
   })
 
   it('does not leak thinking into the visible text on message.appended', () => {
@@ -418,7 +540,7 @@ describe('mobile chat reducer', () => {
         payload: { code: 'runner_error', context: { message: 'read ECONNRESET' } },
       }),
     })
-    expect(state.notice).toBe('错误 runner_error: read ECONNRESET')
+    expect(state.notice).toBe('runner_error: read ECONNRESET')
     state = reduceChatState(state, {
       type: 'envelope',
       envelope: envelope('core', {
@@ -439,7 +561,49 @@ describe('mobile chat reducer', () => {
         payload: { code: 'stream_interrupted', context: { reason: 'read ECONNRESET' } },
       }),
     })
-    expect(state.notice).toBe('错误 stream_interrupted: read ECONNRESET')
+    expect(state.notice).toBe('stream_interrupted: read ECONNRESET')
+  })
+
+  it('turn-stalled 收口流式气泡并提示；turn 态保持 running（中断按钮仍在）', () => {
+    let state = initialChatState
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.started', payload: { turnId: 't1' } }),
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'stream.delta',
+        payload: { messageId: 'a1', kind: 'text', fragment: '半截回复' },
+      }),
+    })
+    expect(state.messages[0]?.streaming).toBe(true)
+    const stalled = reduceChatState(state, { type: 'turn-stalled' })
+    expect(stalled.messages[0]?.streaming).toBe(false)
+    expect(stalled.turn).toBe('running')
+    expect(stalled.notice).toBe('长时间未收到新事件，本轮可能已中断；可点「中断」结束')
+    // 重复触发幂等：无流式可收口且提示已在 → 原引用返回（不触发渲染）。
+    expect(reduceChatState(stalled, { type: 'turn-stalled' })).toBe(stalled)
+    // 真终态到达后照常收回。
+    const done = reduceChatState(stalled, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.completed', payload: {} }),
+    })
+    expect(done.turn).toBe('idle')
+  })
+
+  it('lastEventAt 随信封刷新、turn-stalled 不刷新（停摆计时基准不被兜底本身拨动）', () => {
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.started', payload: { turnId: 't1' } }),
+    })
+    expect(state.lastEventAt).toBeGreaterThan(0)
+    const at = state.lastEventAt
+    state = reduceChatState(state, { type: 'turn-stalled' })
+    expect(state.lastEventAt).toBe(at)
+    state = reduceChatState(initialChatState, { type: 'turn-restored' })
+    expect(state.lastEventAt).toBeGreaterThan(0)
+    expect(state.turn).toBe('running')
   })
 
   // §2.7bis.5 U3：子代理冒泡事件（附录 D.3 parentTurnId/parentDepth tag）不混进
@@ -592,7 +756,7 @@ describe('mobile chat reducer', () => {
       expect(state.messages).toHaveLength(1)
       expect(state.messages[0]).toMatchObject({ id: 'm1', text: '主会话' })
       expect(state.tools).toEqual([
-        { toolUseId: 'tu1', tool: 'bash', status: 'done', turnId: 't1' },
+        { toolUseId: 'tu1', tool: 'bash', status: 'done', turnId: 't1', seq: 2 },
       ])
       expect(state.subagents).toEqual({})
     })
@@ -630,6 +794,139 @@ describe('迟到者运行态恢复', () => {
     expect(state.turn).toBe('running')
   })
 })
+
+describe('chatFeed 会话流混排（工具卡进消息流）', () => {
+  it('消息与工具卡按到达 seq 混排；状态更新不挪位置', async () => {
+    const { chatFeed } = await import('./chat')
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm1', role: 'user', content: [{ type: 'text', text: '读文件' }] },
+      }),
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 't1', tool: 'Read' },
+      }),
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 't2', tool: 'Write' },
+      }),
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'm2',
+          role: 'assistant',
+          content: [{ type: 'text', text: '已完成' }],
+        },
+      }),
+    })
+    const feed = chatFeed(state)
+    expect(feed.map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2'])
+    // 工具完成：位置不变，状态原地更新。
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.completed',
+        payload: { toolUseId: 't1', isError: false },
+      }),
+    })
+    const after = chatFeed(state)
+    expect(after.map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2'])
+    const t1 = after.find((entry) => entry.key === 't1')
+    expect(t1?.kind).toBe('tool')
+    if (t1?.kind === 'tool') expect(t1.tool.status).toBe('done')
+  })
+
+  it('水合消息带 seq（transcript 顺序），乐观回显的 seq 让回声钉在末尾', () => {
+    let state = reduceChatState(initialChatState, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'h1', role: 'user', text: '一' },
+        { id: 'h2', role: 'assistant', text: '二' },
+      ],
+    })
+    state = reduceChatState(state, { type: 'echo', text: '三' })
+    expect(state.messages.map((message) => message.seq)).toEqual([1, 2, 3])
+    expect(state.nextSeq).toBe(4)
+  })
+
+  it('工具卡在消息前的时序：tool.started 先于 stream.delta 也保持序', async () => {
+    const { chatFeed } = await import('./chat')
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 't1', tool: 'Bash' },
+      }),
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'stream.delta',
+        payload: { messageId: 'm1', kind: 'text', fragment: '输出' },
+      }),
+    })
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['t1', 'm1'])
+  })
+
+  it('toolTargetLabel/toolBodyLabel：折叠行单行目标 + 展开正文', () => {
+    expect(toolTargetLabel('Bash', { command: 'pnpm test' })).toBe('pnpm test')
+    expect(toolTargetLabel('Read', { path: 'a/b.ts' })).toBe('a/b.ts')
+    // 正文参数绝不成为目标；input 非对象省略。
+    expect(toolTargetLabel('Edit', { old_string: 'secret', new_string: 's' })).toBeUndefined()
+    expect(toolTargetLabel('Read', 'not-an-object')).toBeUndefined()
+    expect(toolBodyLabel('Bash', { command: 'a\nb' })).toBe('a\nb')
+    expect(toolBodyLabel('Write', { path: 'a.ts', content: 'x=1' })).toBe('a.ts\n\nx=1')
+    expect(toolBodyLabel('Edit', { path: 'a.ts', old_string: 'o', new_string: 'n' })).toBe(
+      'a.ts\n\n【旧】\no\n\n【新】\nn',
+    )
+    expect(toolBodyLabel('Bash', {})).toBeUndefined()
+    // 未知工具：入参 JSON 全量；超长截断（BODY_MAX=4000）。
+    expect(toolBodyLabel('Mystery', { k: 'v' })).toBe('{\n  "k": "v"\n}')
+    expect(toolBodyLabel('Bash', { command: 'x'.repeat(5000) })?.length).toBe(
+      4000 + '\n…（已截断）'.length,
+    )
+    // 折叠行中文标签；未知工具原样。
+    expect(toolLabel('Bash')).toBe('终端')
+    expect(toolLabel('Mystery')).toBe('Mystery')
+  })
+
+  it('hydrate：快照 tool 条目重建工具卡且与消息保序', () => {
+    const state = reduceChatState(initialChatState, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm-1', role: 'user', text: '跑' },
+        {
+          id: 'tu-1',
+          kind: 'tool',
+          tool: 'Bash',
+          input: { command: 'pnpm test' },
+          status: 'done',
+        },
+        { id: 'm-2', role: 'assistant', text: '完成' },
+      ],
+    })
+    expect(state.nextSeq).toBe(4)
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m-1', 'tu-1', 'm-2'])
+    expect(state.tools[0]).toMatchObject({
+      status: 'done',
+      seq: 2,
+      target: 'pnpm test',
+      body: 'pnpm test',
+    })
+  })
+})
+
 describe('ask.request / ask.resolved（AskUserQuestion 问答卡）与 MCP 标签', () => {
   const ask = {
     id: 'ask-1',
@@ -654,4 +951,60 @@ describe('ask.request / ask.resolved（AskUserQuestion 问答卡）与 MCP 标�
       envelope: envelope('view', { type: 'ask.resolved' }),
     })
     expect(resolved.asks).toEqual([])
+  })
+
+  it('mcpToolParts/toolLabel：mcp__server__tool 拆解展示；MCP 工具不产 target', () => {
+    expect(mcpToolParts('mcp__github__search_repos')).toEqual({
+      server: 'github',
+      name: 'search_repos',
+    })
+    expect(mcpToolParts('mcp__bad')).toBeUndefined()
+    expect(mcpToolParts('Bash')).toBeUndefined()
+    expect(toolLabel('mcp__github__search_repos')).toBe('MCP · github/search_repos')
+
+    const state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.requested',
+        payload: {
+          toolUseId: 'tu-mcp',
+          tool: 'mcp__github__search_repos',
+          input: { query: 'volund', path: '/tmp/x' },
+        },
+      }),
+    })
+    expect(state.tools[0]?.target).toBeUndefined()
+    expect(state.tools[0]?.body).toContain('volund')
+  })
+})
+
+describe('streamedChars（状态提示 ↑ tokens 估算的数据源）', () => {
+  it('text delta 累计、thinking 不计、turn.started 清零', () => {
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.started' }),
+    })
+    for (const fragment of ['1234', '5678']) {
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'stream.delta',
+          payload: { kind: 'text', messageId: 'm1', fragment },
+        }),
+      })
+    }
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'stream.delta',
+        payload: { kind: 'thinking', messageId: 'm1', fragment: '思考不算' },
+      }),
+    })
+    expect(state.streamedChars).toBe(8)
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.started' }),
+    })
+    expect(state.streamedChars).toBe(0)
+  })
 })

@@ -9,6 +9,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const DAMPING = 0.45
 const TRIGGER_PX = 64
 const MAX_PULL = 96
+/** 刷新反馈的最短展示时长：请求毫秒级返回时 loading 也得一闪可见，否则像没刷新。 */
+const MIN_REFRESH_MS = 500
 
 export interface PullToRefreshState {
   /** 当前拉动距离（px，已阻尼；>0 时渲染指示器）。 */
@@ -16,6 +18,8 @@ export interface PullToRefreshState {
   refreshing: boolean
   /** 释放即刷新的临界提示。 */
   armed: boolean
+  /** 主动触发一次刷新（下拉释放与手动按钮共用，refreshing 状态同源）。 */
+  trigger(): Promise<void>
 }
 
 export function usePullToRefresh(
@@ -34,7 +38,10 @@ export function usePullToRefresh(
     setRefreshing(true)
     setPull(0)
     try {
-      await onRefresh()
+      await Promise.all([
+        onRefresh(),
+        new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_MS)),
+      ])
     } finally {
       refreshingRef.current = false
       setRefreshing(false)
@@ -82,5 +89,5 @@ export function usePullToRefresh(
     }
   }, [scrollRef, trigger])
 
-  return { pull, refreshing, armed: pull >= TRIGGER_PX }
+  return { pull, refreshing, armed: pull >= TRIGGER_PX, trigger }
 }

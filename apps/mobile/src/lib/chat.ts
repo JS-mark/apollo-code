@@ -24,12 +24,16 @@ export interface ChatMessage {
   images?: readonly ChatMessageImage[]
   /** 本地乐观回显；message.appended 到达后被真实消息替换。 */
   local?: boolean
+  /** 到达序号：会话流混排（消息+工具卡）的排序键；更新保留原值（位置不漂）。 */
+  seq?: number
 }
 
 export interface ToolCard {
   toolUseId: string
   tool: string
   status: 'running' | 'done' | 'error'
+  /** 到达序号：工具卡在会话流中的位置（tool.started/requested 建立时分配）。 */
+  seq?: number
   /**
    * Task 卡：派发时所在父 turn 的 id（CoreEvent.turnId）——子代理冒泡事件按
    * parentTurnId 归属到本卡（§2.7bis.5 U3 折叠行的连接键）。
@@ -37,6 +41,10 @@ export interface ToolCard {
   turnId?: string
   /** Task 卡：tool.requested input 的展示摘要（agentType / prompt 首行）。 */
   task?: { agentType?: string; prompt?: string }
+  /** tool.requested 的 input 提取的单行目标（路径/命令…）；无目标时省略。 */
+  target?: string
+  /** 展开卡的完整正文（Bash 命令/文件内容/入参 JSON…）；仅 requested 帧带 input 时有。 */
+  body?: string
 }
 
 /**
@@ -68,14 +76,6 @@ export interface PermissionCard {
   display: { approvable: boolean; spec: string; toolName: string }
   /** 子代理来源（§2.7bis.5 U4）；主代理请求省略——无徽标回归面。 */
   lineage?: PermissionLineage
-}
-
-export interface ChatState {
-  messages: ChatMessage[]
-  tools: ToolCard[]
-  /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
-  subagents: Record<string, SubagentActivity>
-  turn: 'idle' | 'running'
   /**
    * 网关审批超时兜底的绝对截止（epoch ms）：自动 deny 的时钟权威在网关，
    * permission.request 帧经手时盖章；旧网关缺省 → 不渲染倒计时。
@@ -88,13 +88,31 @@ export interface AskCard {
   id: string
   question: string
   options: { label: string; description?: string }[]
-/** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影）。 */
-export interface AskCard {
-  id: string
-  question: string
-  options: { label: string; description?: string }[]
-  permission: PermissionCard | undefined
+}
+
+export interface ChatState {
+  messages: ChatMessage[]
+  tools: ToolCard[]
+  /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
+  subagents: Record<string, SubagentActivity>
+  turn: 'idle' | 'running'
+  /** 待审批队列（hub 全量投影）：审批卡多 tab 切换的数据源；空 = 无待审批。 */
+  permissions: PermissionCard[]
+  /** 待决提问队列（AskUserQuestion；hub 全量投影）：问答卡的数据源。 */
+  asks: AskCard[]
+  /**
+   * 本回合累计的正文流字符（stream.delta text 追加，turn.started 清零）——
+   * 状态提示的 ↑ tokens 估算数据源（≈ chars/4，与 TUI/web 同规则）。
+   */
+  streamedChars: number
   notice: string | undefined
+  /** 下一个到达序号（消息/工具卡的会话流排序键分配器）。 */
+  nextSeq: number
+  /**
+   * 最近一封信封/恢复动作的到达时刻（epoch ms）：停摆兜底的时钟基准——
+   * turn 在跑而它长期不动 = 终态帧大概率丢了。
+   */
+  lastEventAt: number
 }
 
 export const initialChatState: ChatState = {
@@ -102,14 +120,206 @@ export const initialChatState: ChatState = {
   tools: [],
   subagents: {},
   turn: 'idle',
-  permission: undefined,
+  permissions: [],
+  asks: [],
+  streamedChars: 0,
   notice: undefined,
+  nextSeq: 1,
+  lastEventAt: 0,
+}
+
+/**
+ * 会话流混排：消息气泡与工具卡按到达序号排序渲染（工具卡跟随其发生的时点，
+ * 完成/失败只更新状态不挪位置）。缺 seq 的历史数据（旧持久化）排最后保底。
+ */
+export type FeedEntry =
+  | { kind: 'message'; key: string; message: ChatMessage }
+  | { kind: 'tool'; key: string; tool: ToolCard }
+
+export function chatFeed(state: ChatState): FeedEntry[] {
+  const entries: FeedEntry[] = [
+    ...state.messages.map((message): FeedEntry => ({ kind: 'message', key: message.id, message })),
+    ...state.tools.map((tool): FeedEntry => ({ kind: 'tool', key: tool.toolUseId, tool })),
+  ]
+  return entries.sort((a, b) => {
+    const seqA = a.kind === 'message' ? a.message.seq : a.tool.seq
+    const seqB = b.kind === 'message' ? b.message.seq : b.tool.seq
+    return (seqA ?? Number.MAX_SAFE_INTEGER) - (seqB ?? Number.MAX_SAFE_INTEGER)
+  })
 }
 
 /** 本机离线提示文案（machine.online 到达时按文案匹配清除，不误清其他提示）。 */
 export const MACHINE_OFFLINE_NOTICE = '本机离线：桌面端隧道已断开，恢复后自动重连'
-  /** 待决提问队列（AskUserQuestion；hub 全量投影）：问答卡的数据源。 */
-  asks: AskCard[]
+
+/** 停摆兜底提示（turn-stalled 时若已有其他提示则不覆盖）。 */
+export const TURN_STALLED_NOTICE = '长时间未收到新事件，本轮可能已中断；可点「中断」结束'
+
+/** 各工具最具辨识度的参数名（与 apps/web session-stream 同一选择规则）。 */
+const TOOL_TARGET_KEYS: Record<string, string> = {
+  Read: 'path',
+  Write: 'path',
+  Edit: 'path',
+  MultiEdit: 'path',
+  Bash: 'command',
+  Glob: 'pattern',
+  Grep: 'pattern',
+  WebFetch: 'url',
+  WebSearch: 'query',
+  ShellOutput: 'shellId',
+  KillShell: 'shellId',
+  Task: 'agentType',
+}
+const FALLBACK_TARGET_KEYS = ['path', 'file_path', 'command', 'pattern', 'url', 'query'] as const
+const TARGET_MAX = 72
+
+/**
+ * tool.requested 的 input → 单行展示目标（折叠行的 path/command 列）。
+ * input 是模型产出：剥控制字符、压空白、截断；绝不取 content/old_string 等正文参数。
+ */
+export function toolTargetLabel(tool: string, input: unknown): string | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+  const record = input as Record<string, unknown>
+  const pick = (key: string): string | undefined => {
+    const value = record[key]
+    return typeof value === 'string' && value.trim() ? value : undefined
+  }
+  const raw =
+    (TOOL_TARGET_KEYS[tool] ? pick(TOOL_TARGET_KEYS[tool]) : undefined) ??
+    FALLBACK_TARGET_KEYS.map(pick).find((value) => value !== undefined)
+  if (!raw) return undefined
+  // 控制字符与换行压成单行（React 文本节点本身无注入面，这里只为可读性）。
+  const oneLine = raw
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .split(/\s+/)
+    .join(' ')
+    .trim()
+  if (!oneLine) return undefined
+  return oneLine.length > TARGET_MAX ? `${oneLine.slice(0, TARGET_MAX - 1)}…` : oneLine
+}
+
+/**
+ * mcp__〈server〉__〈tool〉 拆解（SKILLS-MCPS-r1 §S3.5 双下划线命名）；非 MCP 工具
+ * 回 undefined。与 apps/web 同规则。
+ */
+export function mcpToolParts(tool: string): { server: string; name: string } | undefined {
+  if (!tool.startsWith('mcp__')) return undefined
+  const rest = tool.slice('mcp__'.length)
+  const sep = rest.indexOf('__')
+  if (sep <= 0 || sep === rest.length - 2) return undefined
+  return { server: rest.slice(0, sep), name: rest.slice(sep + 2) }
+}
+
+/** 工具的折叠行中文标签（Task 由组件走 🤖 特例，不在表内）；MCP 工具显示 server/tool；未知工具原样展示。 */
+const TOOL_LABELS: Record<string, string> = {
+  Bash: '终端',
+  ShellOutput: '终端输出',
+  KillShell: '结束终端',
+  Read: '读取',
+  Write: '写入',
+  Edit: '编辑',
+  MultiEdit: '编辑',
+  Glob: '找文件',
+  Grep: '搜内容',
+  WebFetch: '抓网页',
+  WebSearch: '搜网页',
+  Skill: '技能',
+}
+export function toolLabel(tool: string): string {
+  const mcp = mcpToolParts(tool)
+  if (mcp) return `MCP · ${mcp.server}/${mcp.name}`
+  return TOOL_LABELS[tool] ?? tool
+}
+
+/** 多段正文拼接（空段丢弃）；无有效段时省略。 */
+function joinBody(...parts: (string | undefined)[]): string | undefined {
+  const body = parts.filter((part) => part !== undefined).join('\n\n')
+  return body || undefined
+}
+
+/** 编辑类正文的新旧对照段。 */
+function diffPair(oldString?: string, newString?: string): string | undefined {
+  if (oldString === undefined && newString === undefined) return undefined
+  return `【旧】\n${oldString ?? ''}\n\n【新】\n${newString ?? ''}`
+}
+
+/** 展开卡正文上限（字符）：超大 input（Write 全文等）截断，避免撑爆消息流。 */
+const BODY_MAX = 4000
+
+/**
+ * tool.requested 的 input → 展开卡正文（保留多行：Bash 命令/文件内容/新旧对照…）。
+ * 只拼展示面参数，未知工具退回入参 JSON 全量；超长截断。与 apps/web 同规则。
+ */
+export function toolBodyLabel(tool: string, input: unknown): string | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+  const record = input as Record<string, unknown>
+  const str = (key: string): string | undefined => {
+    const value = record[key]
+    return typeof value === 'string' && value.trim() ? value : undefined
+  }
+  const num = (key: string): number | undefined => {
+    const value = record[key]
+    return typeof value === 'number' ? value : undefined
+  }
+  let body: string | undefined
+  switch (tool) {
+    case 'Bash':
+    case 'ShellOutput':
+    case 'KillShell':
+      body = str('command') ?? str('shellId')
+      break
+    case 'Read': {
+      const offset = num('offset')
+      const limit = num('limit')
+      const range =
+        offset !== undefined || limit !== undefined
+          ? `offset: ${offset ?? 0}${limit !== undefined ? ` · limit: ${limit}` : ''}`
+          : undefined
+      body = joinBody(str('path'), range)
+      break
+    }
+    case 'Write':
+      body = joinBody(str('path'), str('content'))
+      break
+    case 'Edit':
+      body = joinBody(str('path'), diffPair(str('old_string'), str('new_string')))
+      break
+    case 'MultiEdit': {
+      const edits = Array.isArray(record.edits) ? record.edits : []
+      const pairs = edits
+        .map((edit) => {
+          if (!edit || typeof edit !== 'object') return undefined
+          const item = edit as Record<string, unknown>
+          const oldString = typeof item.old_string === 'string' ? item.old_string : undefined
+          const newString = typeof item.new_string === 'string' ? item.new_string : undefined
+          return diffPair(oldString, newString)
+        })
+        .filter((pair): pair is string => pair !== undefined)
+      body = joinBody(str('path'), pairs.length > 0 ? pairs.join('\n\n') : undefined)
+      break
+    }
+    case 'Glob':
+    case 'Grep':
+      body = joinBody(str('pattern'), str('path'))
+      break
+    case 'WebFetch':
+      body = joinBody(str('url'), str('prompt'))
+      break
+    case 'WebSearch':
+      body = str('query')
+      break
+    case 'Task':
+      body = joinBody(str('prompt'), str('description'))
+      break
+    default:
+      try {
+        body = JSON.stringify(input, null, 2)
+      } catch {
+        body = undefined
+      }
+  }
+  if (!body) return undefined
+  return body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}\n…（已截断）` : body
+}
 
 /** 信封事件面：CoreEvent 透传（附录 D.3 冒泡 tag 在事件顶层，§2.7bis.5 U3）。 */
 export interface EnvelopeEvent {
@@ -127,17 +337,19 @@ export interface EnvelopeEvent {
   /** 子代理冒泡 tag：EventBus.forward 打上，两字段同时出现。 */
   parentTurnId?: string
   parentDepth?: number
+  /** permission.request 帧的审批超时截止（网关盖章，epoch ms）；其余帧缺省。 */
+  expiresAt?: number
 }
 
 export type StreamAction =
   | { type: 'envelope'; envelope: { kind: string; sessionId?: string; event: EnvelopeEvent } }
   | { type: 'hydrate'; transcript: readonly unknown[] }
   | { type: 'turn-restored' }
+  | { type: 'turn-stalled' }
   | { type: 'echo'; text: string; images?: readonly ChatMessageImage[] }
   | { type: 'notice'; notice: string | undefined }
   | { type: 'reset' }
 
-  asks: [],
 /** 只取 text part（thinking part 也有 text 字段，混进来会把思考内容粘进正文、破坏 markdown 结构）。 */
 function textOfContent(content: unknown): string {
   if (!Array.isArray(content)) return ''
@@ -288,11 +500,12 @@ function reduceEnvelope(
               id,
               role,
               text,
+              seq: state.nextSeq,
               ...(thinking ? { thinking } : {}),
               ...(images.length ? { images } : {}),
             } satisfies ChatMessage,
           ]
-      return { ...state, messages }
+      return { ...state, messages, ...(existing ? {} : { nextSeq: state.nextSeq + 1 }) }
     }
     case 'stream.delta': {
       const kind = payload.kind
@@ -304,10 +517,20 @@ function reduceEnvelope(
         kind === 'text'
           ? { ...message, text: message.text + fragment, streaming: true }
           : { ...message, thinking: (message.thinking ?? '') + fragment, streaming: true }
-      const messages = state.messages.some((message) => message.id === id)
+      const exists = state.messages.some((message) => message.id === id)
+      const messages = exists
         ? state.messages.map((message) => (message.id === id ? apply(message) : message))
-        : [...state.messages, apply({ id, role: 'assistant' as const, text: '' })]
-      return { ...state, messages }
+        : [
+            ...state.messages,
+            apply({ id, role: 'assistant' as const, text: '', seq: state.nextSeq }),
+          ]
+      const counted = kind === 'text' ? fragment.length : 0
+      return {
+        ...state,
+        messages,
+        streamedChars: state.streamedChars + counted,
+        ...(exists ? {} : { nextSeq: state.nextSeq + 1 }),
+      }
     }
     case 'stream.started': {
       // 新一轮流开始（流中断重试会换新 messageId）：把仍卡在 streaming 的旧消息
@@ -331,24 +554,55 @@ function reduceEnvelope(
       }
     }
     case 'turn.started':
-      return { ...state, turn: 'running' }
+      return { ...state, turn: 'running', streamedChars: 0 }
     case 'turn.completed':
       return { ...state, turn: 'idle', messages: finalizeStreaming(state.messages) }
     case 'turn.aborted': {
       const messages = finalizeStreaming(state.messages)
+      // 兜底串与 error.raised 通知同槽位，保持英文（报错文案一律英文+code）。
       const reason = payload.reason
-  /** permission.request 帧的审批超时截止（网关盖章，epoch ms）；其余帧缺省。 */
-  expiresAt?: number
       if (reason === 'error')
-        return { ...state, turn: 'idle', messages, notice: state.notice ?? '本轮因错误中止' }
+        return {
+          ...state,
+          turn: 'idle',
+          messages,
+          notice: state.notice ?? 'turn aborted due to an error',
+        }
       if (reason === 'stream_interrupted')
-        return { ...state, turn: 'idle', messages, notice: state.notice ?? '本轮流式中断' }
-      return { ...state, turn: 'idle', messages, notice: '本轮已中断' }
+        return { ...state, turn: 'idle', messages, notice: state.notice ?? 'stream interrupted' }
+      return { ...state, turn: 'idle', messages, notice: 'turn interrupted' }
     }
     case 'tool.requested': {
-      // 只摘 Task 的 input 摘要（agentType / prompt 首行）供折叠行展示；其他工具
-      // 的 requested 帧不产生卡片（卡片由 tool.started 建立，保持既有时序语义）。
-      if (payload.tool !== 'Task') return state
+      // requested 帧带 input：非 Task 工具在此建卡并提取单行目标 + 展开正文（折叠行/
+      // 详情卡的数据面；started 帧不带 input，迟到就没了）；Task 摘 agentType /
+      // prompt 首行摘要（§2.7bis.5 U3 折叠行），两支时序语义与 apps/web 对齐。
+      const tool = String(payload.tool)
+      // MCP 工具的入参无统一 target 语义（fallback 键多为猜测），只留 JSON 正文。
+      const target = mcpToolParts(tool) ? undefined : toolTargetLabel(tool, payload.input)
+      const body = toolBodyLabel(tool, payload.input)
+      const extras = {
+        ...(target === undefined ? {} : { target }),
+        ...(body === undefined ? {} : { body }),
+      }
+      const id = String(payload.toolUseId)
+      if (tool !== 'Task') {
+        const exists = state.tools.some((item) => item.toolUseId === id)
+        if (exists)
+          return {
+            ...state,
+            tools: state.tools.map((item) =>
+              item.toolUseId === id ? { ...item, ...extras } : item,
+            ),
+          }
+        return {
+          ...state,
+          nextSeq: state.nextSeq + 1,
+          tools: [
+            ...state.tools,
+            { toolUseId: id, tool, status: 'running' as const, seq: state.nextSeq, ...extras },
+          ],
+        }
+      }
       const input: unknown = payload.input
       const record = input !== null && typeof input === 'object' ? input : undefined
       const agentType =
@@ -363,19 +617,20 @@ function reduceEnvelope(
         ...(agentType ? { agentType } : {}),
         ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
       }
-      const exists = state.tools.some((tool) => tool.toolUseId === payload.toolUseId)
+      const exists = state.tools.some((item) => item.toolUseId === id)
       if (exists)
         return {
           ...state,
-          tools: state.tools.map((tool) =>
-            tool.toolUseId === payload.toolUseId ? { ...tool, task } : tool,
+          tools: state.tools.map((item) =>
+            item.toolUseId === id ? { ...item, task, ...extras } : item,
           ),
         }
       return {
         ...state,
+        nextSeq: state.nextSeq + 1,
         tools: [
           ...state.tools,
-          { toolUseId: String(payload.toolUseId), tool: 'Task', status: 'running', task },
+          { toolUseId: id, tool: 'Task', status: 'running', task, seq: state.nextSeq, ...extras },
         ],
       }
     }
@@ -394,12 +649,14 @@ function reduceEnvelope(
         }
       return {
         ...state,
+        nextSeq: state.nextSeq + 1,
         tools: [
           ...state.tools,
           {
             toolUseId: String(payload.toolUseId),
             tool: String(payload.tool),
             status: 'running',
+            seq: state.nextSeq,
             ...(turnId ? { turnId } : {}),
           },
         ],
@@ -420,7 +677,8 @@ function reduceEnvelope(
       //（stream_interrupted，如 'read ECONNRESET'）——两个键都要兜。
       const context = payload.context as { message?: unknown; reason?: unknown } | undefined
       const detail = context?.message ?? context?.reason ?? payload.message ?? ''
-      return { ...state, notice: `错误 ${String(payload.code ?? '')}: ${String(detail)}` }
+      // 通知格式 = `code: 细节`：code 面向 grep/遥测，细节由 runner 出英文人话。
+      return { ...state, notice: `${String(payload.code ?? '')}: ${String(detail)}` }
     }
     default:
       break
@@ -465,7 +723,7 @@ function reduceEnvelope(
         ...state,
         turn: 'idle',
         messages: finalizeStreaming(state.messages),
-        notice: view.message ?? 'turn 失败',
+        notice: view.message ?? 'turn failed',
       }
     // session.attached 不在这里清屏：多设备共用单活动会话时它是对全员广播的
     // （任何一台设备 resume，哪怕同一个会话，都会触发）——重置交由 page 层
@@ -484,20 +742,40 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
   // 迟到者恢复：hello.turnRunning=true 时补运行态（中断按钮可见）。
   // 终态由后续 turn.completed/aborted 事件正常收回——错过终态的极端窗口
   // （attach 前一瞬完成）订阅保证不存在：hello 与订阅在同一次同步段内建立。
-  if (action.type === 'turn-restored') return { ...state, turn: 'running' }
+  if (action.type === 'turn-restored') return { ...state, turn: 'running', lastEventAt: Date.now() }
+  if (action.type === 'turn-stalled') {
+    // 停摆兜底：终态帧丢失（断线窗口/机器侧静默崩）时 UI 主动收口流式气泡并
+    // 提示。turn 态不动——机器侧可能仍在跑，中断按钮保持可用；真正的终态
+    // 到达后照常收回。已有其他提示时不覆盖；无事可做时返回原引用（不触发渲染）。
+    const messages = finalizeStreaming(state.messages)
+    if (messages === state.messages && state.notice !== undefined) return state
+    return { ...state, messages, notice: state.notice ?? TURN_STALLED_NOTICE }
+  }
   if (action.type === 'envelope') {
     const event = action.envelope.event as Partial<Event>
     if (!event || typeof event !== 'object' || typeof event.type !== 'string') return state
-    return reduceEnvelope(state, action.envelope)
+    const next = reduceEnvelope(state, action.envelope)
+    // 每封信封都是活性信号：停摆兜底按它计时。
+    return next === state ? state : { ...next, lastEventAt: Date.now() }
   }
   switch (action.type) {
     case 'hydrate': {
+      // 合并而非整体替换：hydrate 与 WS 并发时，快照后到达的增量不能被冲掉；
+      // 本地回声一律丢弃。快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：
+      // target/body 从快照携带的 input 现算；seq 按快照顺序单调分配（消息与
+      // 工具卡保序）；与 live 卡同 id 时以 live 为准。
       const messages: ChatMessage[] = []
+      const tools: ToolCard[] = []
+      let seq = state.nextSeq
       for (const entry of action.transcript) {
         const item = entry as {
           id?: string
           role?: string
           text?: string
+          kind?: string
+          tool?: string
+          input?: unknown
+          status?: string
           attachments?: readonly {
             chip?: string
             kind?: string
@@ -505,39 +783,64 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             handle?: string
           }[]
         }
-        if (item.id && item.role && item.text) {
-          // 图片附件：handle 在 → 渲染真图并剥掉 text 里的 chip 占位；无 handle
-          // （path 引用）字节不可回放，保留 chip 文本兜底。
-          const attachments = (item.attachments ?? []).filter(
-            (attachment): attachment is { chip: string; mime?: string; handle: string } =>
-              attachment.kind === 'image' &&
-              typeof attachment.handle === 'string' &&
-              typeof attachment.chip === 'string',
-          )
-          let text = item.text
-          for (const attachment of attachments) text = text.split(attachment.chip).join(' ')
-          const images: ChatMessageImage[] = attachments.map((attachment) => ({
-            chip: attachment.chip,
-            handle: attachment.handle,
-            ...(attachment.mime ? { mime: attachment.mime } : {}),
-          }))
-          messages.push({
-            id: item.id,
-            role: item.role as ChatMessage['role'],
-            text: text.replace(/[^\S\n]+/g, ' ').trim(),
-            ...(images.length ? { images } : {}),
+        if (!item.id) continue
+        if (item.kind === 'tool') {
+          if (typeof item.tool !== 'string') continue
+          const status: ToolCard['status'] =
+            item.status === 'error' ? 'error' : item.status === 'running' ? 'running' : 'done'
+          const target = toolTargetLabel(item.tool, item.input)
+          const body = toolBodyLabel(item.tool, item.input)
+          tools.push({
+            toolUseId: item.id,
+            tool: item.tool,
+            status,
+            seq: seq++,
+            ...(target === undefined ? {} : { target }),
+            ...(body === undefined ? {} : { body }),
           })
+          continue
         }
+        if (!item.role || !item.text) continue
+        // 图片附件：handle 在 → 渲染真图并剥掉 text 里的 chip 占位；无 handle
+        // （path 引用）字节不可回放，保留 chip 文本兜底。
+        const attachments = (item.attachments ?? []).filter(
+          (attachment): attachment is { chip: string; mime?: string; handle: string } =>
+            attachment.kind === 'image' &&
+            typeof attachment.handle === 'string' &&
+            typeof attachment.chip === 'string',
+        )
+        let text = item.text
+        for (const attachment of attachments) text = text.split(attachment.chip).join(' ')
+        const images: ChatMessageImage[] = attachments.map((attachment) => ({
+          chip: attachment.chip,
+          handle: attachment.handle,
+          ...(attachment.mime ? { mime: attachment.mime } : {}),
+        }))
+        messages.push({
+          id: item.id,
+          role: item.role as ChatMessage['role'],
+          text: text.replace(/[^\S\n]+/g, ' ').trim(),
+          seq: seq++,
+          ...(images.length ? { images } : {}),
+        })
       }
       const hydratedIds = new Set(messages.map((message) => message.id))
       const tail = state.messages.filter(
         (message) => !message.local && !hydratedIds.has(message.id),
       )
-      return { ...state, messages: [...messages, ...tail] }
+      const liveToolIds = new Set(state.tools.map((tool) => tool.toolUseId))
+      const hydratedTools = tools.filter((tool) => !liveToolIds.has(tool.toolUseId))
+      return {
+        ...state,
+        messages: [...messages, ...tail],
+        tools: [...hydratedTools, ...state.tools],
+        nextSeq: seq,
+      }
     }
     case 'echo':
       return {
         ...state,
+        nextSeq: state.nextSeq + 1,
         messages: [
           ...state.messages,
           {
@@ -545,6 +848,7 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             role: 'user',
             text: action.text,
             local: true,
+            seq: state.nextSeq,
             ...(action.images?.length ? { images: action.images } : {}),
           },
         ],
@@ -555,15 +859,3 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       return initialChatState
   }
 }
-      request?: PermissionCard | AskCard
-      requests?: (PermissionCard | AskCard)[]
-    if (view.type === 'ask.request') {
-      const queue =
-        Array.isArray(view.requests) && view.requests.length > 0
-          ? (view.requests as AskCard[])
-          : view.request
-            ? [view.request as AskCard]
-            : []
-      return queue.length > 0 ? { ...state, asks: queue } : state
-    }
-    if (view.type === 'ask.resolved') return { ...state, asks: [] }
