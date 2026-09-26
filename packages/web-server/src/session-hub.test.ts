@@ -1,4 +1,5 @@
 import type { InteractiveSession } from '@volund/app-runtime'
+import { AskPromptController, PermissionPromptController } from '@volund/app-runtime'
 import { PermissionPromptController } from '@volund/app-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -44,8 +45,6 @@ function fakeSession(
 
 function hubWith(
   session: FakeSession,
-  options: { embedded?: boolean; permissions?: PermissionPromptController } = {},
-): { hub: SessionHub; permissions: PermissionPromptController } {
   const permissions = options.permissions ?? new PermissionPromptController()
   const hub = new SessionHub(
     {
@@ -108,12 +107,14 @@ describe('SessionHub', () => {
     expect(hub.decide('perm-1', 'allow-once')).toBe(true)
     expect(hub.decide('perm-1', 'allow-once')).toBe(false)
     await expect(pending).resolves.toEqual({ kind: 'allow-once' })
+    // 共享队列进请求 → view 推卡（request=队首，requests=完整队列投影）
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(seen).toContainEqual({ type: 'permission.resolved' })
   })
 
   it('permission.request projection carries subagent lineage; main-agent requests omit it（§2.7bis.5 U4 / §22 W-07）', async () => {
     const session = fakeSession()
+      requests: [{ id: 'perm-1', attempt: 1, display: permissionRequest.display }],
     const { hub, permissions } = hubWith(session)
     await hub.start({ cwd: '/tmp/hub' })
     const seen: unknown[] = []
@@ -123,6 +124,42 @@ describe('SessionHub', () => {
     const subagent = permissions.request({
       ...permissionRequest,
       id: 'perm-sub',
+  it('projects the full pending queue and re-projects when a non-first request is decided（Mobile 多 tab 数据源）', async () => {
+    const session = fakeSession()
+    const { hub, permissions } = hubWith(session)
+    await hub.start({ cwd: '/tmp/hub' })
+    const seen: {
+      type: string
+      request?: { id: string }
+      requests?: { id: string }[]
+    }[] = []
+    hub.subscribe((envelope) => seen.push(envelope.event as (typeof seen)[number]))
+    const first = permissions.request({ ...permissionRequest, id: 'perm-a' })
+    const second = permissions.request({ ...permissionRequest, id: 'perm-b' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const queued = seen.filter((event) => event.type === 'permission.request')
+    expect(queued.at(-1)).toMatchObject({
+      request: { id: 'perm-a' },
+      requests: [{ id: 'perm-a' }, { id: 'perm-b' }],
+    })
+    expect(hub.pendingPermissionRequests().map((request) => request.id)).toEqual([
+      'perm-a',
+      'perm-b',
+    ])
+    // 队首被决策：签名变化 → 全量重投影（只剩 perm-b），不发 resolved。
+    permissions.decide('perm-a', { kind: 'deny' })
+    await first
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const after = seen.filter((event) => event.type === 'permission.request').at(-1)
+    expect(after).toMatchObject({ request: { id: 'perm-b' }, requests: [{ id: 'perm-b' }] })
+    expect(seen.some((event) => event.type === 'permission.resolved')).toBe(false)
+    // 剩队决策 → resolved。
+    permissions.decide('perm-b', { kind: 'deny' })
+    await second
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(seen.at(-1)).toMatchObject({ type: 'permission.resolved' })
+  })
+
       lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -145,6 +182,14 @@ describe('SessionHub', () => {
       .filter(
         (event): event is { type: string; request: Record<string, unknown> } =>
           typeof event === 'object' &&
+      requests: [
+        {
+          id: 'perm-sub',
+          attempt: 1,
+          display: permissionRequest.display,
+          lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
+        },
+      ],
           event !== null &&
           (event as { type?: unknown }).type === 'permission.request',
       )
@@ -255,3 +300,24 @@ describe('SessionHub', () => {
     expect([...(found?.bytes ?? [])]).toEqual([1, 2])
   })
 })
+  it('rejects start/resume while a turn is in flight（session_turn_in_progress）', async () => {
+    const session = fakeSession()
+    const { hub } = hubWith(session, { turnInFlight: true })
+    // 在途 turn 期间换 runner 会让事件流随旧总线消失——fail closed，等终态或先 interrupt。
+    await expect(hub.start({ cwd: '/tmp/hub' })).rejects.toMatchObject({
+      code: 'session_turn_in_progress',
+    })
+    await expect(hub.resume('sess-x')).rejects.toMatchObject({
+      code: 'session_turn_in_progress',
+    })
+    expect(hub.active).toBeUndefined()
+  })
+})
+      requests: [
+        {
+          id: 'ask-1',
+          question: '用哪个方案？',
+          options: [{ label: '方案 A', description: '快' }, { label: '方案 B' }],
+        },
+      ],
+    })

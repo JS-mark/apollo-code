@@ -16,6 +16,7 @@
 import type {
   InteractivePermissionDecision,
   InteractiveSession,
+  InteractivePermissionRequest,
   PermissionPromptController,
   PermissionRequestLineage,
 } from '@volund/app-runtime'
@@ -31,6 +32,8 @@ export interface SessionControllerLike {
   onActivate?(listener: (session: InteractiveSession<unknown>) => void): () => void
   interrupt(): Promise<void>
   end(): Promise<void>
+  /** 是否有 turn 在途（SessionController.turnInFlight；测试假件可缺省视为空闲）。 */
+  readonly turnInFlight?: boolean
 }
 
 /** CoreEvent 透传信封（§22.8.3；不改 payload）。 */
@@ -76,30 +79,37 @@ export class SessionHub {
   private readonly subscribers = new Set<(envelope: WebEventEnvelope) => void>()
   private unsubscribeSession: (() => void) | undefined
   private unsubscribeActivate: (() => void) | undefined
-  private lastPermissionId: string | undefined
+   * 上次投影的队列签名（待审批 id 逗连）。undefined = 尚未投影过（初始空队列
+   * 不发 resolved）；队首之外的变动（中间请求被决策）也会改签名——Mobile 的
+   * 多请求 tab 靠完整重投影跟随队列。
+   */
+  private lastPermissionSignature: string | undefined
+  /** 上次投影的提问队列签名（语义同 lastPermissionSignature）。 */
 
   constructor(
     private readonly ports: SessionHubPorts,
     private readonly options: SessionHubOptions = {},
   ) {
-    // 审批队列 → SSE 推卡：队列非空发首张卡，清空发 resolved（TUI 端决策也清 Web 卡）。
+    // 审批队列 → view 帧：签名变化即全量重投影（request=队首，requests=完整
+    // 队列）；Web 只读 request（队首），Mobile 读 requests 做多 tab。清空发
+    // resolved（任一端决策，全端清卡）。
     this.ports.permissions.subscribe((requests) => {
-      const first = requests[0]
-      if (first) {
-        if (first.id === this.lastPermissionId) return
-        this.lastPermissionId = first.id
-        this.emit('view', {
-          type: 'permission.request',
-          request: {
-            id: first.id,
-            attempt: first.attempt,
-            display: first.display,
-            ...(first.lineage ? { lineage: first.lineage } : {}),
-          },
-        })
-      } else if (this.lastPermissionId !== undefined) {
-        this.lastPermissionId = undefined
-        this.emit('view', { type: 'permission.resolved' })
+/** InteractivePermissionRequest → 出站投影（display 面即可决策面；spec/input 不出站）。 */
+function projectPermissionRequest(request: InteractivePermissionRequest): WebPermissionRequest {
+  return {
+    id: request.id,
+    attempt: request.attempt,
+    display: request.display,
+    ...(request.lineage ? { lineage: request.lineage } : {}),
+  }
+}
+      const signature = requests.map((request) => request.id).join(',')
+      const previous = this.lastPermissionSignature
+      if (signature === previous) return
+      this.lastPermissionSignature = signature
+      if (requests.length === 0) {
+        if (previous !== undefined) this.emit('view', { type: 'permission.resolved' })
+        return
       }
     })
   }
@@ -133,6 +143,13 @@ export class SessionHub {
   private emit(kind: WebEventEnvelope['kind'], event: unknown): void {
     this.cursor += 1
     const envelope: WebEventEnvelope = {
+      const projected = requests.map(projectPermissionRequest)
+      this.emit('view', {
+        type: 'permission.request',
+        request: projected[0]!,
+        requests: projected,
+      })
+    })
       streamVersion: 1,
       cursor: String(this.cursor),
       kind,
@@ -190,12 +207,25 @@ export class SessionHub {
     })
     this.emit('view', { type: 'session.attached', id: interactive.id, cwd: interactive.cwd })
   }
+   * 单 runner 在途守卫：turn 进行中 start/resume 会在本机侧整体换掉 runner
+   * （SessionController.activate 不查 turnFlight）——在途回复的事件流随旧总线
+   * 消失、所有 UI 静默丢轮。fail closed 报 session_turn_in_progress（gateway
+   * 映射 409 gateway_session_busy），等 turn 终态或先 interrupt。
+   */
+  private assertNoTurnInFlight(): void {
+    if (this.ports.session.turnInFlight === true)
+      throw Object.assign(new Error('A turn is already in flight for this session'), {
+        code: 'session_turn_in_progress',
+      })
+  }
+
 
   /** 只摘挂载不结束会话（embedded 重挂/摘挂路径）。 */
   private detach(): void {
     this.unsubscribeSession?.()
     this.unsubscribeSession = undefined
     this.interactive = undefined
+    this.assertNoTurnInFlight()
     this.owned = false
   }
 
@@ -203,6 +233,7 @@ export class SessionHub {
     const interactive = this.interactive
     const owned = this.owned
     this.detach()
+    this.assertNoTurnInFlight()
     if (!interactive) return
     // embedded 挂载不拥有会话：detach 即止（TUI 的会话由 TUI 收尾）。
     if (!owned) return
@@ -292,3 +323,10 @@ export class SessionHub {
     return this.ports.permissions.requests().map((request) => request.id)
   }
 }
+   * 待审批队列的完整投影（gateway /v1/ws 握手补发用）：迟到接入的设备拿不到
+   * 之前的 permission.request 帧——靠 hello 后一次性补投。仅直连 hub 提供；
+   * relay 模式 uplink 只同步 id 面，缺省即回退旧行为。
+   */
+  pendingPermissionRequests(): WebPermissionRequest[] {
+    return this.ports.permissions.requests().map(projectPermissionRequest)
+  }
