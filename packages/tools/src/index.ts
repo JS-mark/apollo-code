@@ -770,6 +770,40 @@ export class TodoTool implements Tool<{
     return {}
   }
   async invoke(i: { items: Array<{ text: string; status: string }> }) {
+  /**
+   * 弱模型容错（实测外溢形态）：参数名溢成 Claude TodoWrite 的 `todos`、
+   * items 数组整体字符串化、状态词表用 Claude 的 `completed`。统一归一成
+   * items 数组；归一不出合法形状时返回空对象，让 validate 以既有的
+   * missing-required 报错兜底，而不是放行一个坏列表静默清空 todo。
+   */
+  normalizeInput(input: unknown): unknown {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+    const raw = input as { items?: unknown; todos?: unknown }
+    const items = TodoTool.coerceItems(raw.items ?? raw.todos)
+    return items ? { items } : {}
+  }
+  private static coerceItems(value: unknown): Array<{ text: string; status: string }> | undefined {
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value)
+      } catch {
+        return undefined
+      }
+    }
+    if (!Array.isArray(value)) return undefined
+    const entries: readonly unknown[] = value
+    const items: Array<{ text: string; status: string }> = []
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined
+      const { text, status } = entry as { text?: unknown; status?: unknown }
+      if (typeof text !== 'string' || typeof status !== 'string') return undefined
+      if (status === 'completed') items.push({ text, status: 'done' })
+      else if (status === 'pending' || status === 'in_progress' || status === 'done')
+        items.push({ text, status })
+      else return undefined
+    }
+    return items
+  }
     return result(JSON.stringify(i.items), { durationMs: 0 })
   }
 }
@@ -1005,6 +1039,10 @@ export class ToolExecutor {
   ): Promise<ToolResult> {
     const started = Date.now()
     const error = validate(tool.inputSchema, input)
+    // 校验前给工具一次纯格式归一（normalizeInput）：弱模型外溢的别名参数/
+    // 字符串化 payload 在这里修形，意图不变、对模型展示的 schema 不变；
+    // 归一不出合法形状时收敛为缺 required 的既有报错路径回喂模型。
+    input = tool.normalizeInput?.(input) ?? input
     if (error) return failure(new Error(`Invalid input: ${error}`))
     const session = this.context(signal).session
     const hookContext = {

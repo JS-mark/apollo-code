@@ -12,6 +12,7 @@ import {
   MultiEditTool,
   ReadTool,
   TaskTool,
+  TodoTool,
   ToolExecutor,
   WriteTool,
   builtinTools,
@@ -149,7 +150,51 @@ describe('L1 tools', () => {
     )
     expect(prompt).not.toHaveBeenCalled()
   })
+      executor.execute(new TodoTool(), input, new AbortController().signal)
   it('middle-truncates long output', () => {
+  it('repairs weak-model Todo spill: todos alias, stringified array, completed status', async () => {
+    const manager = new PermissionManager()
+    manager.setPromptHandler(async () => ({ kind: 'allow-once' as const }))
+    const executor = new ToolExecutor(manager, (signal) => ({
+      abortSignal: signal,
+      session: { id: 's', cwd: process.cwd(), turnId: 't' },
+      native: { execute: async () => '' },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      ui: { requestInput: async () => '' },
+    }))
+    const execute = (input: unknown) =>
+      executor.execute(new TodoTool(), input, new AbortController().signal)
+    // 线上实测形态：todos 别名 + 整体字符串化。
+    const spilled = await execute({
+      todos: '[{"text": "创建天气穿衣建议 HTML 单页面", "status": "in_progress"}]',
+    })
+    expect(spilled.isError).toBeUndefined()
+    expect(spilled.content).toEqual([
+      {
+        type: 'text',
+        text: '[{"text":"创建天气穿衣建议 HTML 单页面","status":"in_progress"}]',
+      },
+    ])
+    // items 名字对但仍字符串化；Claude 词表 completed 归一成 done。
+    const stringified = await execute({
+      items: '[{"text": "a", "status": "completed"}, {"text": "b", "status": "pending"}]',
+    })
+    expect(stringified.isError).toBeUndefined()
+    expect(stringified.content).toEqual([
+      { type: 'text', text: '[{"text":"a","status":"done"},{"text":"b","status":"pending"}]' },
+    ])
+    // 正规入参原样通过；todos 非字符串数组也收。
+    expect((await execute({ items: [{ text: 'x', status: 'done' }] })).isError).toBeUndefined()
+    expect((await execute({ todos: [{ text: 'y', status: 'pending' }] })).isError).toBeUndefined()
+    // 修不出来的形状不静默清空 todo，走既有 missing-required 报错回喂。
+    for (const garbage of [{ todos: 'not json' }, { todos: '{"text": "x"}' }, { items: 42 }, {}]) {
+      const failed = await execute(garbage)
+      expect(failed.isError).toBe(true)
+      expect(failed.content).toEqual([
+        { type: 'text', text: 'Invalid input: missing required property: items' },
+      ])
+    }
+  })
     const out = truncateToolResult([{ type: 'text', text: 'x'.repeat(100) }], 20)[0]
     expect(out?.type === 'text' && out.text).toContain('truncated')
   })

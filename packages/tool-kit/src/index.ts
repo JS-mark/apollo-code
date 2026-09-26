@@ -79,6 +79,15 @@ export class ToolRegistry {
     if (source.kind === 'mcp' && !tool.name.startsWith(`mcp__${source.server}__`))
       // SKILLS-MCPS-r1 §S3.5：命名对齐业界 mcp__<server>__<tool>（双下划线）。
       throw new Error('MCP tools require mcp__<server>__ prefix')
+  /**
+   * Optional format repair before schema validation: weak models sometimes
+   * stringify a JSON payload into a string property, or spill a known alias
+   * (e.g. another harness's parameter name) instead of the declared one.
+   * Return the repaired input with the same intent, or the input unchanged
+   * when nothing needs repairing. Runs before validation in ToolExecutor,
+   * so the declared schema shown to the model stays untouched.
+   */
+  normalizeInput?(input: unknown): unknown
     if (source.kind === 'plugin' && !tool.name.startsWith(`plugin:${source.plugin}:`))
       throw new Error('Plugin tools require plugin:<name>: prefix')
     if (this.#tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`)
