@@ -2,7 +2,9 @@
  * volund-plugin-manager — 内置插件：/plugins 浏览与管理。
  *
  * TS 单文件入口（strip-types 可擦子集）；`import type` 只取 SDK 类型，沙箱里
- * 零依赖。装载链路与其余插件一致：volund-sandbox --run-plugin + fd3 桥。
+ * 零依赖。装载链路与其余插件一致：volund-sandbox --run-plugin + fd3 桥；dev 态
+ * 宿主以 Node ≥ 22.6 strip-types 直接装载 index.ts，产物由 rolldown 编译成 .mjs
+ * 分发（见 rolldown.config.mjs 与 plugins/README.md）。
  *
  * 面板（无参数）：三页签浏览当前装载与市场可装的插件——
  *   Built-in（产物自带 apps/cli/plugins/）/ Dev（~/.volund/plugins-dev +

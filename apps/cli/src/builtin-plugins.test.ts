@@ -92,7 +92,7 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
       join(home, 'config.toml'),
       '[env]\nVOLUND_E2E_ENV = "wired-through-config"\n[tools]\npass_through_env = ["VOLUND_E2E_ENV"]\n',
     )
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     const { loaded, failed } = await ports.localPlugins!.loadBuiltinPlugins()
     try {
       expect(failed).toEqual([])
@@ -122,7 +122,7 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
     try {
       const activated = await activateLocalPlugin({
         dir: envPluginDir,
-        volundVersion: '0.1.0',
+        volundVersion: '0.2.0',
         dataDirRoot: dataDir,
         services: { getEffectiveEnv: () => readEffectiveEnv(home) },
       })
@@ -163,7 +163,7 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
     try {
       const activated = await activateLocalPlugin({
         dir: envPluginDir,
-        volundVersion: '0.1.0',
+        volundVersion: '0.2.0',
         dataDirRoot: dataDir,
         services: { getEffectiveEnv: () => readEffectiveEnv(home) },
       })
@@ -192,7 +192,7 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
     dirs.push(dataDir)
     const activated = await activateLocalPlugin({
       dir: envPluginDir,
-      volundVersion: '0.1.0',
+      volundVersion: '0.2.0',
       dataDirRoot: dataDir,
       services: { getEffectiveEnv: () => readEffectiveEnv(home) },
     })
@@ -207,12 +207,13 @@ describe('volund-plugin-manager（内置 /plugins，沙箱端到端）', () => {
   const managerDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-manager')
 
   async function activateManager(
+      volundVersion: '0.2.0',
     home: string,
     services: Parameters<typeof activateLocalPlugin>[0]['services'],
   ) {
     const activated = await activateLocalPlugin({
       dir: managerDir,
-      volundVersion: '0.1.0',
+      volundVersion: '0.2.0',
       dataDirRoot: join(home, 'plugins-dev-data'),
       services,
     })
@@ -349,7 +350,7 @@ describe('production ports shutdown（进程收尾）', () => {
   it('resolves cleanly and idempotently with nothing loaded', async () => {
     const home = await mkdtemp(join(tmpdir(), 'volund-shutdown-idle-'))
     dirs.push(home)
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     await ports.shutdown!()
     await ports.shutdown!()
   })
@@ -358,7 +359,7 @@ describe('production ports shutdown（进程收尾）', () => {
     if (!(await sandboxAvailable())) return
     const home = await mkdtemp(join(tmpdir(), 'volund-shutdown-'))
     dirs.push(home)
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     const { loaded, failed } = await ports.localPlugins!.loadBuiltinPlugins()
     expect(failed).toEqual([])
     expect(loaded.length).toBeGreaterThan(0)
@@ -467,3 +468,5 @@ describe('plugin hooks e2e（H1：沙箱订阅 preToolUse → veto 真的拦下�
     expect(result.isError).toBeUndefined()
   }, 30_000)
 })
+      volundVersion: '0.2.0',
+      volundVersion: '0.2.0',

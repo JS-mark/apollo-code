@@ -57,7 +57,7 @@ const helloManifest = {
   version: '1.0.0',
   type: 'module',
   main: 'index.mjs',
-  engines: { volund: '^0.1.0' },
+  engines: { volund: '^0.2.0' },
   permissions: { volund: ['commands.register', 'log.write'] },
 }
 const helloEntry = `export async function activate(volund) {
@@ -166,7 +166,7 @@ describe('market executable trust boundary', () => {
             { path: 'index.mjs', digest: sha256('') },
           ],
         },
-        volundVersion: '0.1.0',
+        volundVersion: '0.2.0',
       }),
     ).rejects.toThrow('plugin_registry_signature_required')
   })
@@ -241,7 +241,7 @@ describe('installFromMarket（安装链路）', () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    const installed = await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    const installed = await installFromMarket({ home, source, entry, volundVersion: '0.2.0' })
     expect(installed.name).toBe('volund-plugin-hello')
     expect(installed.dir).toBe(join(marketInstallRoot(home), 'volund-plugin-hello'))
     const manifest = JSON.parse(await readFile(join(installed.dir, 'manifest.json'), 'utf8'))
@@ -261,7 +261,7 @@ describe('installFromMarket（安装链路）', () => {
     const source = await marketServer({ corrupt: true })
     const entry = await marketEntry(source)
     await expect(
-      installFromMarket({ home, source, entry, volundVersion: '0.1.0' }),
+      installFromMarket({ home, source, entry, volundVersion: '0.2.0' }),
     ).rejects.toThrow(/digest mismatch/)
     const root = marketInstallRoot(home)
     expect((await readdir(root)).filter((name) => name !== 'plugins.json')).toEqual([])
@@ -274,7 +274,7 @@ describe('installFromMarket（安装链路）', () => {
     })
     const entry = await marketEntry(source)
     await expect(
-      installFromMarket({ home, source, entry, volundVersion: '0.1.0' }),
+      installFromMarket({ home, source, entry, volundVersion: '0.2.0' }),
     ).rejects.toThrow(/does not satisfy/)
   })
 
@@ -282,9 +282,9 @@ describe('installFromMarket（安装链路）', () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    await installFromMarket({ home, source, entry, volundVersion: '0.2.0' })
     // 再装一遍 = 换新（目录重建）
-    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    await installFromMarket({ home, source, entry, volundVersion: '0.2.0' })
     await uninstallMarketDir(home, 'volund-plugin-hello')
     await expect(
       readMarketIntegrity(join(marketInstallRoot(home), 'volund-plugin-hello')),
@@ -332,7 +332,7 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
         2,
       )}\n`,
     )
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     const { loaded, failed } = await ports.localPlugins!.loadMarketPlugins()
     expect(loaded).toEqual([])
     expect(failed).toEqual([])
@@ -351,8 +351,8 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    await installFromMarket({ home, source, entry, volundVersion: '0.2.0' })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     try {
       const { loaded, failed } = await ports.localPlugins!.loadMarketPlugins()
       expect(failed).toEqual([])
@@ -374,8 +374,8 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    await installFromMarket({ home, source, entry, volundVersion: '0.2.0' })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     try {
       const first = await ports.localPlugins!.loadMarketPlugins()
       expect(first.loaded).toEqual([])
@@ -408,7 +408,7 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     await mkdir(devDir, { recursive: true })
     await writeFile(join(devDir, 'manifest.json'), `${JSON.stringify(helloManifest, null, 2)}\n`)
     await writeFile(join(devDir, 'index.mjs'), helloEntry)
-    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.2.0' } })
     try {
       const builtin = await ports.localPlugins!.loadBuiltinPlugins()
       expect(builtin.failed).toEqual([])

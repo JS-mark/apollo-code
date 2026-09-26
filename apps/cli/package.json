@@ -13,7 +13,7 @@
     "build": "rolldown -c",
     "build:standalone": "node ../../scripts/release/build-standalone.mjs",
     "test": "vitest run --passWithNoTests --exclude='dist/**'",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.plugins.json --noEmit"
   },
   "dependencies": {
     "@volund/app-runtime": "workspace:*",

@@ -1,10 +1,10 @@
 {
   "name": "volund-plugin-env",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "main": "index.mjs",
+  "main": "index.ts",
   "engines": {
-    "volund": "^0.1.0"
+    "volund": "^0.2.0"
   },
   "permissions": {
     "volund": ["commands.register", "env.read", "log.write", "tools.register"]

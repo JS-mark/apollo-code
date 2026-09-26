@@ -1,6 +1,6 @@
 // oxlint-disable typescript/consistent-return
 import { readFileSync } from 'node:fs'
-import { copyFile, readdir, readFile } from 'node:fs/promises'
+import { writeFile, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -23,28 +23,34 @@ const identity = {
 const identityModuleSuffix = '/src/shared/build-identity.ts'
 
 /**
- * 内置插件产物化：apps/cli/plugins/<name>/{manifest.json,index.mjs} 的源码不进
- * 产物——index.mjs 经嵌套 rolldown 压缩混淆（compress + 顶层 mangle，仅保留对
- * 沙箱装载有意义的 activate 导出名），manifest.json 原样拷贝。standalone 产物
- * 复用这里的 dist/plugins（见 scripts/release/build-standalone.mjs），保证 npm
- * 与 standalone 分发的插件字节一致。dev/vitest 仍直接解析源码目录。
+ * 内置插件产物化：apps/cli/plugins/<name>/{manifest.json,index.ts} 的源码不进
+ * 产物——唯一源码 index.ts（strip-types 可擦子集）经嵌套 rolldown 编译并压缩
+ * 混淆（compress + 顶层 mangle，仅保留对沙箱装载有意义的 activate 导出名）成
+ * dist/plugins/<name>/index.mjs，产物 manifest 的 main 同步改写指向 .mjs（运行
+ * 时不再依赖 Node ≥ 22.6 的类型擦除）。standalone 产物复用这里的 dist/plugins
+ * （见 scripts/release/build-standalone.mjs），保证 npm 与 standalone 分发的插件
+ * 字节一致。dev/vitest 仍直接解析源码目录（沙箱对 .ts 入口自动加 strip-types）。
  */
 async function buildBuiltinPlugins(pluginsDir, outDir) {
   for (const entry of await readdir(pluginsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const pluginDir = join(pluginsDir, entry.name)
     const manifest = JSON.parse(await readFile(join(pluginDir, 'manifest.json'), 'utf8'))
+    const outputMain = manifest.main.replace(/\.(?:ts|mts|cts)$/, '.mjs')
     const bundle = await rolldown({ input: join(pluginDir, manifest.main), platform: 'node' })
     try {
       await bundle.write({
-        file: join(outDir, entry.name, manifest.main),
+        file: join(outDir, entry.name, outputMain),
         format: 'esm',
         minify: true,
       })
     } finally {
       await bundle.close()
     }
-    await copyFile(join(pluginDir, 'manifest.json'), join(outDir, entry.name, 'manifest.json'))
+    await writeFile(
+      join(outDir, entry.name, 'manifest.json'),
+      `${JSON.stringify({ ...manifest, main: outputMain }, null, 2)}\n`,
+    )
   }
 }
 
