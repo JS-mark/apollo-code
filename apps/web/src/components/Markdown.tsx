@@ -1,8 +1,11 @@
 /**
  * Markdown 渲染（§22 W-04）：react-markdown 默认不渲染原始 HTML（无脚本面）；
  * 远程/本地图片一律降级为文本占位（禁止自动加载外部资源）；链接强制新窗口 noopener。
+ * transformImgSrc（工作台 Markdown 预览用）：返回字符串即按该地址加载图片
+ * （相对路径重写到产物直出 URL），返回 undefined 保持占位降级。
  */
-import { Button, Typography } from 'antd'
+import { CheckOutlined, CopyOutlined } from '@ant-design/icons'
+import { Button, Tooltip, Typography } from 'antd'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -10,18 +13,20 @@ import remarkGfm from 'remark-gfm'
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <Button
-      size="small"
-      type="text"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        })
-      }}
-    >
-      {copied ? '已复制' : '复制'}
-    </Button>
+    <Tooltip title={copied ? '已复制' : '复制'}>
+      <Button
+        size="small"
+        type="text"
+        icon={copied ? <CheckOutlined /> : <CopyOutlined />}
+        aria-label={copied ? '已复制' : '复制'}
+        onClick={() => {
+          void navigator.clipboard.writeText(text).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          })
+        }}
+      />
+    </Tooltip>
   )
 }
 
@@ -33,6 +38,7 @@ function CodeBlock({ language, text }: { language: string; text: string }) {
         borderRadius: 10,
         overflow: 'hidden',
         margin: '10px 0',
+        background: 'var(--ant-color-bg-container, #fff)',
       }}
     >
       <div
@@ -42,6 +48,7 @@ function CodeBlock({ language, text }: { language: string; text: string }) {
           alignItems: 'center',
           padding: '2px 10px',
           fontSize: 12,
+          background: 'var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02))',
           borderBottom: '1px solid var(--ant-color-border-secondary, #e2e6ec)',
         }}
       >
@@ -62,7 +69,13 @@ function CodeBlock({ language, text }: { language: string; text: string }) {
   )
 }
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({
+  text,
+  transformImgSrc,
+}: {
+  text: string
+  transformImgSrc?: (src: string) => string | undefined
+}) {
   return (
     <div className="markdown">
       <ReactMarkdown
@@ -80,10 +93,17 @@ export function Markdown({ text }: { text: string }) {
             return <CodeBlock language={language} text={raw} />
           },
           code: ({ children }) => <Typography.Text code>{children}</Typography.Text>,
-          // 远程图片不自动加载（W-04）：渲染为占位文本。
-          img: ({ alt }) => (
-            <Typography.Text type="secondary">[图片: {alt ?? '未命名'}]</Typography.Text>
-          ),
+          // 远程图片不自动加载（W-04）：默认渲染为占位文本；调用方给了
+          // transformImgSrc 且解析出地址（本地相对路径/data URI）才真加载。
+          img: ({ alt, src }) => {
+            const resolved =
+              transformImgSrc && typeof src === 'string' ? transformImgSrc(src) : undefined
+            if (!resolved)
+              return <Typography.Text type="secondary">[图片: {alt ?? '未命名'}]</Typography.Text>
+            return (
+              <img src={resolved} alt={alt ?? ''} loading="lazy" style={{ maxWidth: '100%' }} />
+            )
+          },
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noreferrer noopener">
               {children}

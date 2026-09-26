@@ -35,7 +35,6 @@ export function useInventory<T>(
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, domain, tick, ...deps])
   const reload = useCallback(() => setTick((value) => value + 1), [])
   return { data, error, reload }

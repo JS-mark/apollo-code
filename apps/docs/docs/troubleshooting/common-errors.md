@@ -28,3 +28,9 @@ Redirects are not followed. If a proxy is required, configure its final HTTPS UR
 at user scope and approve that exact endpoint. `volund doctor` integrations should
 use the Ollama version probe (`GET /api/version`) and report tool support only for
 Ollama 0.3 or newer.
+
+## Reading error notices
+
+In-session error notices use a uniform `code: English detail` format. For the full
+catalog of codes with their meanings and remediation, see
+[Error code reference](/docs/reference/error-codes).

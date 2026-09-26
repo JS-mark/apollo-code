@@ -1,6 +1,7 @@
 'use client'
 
-import { Button, Descriptions, Tag, Typography } from 'antd'
+import { CheckOutlined, CopyOutlined } from '@ant-design/icons'
+import { Button, Descriptions, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import type { Bootstrap, WebApi } from '../lib/api'
@@ -67,18 +68,20 @@ export function RightPanel({
                 <Typography.Text code style={{ fontSize: 11 }}>
                   {url}
                 </Typography.Text>
-                <Button
-                  size="small"
-                  type="link"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(url).then(() => {
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 1500)
-                    })
-                  }}
-                >
-                  {copied ? '已复制' : '复制'}
-                </Button>
+                <Tooltip title={copied ? '已复制' : '复制'}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={copied ? <CheckOutlined /> : <CopyOutlined />}
+                    aria-label={copied ? '已复制' : '复制'}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(url).then(() => {
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 1500)
+                      })
+                    }}
+                  />
+                </Tooltip>
               </>
             ),
           },

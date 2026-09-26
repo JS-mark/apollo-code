@@ -26,3 +26,8 @@ Ollama 默认使用 `http://127.0.0.1:11434`。本机回环 HTTP endpoint 无需
 重定向不会被跟随。如需代理，请在用户级配置最终 HTTPS URL，并确认该准确地址。
 `volund doctor` 接线应使用 Ollama 版本探测（`GET /api/version`），仅对 Ollama 0.3
 及以上版本报告工具支持。
+
+## 报错通知的读法
+
+会话内报错通知统一为 `code: 英文细节` 格式。全部错误码的中文含义、触发场景与处理建议
+见 [错误码参考](/zh/docs/reference/error-codes)。
