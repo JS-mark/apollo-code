@@ -27,9 +27,12 @@ const identityModuleSuffix = '/src/shared/build-identity.ts'
  * 产物——唯一源码 index.ts（strip-types 可擦子集）经嵌套 rolldown 编译并压缩
  * 混淆（compress + 顶层 mangle，仅保留对沙箱装载有意义的 activate 导出名）成
  * dist/plugins/<name>/index.mjs，产物 manifest 的 main 同步改写指向 .mjs（运行
- * 时不再依赖 Node ≥ 22.6 的类型擦除）。standalone 产物复用这里的 dist/plugins
- * （见 scripts/release/build-standalone.mjs），保证 npm 与 standalone 分发的插件
- * 字节一致。dev/vitest 仍直接解析源码目录（沙箱对 .ts 入口自动加 strip-types）。
+ * 时不再依赖 Node ≥ 22.6 的类型擦除）；随后 scripts/pack-builtin-plugins.mjs
+ * 把各中间目录打成 dist/plugins/<name>.volund（r1.6 内置插件 .volund 化——
+ * 更新 = 覆盖包文件）。standalone 产物复用这里的 dist/plugins（见
+ * scripts/release/build-standalone.mjs），保证 npm 与 standalone 分发的插件
+ * 字节一致。dev/vitest 仍直接解析源码目录（沙箱对 .ts 入口自动加 strip-types），
+ * 运行时 collectBuiltinCandidates 双轨兼容目录与 .volund 两种形态。
  */
 async function buildBuiltinPlugins(pluginsDir, outDir) {
   for (const entry of await readdir(pluginsDir, { withFileTypes: true })) {
@@ -54,7 +57,7 @@ async function buildBuiltinPlugins(pluginsDir, outDir) {
   }
 }
 
-export default defineConfig({
+const mainConfig = {
   input: 'src/bin.ts',
   output: {
     codeSplitting: false,
@@ -97,4 +100,20 @@ export default defineConfig({
   // 仓库内没有包声明 sideEffects:false，treeshake 只裁剪未使用的导出，
   // 模块顶层副作用全部保留。
   treeshake: false,
-})
+}
+
+// .volund 打包器（r1.6）：内置插件目录编译成 .mjs 中间目录后，由
+// scripts/pack-builtin-plugins.mjs 调用本 bundle 的 buildVolundArchive 打成
+// dist/plugins/<name>.volund。与主 bundle 拆开构建，避免运行时产物耦合
+// 构建期工具。注意 config 数组按序执行：主 bundle 先写、本 bundle 后写，
+// pack 脚本在两者之后由 pnpm build 链式调用。
+const archiveConfig = {
+  input: fileURLToPath(
+    new URL('../../packages/app-runtime/src/plugin-archive.ts', import.meta.url),
+  ),
+  output: { file: 'dist/plugin-archive.mjs', format: 'esm' },
+  platform: 'node',
+  treeshake: false,
+}
+
+export default defineConfig([mainConfig, archiveConfig])

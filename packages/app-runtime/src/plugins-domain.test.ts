@@ -1,8 +1,12 @@
-import { rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { broadcastPluginLifecycleHook } from './plugins-domain'
+import { buildVolundArchive } from './plugin-archive'
+import { broadcastPluginLifecycleHook, collectBuiltinCandidates } from './plugins-domain'
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -149,5 +153,60 @@ describe('broadcastPluginLifecycleHook', () => {
     expect(recorded.map((row) => row.name)).toEqual(['bad', 'good'])
     expect(warns).toHaveLength(1)
     expect(warns[0]).toContain('plugin hook task.completed from bad failed')
+  })
+})
+
+/* ── collectBuiltinCandidates（r1.6 内置插件 .volund 化）────────────────────── */
+
+describe('collectBuiltinCandidates', () => {
+  async function writeManifest(dir: string, name: string): Promise<void> {
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      join(dir, 'manifest.json'),
+      JSON.stringify({ name, version: '0.1.0', type: 'module', main: 'index.mjs' }),
+    )
+    await writeFile(join(dir, 'index.mjs'), 'export async function activate() {}\n')
+  }
+
+  it('collects directory form and unpacks .volund form, rejects name mismatches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-builtin-root-'))
+    const cacheRoot = await mkdtemp(join(tmpdir(), 'volund-builtin-cache-'))
+    dirs.push(root, cacheRoot)
+
+    // 目录形态（dev 源码态）
+    await writeManifest(join(root, 'volund-plugin-dirform'), 'volund-plugin-dirform')
+    // .volund 形态：先落一个合法目录再打包
+    const packable = join(root, 'stage-volund-plugin-packed')
+    await writeManifest(packable, 'volund-plugin-packed')
+    const pack = await buildVolundArchive(packable)
+    await rm(packable, { recursive: true, force: true })
+    await writeFile(join(root, 'volund-plugin-packed.volund'), pack.bytes)
+    // 名字不匹配的包
+    const mismatch = join(root, 'stage-volund-plugin-other')
+    await writeManifest(mismatch, 'volund-plugin-other')
+    const otherPack = await buildVolundArchive(mismatch)
+    await rm(mismatch, { recursive: true, force: true })
+    await writeFile(join(root, 'volund-plugin-wrongname.volund'), otherPack.bytes)
+    // 无关文件
+    await writeFile(join(root, 'README.md'), 'not a plugin')
+
+    const { candidates, failed } = await collectBuiltinCandidates(root, cacheRoot)
+    expect(candidates).toContain(join(root, 'volund-plugin-dirform'))
+    expect(candidates).toContain(join(cacheRoot, 'volund-plugin-packed'))
+    expect(
+      join(cacheRoot, 'volund-plugin-packed') &&
+        existsSync(join(cacheRoot, 'volund-plugin-packed', 'index.mjs')),
+    ).toBe(true)
+    expect(failed).toHaveLength(1)
+    expect(failed[0]?.dir).toBe(join(root, 'volund-plugin-wrongname.volund'))
+  })
+
+  it('tolerates a missing root', async () => {
+    const { candidates, failed } = await collectBuiltinCandidates(
+      '/nonexistent-volund-builtin-root',
+      '/nonexistent-volund-builtin-cache',
+    )
+    expect(candidates).toEqual([])
+    expect(failed).toEqual([])
   })
 })

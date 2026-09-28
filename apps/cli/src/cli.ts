@@ -30,12 +30,13 @@ import { createMemoryCommand } from './commands/memory'
 import { createRemoteCommand } from './commands/remote'
 import { createSessionsCommand } from './commands/sessions'
 import { createStatusCommand } from './commands/status'
-import { daemonCommand, tasksCommand } from './commands/tasks'
+import { daemonCommand, tasksCommand, volundHome } from './commands/tasks'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
 import { readDaemonStatus, spawnDetachedDaemon } from './daemon'
 import { createMemoryPanelController } from './memory-panel'
 import { projectMemoryScope } from './memory-scope'
+import { buildPlugin, cratePlugin, devPlugin, installVolundArchive } from './plugin-authoring'
 import type { VolundPorts } from './ports'
 import type { CliIo, CliResult, ParsedCliArgs } from './shared/cli-types'
 
@@ -358,14 +359,76 @@ export async function runCli(
     }
   }
   if (subcommand === 'plugins') {
+    const action = args._[1] ?? 'builtin'
+    // 创作工具链（.volund 打包面）：不依赖 localPlugins 端口，直接走 FS +
+    // plugin-runtime 沙箱链路（crate/dev/build/install）。
+    if (action === 'crate' || action === 'dev' || action === 'build' || action === 'install') {
+      const authoring = { home: volundHome(), version: ports.identity.version }
+      const dirArg = typeof args._[2] === 'string' ? args._[2] : undefined
+      try {
+        if (action === 'crate') {
+          if (!dirArg)
+            return { exitCode: 2, stdout, stderr: 'plugins crate requires a name or path' }
+          const result = await cratePlugin(authoring, { target: dirArg, cwd })
+          stdout += args.json
+            ? `${JSON.stringify(result)}\n`
+            : `Created ${result.name} in ${result.dir}\nNext: volund plugins dev ${result.dir}\n`
+          return { exitCode: 0, stdout, stderr }
+        }
+        if (action === 'dev') {
+          const result = await devPlugin(authoring, dirArg ?? cwd)
+          if (args.json) stdout += `${JSON.stringify(result)}\n`
+          else {
+            const probeLine = result.probe.status === 'ok' ? 'ok' : `failed (${result.probe.error})`
+            const names = (values: readonly string[]) =>
+              values.length ? values.join(', ') : 'none'
+            stdout +=
+              [
+                `${result.manifest.name}@${result.manifest.version}`,
+                `probe: ${probeLine}`,
+                `tools: ${names(result.contributions.tools)}`,
+                `commands: ${names(result.contributions.commands)}`,
+                `hooks: ${names(result.contributions.hooks)}`,
+                `prompts: ${names(result.contributions.prompts)}`,
+                `linked (${result.linked.mode}): ${result.linked.dir}`,
+                '新会话生效（重载 REPL；daemon 触发的任务子会话自动装载）。',
+              ].join('\n') + '\n'
+          }
+          return { exitCode: result.probe.status === 'ok' ? 0 : 1, stdout, stderr }
+        }
+        if (action === 'build') {
+          const result = await buildPlugin(
+            dirArg ?? cwd,
+            typeof args.output === 'string' ? args.output : undefined,
+          )
+          stdout += args.json
+            ? `${JSON.stringify(result)}\n`
+            : `${result.path}\nsha256 ${result.sha256}\n${result.entries.length} file(s), ${result.size} bytes\n`
+          return { exitCode: 0, stdout, stderr }
+        }
+        if (!dirArg) {
+          return { exitCode: 2, stdout, stderr: 'plugins install requires a .volund path' }
+        }
+        const result = await installVolundArchive(authoring, dirArg)
+        stdout += args.json
+          ? `${JSON.stringify(result)}\n`
+          : `Installed ${result.name}@${result.version} → ${result.dir}\n新会话生效。\n`
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const code = (error as { code?: string }).code
+        return args.json
+          ? jsonFailure(message, 1, code ?? 'plugins_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
     if (!ports.localPlugins)
       return { exitCode: 2, stdout, stderr: 'local plugin port is not connected' }
-    const action = args._[1] ?? 'builtin'
     if (action !== 'builtin') {
       return {
         exitCode: 2,
         stdout,
-        stderr: `Unknown plugins action: ${action}`,
+        stderr: `Unknown plugins action: ${action} (available: builtin, crate, dev, build, install)`,
       }
     }
     try {

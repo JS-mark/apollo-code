@@ -4,7 +4,7 @@
  */
 import { constants as fsConstants } from 'node:fs'
 import { existsSync } from 'node:fs'
-import { access, open, readFile, readdir, realpath } from 'node:fs/promises'
+import { access, open, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 
 import { loadTomlFile } from '@volund/config'
@@ -15,6 +15,7 @@ import type { ToolHookDispatcher, ToolHookOutcome } from '@volund/tools'
 
 import type { SlashCommandRegistryLike } from './contracts'
 import { isCommandListView } from './list-picker'
+import { extractVolundArchive, VOLUND_ARCHIVE_SUFFIX } from './plugin-archive'
 import type { PluginCompatibilityDiagnostic } from './ports'
 import { isCommandTabsView } from './tabbed-list'
 
@@ -208,6 +209,53 @@ export function resolveBuiltinPluginRoot(input: {
  * builtin 无条件收录（产物自带，与二进制同信任级）；dev/market 以
  * plugin-state.v2 的 enabled 为门——禁用的插件不进 skills 发现面。
  */
+/**
+ * 内置插件候选收集（r1.6 .volund 化）：产物根下双轨——目录形态（dev/vitest
+ * 直解析源码目录）与 `.volund` 包形态（产物态）。.volund 解包到
+ * `<cacheRoot>/<文件名去后缀>/`（每次启动重解覆盖，幂等；覆盖包即完成更新），
+ * 文件名与 manifest name 不一致按 failed 记账拒载。
+ */
+export async function collectBuiltinCandidates(
+  root: string,
+  cacheRoot: string,
+): Promise<{ candidates: readonly string[]; failed: readonly { dir: string; error: string }[] }> {
+  const candidates: string[] = []
+  const failed: { dir: string; error: string }[] = []
+  let entries
+  try {
+    entries = await readdir(root, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return { candidates, failed }
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      candidates.push(join(root, entry.name))
+      continue
+    }
+    if (!entry.isFile() || !entry.name.endsWith(VOLUND_ARCHIVE_SUFFIX)) continue
+    const archivePath = join(root, entry.name)
+    try {
+      const stem = entry.name.slice(0, -VOLUND_ARCHIVE_SUFFIX.length)
+      const targetDir = join(cacheRoot, stem)
+      await rm(targetDir, { recursive: true, force: true })
+      const header = await extractVolundArchive(
+        new Uint8Array(await readFile(archivePath)),
+        targetDir,
+      )
+      if (header.name !== stem)
+        throw new Error(`archive file name '${stem}' does not match manifest name '${header.name}'`)
+      candidates.push(targetDir)
+    } catch (error) {
+      failed.push({
+        dir: archivePath,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  return { candidates, failed }
+}
+
 export async function collectPluginSkillDirs(input: {
   builtinRoot: string | undefined
   stateEntries: readonly { dir: string; enabled: boolean }[]
@@ -826,14 +874,11 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     async loadBuiltinPlugins() {
       const root = options.resolveBuiltinPluginRoot()
       if (!root) return { loaded: [], failed: [] }
-      const candidates: string[] = []
-      try {
-        for (const entry of await readdir(root, { withFileTypes: true }))
-          if (entry.isDirectory()) candidates.push(join(root, entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      return this.loadLocalPluginsFrom(candidates, 'builtin')
+      // 产物态的根下是 .volund 包（r1.6）：先解包到 <home>/plugins-cache/ 再装载
+      // ——包小、重解幂等，覆盖 .volund 即完成内置插件更新。
+      const packed = await collectBuiltinCandidates(root, join(options.home, 'plugins-cache'))
+      const result = await this.loadLocalPluginsFrom(packed.candidates, 'builtin')
+      return { loaded: result.loaded, failed: [...packed.failed, ...result.failed] }
     },
     /**
      * 市场插件：~/.volund/plugins/<name>/ 自动发现（dot 目录

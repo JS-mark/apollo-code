@@ -43,6 +43,15 @@ export {
   readContainedPluginDiagnostic,
   registerPluginCommands,
 } from './plugins-domain'
+export {
+  buildVolundArchive,
+  extractVolundArchive,
+  readManifestHeader as readPluginManifestHeader,
+  readZip,
+  writeZip,
+  VOLUND_ARCHIVE_SUFFIX,
+} from './plugin-archive'
+export type { ArchiveEntry } from './plugin-archive'
 export * from './plugins-domain-env'
 export * from './plugin-state'
 export * from './plugin-market'

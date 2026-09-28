@@ -99,6 +99,9 @@ export const ErrorCodes = {
   pluginCommandInvalid: 'plugin_command_invalid', // commands.register spec 校验（本地插件通道）
   pluginCommandTargetRequired: 'plugin_command_target_required',
   pluginCommandUnknown: 'plugin_command_unknown',
+  pluginArchiveInvalid: 'plugin_archive_invalid', // .volund 容器（EOCD 缺失/目录损坏/缺 manifest）
+  pluginArchiveUnsafeEntry: 'plugin_archive_unsafe_entry', // zip-slip：条目名逃逸目标目录
+  pluginArchiveUnsupportedMethod: 'plugin_archive_unsupported_method', // 非 store 压缩条目
   pluginConfigUndeclared: 'plugin_config_undeclared',
   pluginDeactivated: 'plugin_deactivated',
   pluginEngineIncompatible: 'plugin_engine_incompatible',
@@ -129,6 +132,7 @@ export const ErrorCodes = {
   pluginProviderInvalid: 'plugin_provider_invalid',
   pluginProviderNetRequired: 'plugin_provider_net_required',
   pluginProviderPermissionRequired: 'plugin_provider_permission_required',
+  pluginTargetExists: 'plugin_target_exists', // plugins crate：目标目录非空
   // PLUGIN-MANAGER：市场源装载诊断码（apps/cli plugin-market）
   mcpAddInvalid: 'mcp_add_invalid',
   mcpAddFailed: 'mcp_add_failed',

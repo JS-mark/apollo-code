@@ -204,6 +204,22 @@ Note: legacy plugin activation is temporarily unavailable; list, doctor,
 disable, and uninstall remain available for inspection and cleanup.
 `
 
+const pluginsUsage = `Usage: ${commandName} plugins <command> [options]
+
+Plugin authoring toolchain over the sandbox plugin chain (legacy catalog
+management lives under ${commandName} plugin):
+
+  builtin            List first-party tool domains, --enable/--disable <id> (default)
+  crate <name|path>  Scaffold a plugin (manifest.json + index.ts + README)
+  dev [dir]          Probe-activate in place, then link into ~/.volund/plugins-dev/
+  build [dir]        Package a deterministic .volund archive (sha256 printed)
+  install <file>     Install a .volund archive into ~/.volund/plugins-dev/
+
+Options:
+  --output <path>    Build output path (default: <dir>/<name>-<version>.volund)
+  --json             Emit one JSON document
+`
+
 const remoteUsage = `Usage: ${commandName} remote enroll
        ${commandName} remote connect --gateway <url> --code <code>
 
@@ -321,6 +337,7 @@ export const commandUsage: Readonly<Record<string, string>> = {
   daemon: daemonUsage,
   trust: trustUsage,
   plugin: pluginUsage,
+  plugins: pluginsUsage,
   remote: remoteUsage,
   mcp: mcpUsage,
   skill: skillUsage,
@@ -343,6 +360,7 @@ export const actionStyleCommands: ReadonlySet<string> = new Set([
   'telemetry',
   'trust',
   'plugin',
+  'plugins',
   'remote',
   'mcp',
   'skill',

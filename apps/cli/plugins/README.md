@@ -17,7 +17,12 @@ manifest 校验 → bundle 完整性检查 → `volund-sandbox --run-plugin` 沙
   与顶层 mangle，仅保留沙箱装载依赖的 `activate` 导出名）成
   `dist/plugins/<name>/index.mjs`，产物 manifest 的 `main` 同步改写为 `index.mjs`——
   产物运行时不再依赖类型擦除（见 `rolldown.config.mjs`）。源码不随产物分发
-- standalone 产物：`build:standalone` 直接复用 `dist/plugins/`（同一份压缩混淆字节，
+- **.volund 分发（r1.6）**：编译后 `scripts/pack-builtin-plugins.mjs` 把每个中间目录
+  打成 `dist/plugins/<name>.volund`（store zip、manifest.json 在根、字节级确定性）
+  并删除中间目录。运行时 `loadBuiltinPlugins` 扫 `*.volund` 解包到
+  `~/.volund/plugins-cache/<name>/` 再装载——**更新内置插件 = 覆盖对应 .volund 文件**；
+  包文件名必须与 manifest `name` 一致，不一致拒载
+- standalone 产物：`build:standalone` 直接复用 `dist/plugins/`（同一份 .volund 字节，
   见 `scripts/release/build-standalone.mjs`）
 - 运行时解析（`builtinPluginRoot()`，runtime.ts）：`$VOLUND_STANDALONE_ASSET_DIR/plugins`
   → `dist/plugins`（bundled）→ `apps/cli/plugins`（源码/vitest），取第一个存在的

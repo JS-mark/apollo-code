@@ -10,7 +10,7 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "rolldown -c",
+    "build": "rolldown -c && node scripts/pack-builtin-plugins.mjs",
     "build:standalone": "node ../../scripts/release/build-standalone.mjs",
     "test": "vitest run --passWithNoTests --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.plugins.json --noEmit"
