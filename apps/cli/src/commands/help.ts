@@ -137,6 +137,44 @@ Options:
   --json    Emit one JSON document (show)
 `
 
+const tasksUsage = `Usage: ${commandName} tasks <command> [options]
+
+Commands:
+  list                       List task definitions with last-run status (default)
+  add --name --prompt --schedule [flags]
+                             Create a task (freezes cwd and config hash, F1-02)
+  enable <id>                Enable a task
+  disable <id>               Disable a task
+  remove <id>                Remove a task definition
+  runs <id> [--limit N]      Show the run journal for a task (newest first)
+
+Schedule specs:
+  interval:<n><ms|s|m|h>     Every n units (minimum 60s)
+  daily:HH:MM                Every day at HH:MM (24h, task timezone)
+  weekly:<days>@HH:MM        Days as mon,wed,fri or 0-6 (0=Sunday)
+
+Add flags:
+  --cwd <path>               Working directory (default: current)
+  --id <id>                  Task id (default: slugified name)
+  --tz <iana>                IANA time zone (default: host local)
+  --missed <skip|run_latest> Missed-window policy while the daemon is down
+  --overlap <skip|queue>     In-flight overlap policy
+  --model <id>               Pin a provider/model for runs
+  --timeout-ms <n>           Per-run wall-clock limit
+  --max-retries <n>          Retry budget (0-10)
+  --disabled                 Create as disabled
+
+Options:
+  --json    Emit tasks / runs as one JSON document
+`
+
+const daemonUsage = `Usage: ${commandName} daemon
+
+Run the 7x24 task scheduler in the foreground. Only the daemon fires scheduled
+tasks (F1-01 single ownership); requires [tasks].enabled = true in user-level
+config. A second daemon exits with task_daemon_running while one is alive.
+`
+
 const trustUsage = `Usage: ${commandName} trust <command> [options]
 
 Commands:
@@ -279,6 +317,8 @@ export const commandUsage: Readonly<Record<string, string>> = {
   doctor: doctorUsage,
   memory: memoryUsage,
   telemetry: telemetryUsage,
+  tasks: tasksUsage,
+  daemon: daemonUsage,
   trust: trustUsage,
   plugin: pluginUsage,
   remote: remoteUsage,
@@ -298,6 +338,7 @@ export const commandUsage: Readonly<Record<string, string>> = {
  * there a bare `help` token is data, not a help request.
  */
 export const actionStyleCommands: ReadonlySet<string> = new Set([
+  'tasks',
   'memory',
   'telemetry',
   'trust',

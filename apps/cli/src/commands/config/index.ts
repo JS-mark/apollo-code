@@ -6,7 +6,9 @@ import { serializeToml } from '@volund/app-runtime'
 import type { JsonValue } from '@volund/shared'
 
 import { getConfigValue } from '../../config-edit'
+import { syncDaemonWithSwitch } from '../../daemon'
 import type { CliIo, CommandDefinition } from '../../shared/cli-types'
+import { volundHome } from '../tasks'
 
 /**
  * §11.3.3 `volund config`。set/unset 的 key 校验与 projectOverride 数据流向门
@@ -61,11 +63,23 @@ export function createConfigCommand(io: CliIo): CommandDefinition {
               stderr: 'config values must be a string, number, boolean, array, or object',
             }
           const { file } = await config.setValue({ cwd, key, value, project })
+          // W-17 r1.4：tasks.enabled 翻转联动 daemon 启停（开关即生命周期）。
+          let daemonSync: string | undefined
+          if (key === 'tasks.enabled' && typeof value === 'boolean' && !project) {
+            const sync = await syncDaemonWithSwitch(volundHome(), value, { cwd })
+            daemonSync = sync.started
+              ? 'started'
+              : sync.stopped
+                ? 'stopped'
+                : sync.alreadyRunning
+                  ? 'already-running'
+                  : undefined
+          }
           return {
             exitCode: 0,
             stdout: args.json
-              ? `${JSON.stringify({ key, value, file })}\n`
-              : `Set ${key} in ${file}\n`,
+              ? `${JSON.stringify({ key, value, file, ...(daemonSync ? { daemon: daemonSync } : {}) })}\n`
+              : `Set ${key} in ${file}${daemonSync ? `\nTask daemon ${daemonSync}.` : ''}\n`,
             stderr: '',
           }
         }

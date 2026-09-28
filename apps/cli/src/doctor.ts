@@ -1,15 +1,18 @@
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { productIdentity } from '@volund/shared'
+import { TaskStore } from '@volund/storage'
 
+import { readDaemonStatus, taskStorePath } from './daemon'
 import type { VolundPorts, DoctorHealth, PluginAvailability } from './ports'
 
 const execFileAsync = promisify(execFile)
-const GH_VERSION_TIMEOUT_MS = 5000
+const GH_VERSION_TIMEOUT_MS = 5 * 1e3
 /** r13-G6: hint mirrors CONTRIBUTING "Recommended" deps — gh only powers the PR workflow. */
 export const GH_CLI_MISSING_HINT = 'PR 工作流需要 gh（CONTRIBUTING 推荐依赖）'
 
@@ -131,6 +134,38 @@ export async function runDoctor(
   } catch {
     writable = false
   }
+  // W-17 调度健康面：enabled 未开=正常（默认关闭）；开了但 daemon 不在场=⚠️
+  // （任务不会触发——这是 7x24 语义下最需要可观测的状态）。
+  let schedulerCheck: DoctorCheck
+  try {
+    const home = env.VOLUND_HOME ?? join(homedir(), '.volund')
+    const merged = await ports.config.listMerged?.({ cwd }).catch(() => undefined)
+    const tasksSection = (merged?.config?.['tasks'] ?? {}) as { enabled?: unknown }
+    const enabled = tasksSection['enabled'] === true
+    const taskCount = enabled ? (await new TaskStore(taskStorePath(home)).listTasks()).length : 0
+    const daemonStatus = enabled ? await readDaemonStatus(home) : { running: false }
+    schedulerCheck =
+      enabled && !daemonStatus.running
+        ? {
+            name: 'task scheduler',
+            ok: true,
+            warn: true,
+            detail: 'enabled but no daemon is running; tasks will not fire (start `volund daemon`)',
+          }
+        : {
+            name: 'task scheduler',
+            ok: true,
+            detail: !enabled
+              ? 'disabled ([tasks].enabled)'
+              : `daemon running (pid ${daemonStatus.pid}), ${taskCount} task(s)`,
+          }
+  } catch (error) {
+    schedulerCheck = {
+      name: 'task scheduler',
+      ok: false,
+      detail: `scheduler health check failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
   return [
     {
       name: 'node version',
@@ -204,5 +239,6 @@ export async function runDoctor(
       ok: telemetry.writable && telemetry.corruptLines === 0,
       detail: telemetry.detail,
     },
+    schedulerCheck,
   ]
 }

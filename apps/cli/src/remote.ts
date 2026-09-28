@@ -6,13 +6,18 @@
  * （不抢占所有权）；审批走共享 PermissionPromptController——手机、Web、TUI
  * 任一端决策全端清卡。start/stop 同步写回 [remote] enabled（跨重启保持）。
  */
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 import type { GatewayHubLike } from '@volund/gateway-server'
 import { createGatewayModelResolver, readModelAliases } from '@volund/gateway-server'
 import { createRemoteLink, RemoteLink } from '@volund/remote-link'
 import type { RemoteLinkConfig } from '@volund/remote-link'
+import { TaskStore } from '@volund/storage'
 import type { RemoteControlPort } from '@volund/web-server'
 import { SessionHub } from '@volund/web-server/session-hub'
 
+import { readDaemonStatus, taskStorePath } from './daemon'
 import type { VolundPorts } from './ports'
 import { listModels } from './web'
 
@@ -33,6 +38,28 @@ export interface RemoteControlHandle extends RemoteControlPort {
 }
 
 type RemoteControlPortStatus = ReturnType<RemoteControlPort['status']>
+
+/** W-17 批次 4：uplink 的任务只读端口（home 解析与 tasks 命令族同源）。 */
+function createRemoteTasksPort(cwd: string, ports: VolundPorts) {
+  const home = process.env.VOLUND_HOME ?? join(homedir(), '.volund')
+  const store = new TaskStore(taskStorePath(home))
+  return {
+    status: async () => {
+      const merged = await ports.config.listMerged?.({ cwd }).catch(() => undefined)
+      const section = (merged?.config?.['tasks'] ?? {}) as { enabled?: unknown }
+      const daemon = await readDaemonStatus(home)
+      return {
+        enabled: section['enabled'] === true,
+        daemonRunning: daemon.running,
+        ...(daemon.pid ? { pid: daemon.pid } : {}),
+        taskCount: (await store.listTasks()).length,
+      }
+    },
+    list: () => store.listTasks(),
+    runs: (taskId: string | undefined, limit: number) =>
+      store.recentRuns({ ...(taskId ? { taskId } : {}), limit }),
+  }
+}
 
 export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle {
   let cwd = process.cwd()
@@ -160,6 +187,8 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       hub: aliasedHub,
       workspaceCwd: cwd,
       listSessions: () => ports.session.list?.() ?? Promise.resolve([]),
+      // W-17 移动站只读腿：TaskStore + daemon 在场性；enabled 随读随热。
+      tasksPort: createRemoteTasksPort(cwd, ports),
       version: ports.identity.version,
       logger: (message) => process.stderr.write(`[remote] ${message}\n`),
     })

@@ -1,4 +1,5 @@
-import { basename, dirname } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
 import { ErrorCodes, productIdentity, sanitize, validateWorkspacePath } from '@volund/shared'
@@ -29,8 +30,10 @@ import { createMemoryCommand } from './commands/memory'
 import { createRemoteCommand } from './commands/remote'
 import { createSessionsCommand } from './commands/sessions'
 import { createStatusCommand } from './commands/status'
+import { daemonCommand, tasksCommand } from './commands/tasks'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
+import { readDaemonStatus, spawnDetachedDaemon } from './daemon'
 import { createMemoryPanelController } from './memory-panel'
 import { projectMemoryScope } from './memory-scope'
 import type { VolundPorts } from './ports'
@@ -77,6 +80,20 @@ const argsDefinition = {
   cursor: { type: 'string' as const },
   enable: { type: 'string' as const },
   disable: { type: 'string' as const },
+  // [tasks] 命令族（W-17）：citty 只认声明的 flag——未声明 --name 会被拆成
+  // boolean + 游离位置参数，所以任务 flag 全部在此登记（全局 flag 池惯例）。
+  name: { type: 'string' as const },
+  prompt: { type: 'string' as const },
+  schedule: { type: 'string' as const },
+  tz: { type: 'string' as const },
+  missed: { type: 'string' as const },
+  overlap: { type: 'string' as const },
+  model: { type: 'string' as const },
+  budget: { type: 'string' as const },
+  allowedTools: { type: 'string' as const },
+  timeoutMs: { type: 'string' as const },
+  maxRetries: { type: 'string' as const },
+  disabled: { type: 'boolean' as const },
   id: { type: 'string' as const },
   content: { type: 'string' as const },
   bodyStdin: { type: 'boolean' as const },
@@ -156,6 +173,51 @@ export async function runCli(
   const jsonMode = Boolean(args.json)
   const noColor = Boolean(args.noColor) || (args as { color?: boolean }).color === false
   const noTui = Boolean(args.noTui) || (args as { tui?: boolean }).tui === false
+  // W-17 F1-02：任务约束旗标 → 会话启动 overrides（仅新会话；resume 不吃）。
+  // fail-fast：--budget 形状错误在信任门之前就报 usage 错。
+  let taskBudget: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number } | undefined
+  if (typeof args.budget === 'string' && args.budget) {
+    try {
+      const parsed = JSON.parse(args.budget) as Record<string, unknown>
+      taskBudget = {
+        ...(typeof parsed.costUSDMax === 'number' ? { costUSDMax: parsed.costUSDMax } : {}),
+        ...(typeof parsed.tokenMax === 'number' ? { tokenMax: parsed.tokenMax } : {}),
+        ...(typeof parsed.timeMsMax === 'number' ? { timeMsMax: parsed.timeMsMax } : {}),
+      }
+    } catch {
+      return jsonMode
+        ? jsonFailure('--budget must be a JSON object', 2, 'usage')
+        : {
+            exitCode: 2,
+            stdout,
+            stderr: '--budget must be a JSON object like {"timeMsMax":600000}',
+          }
+    }
+  }
+  const taskTools =
+    typeof args.allowedTools === 'string' && args.allowedTools
+      ? args.allowedTools
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean)
+      : undefined
+  // W-17：daemon spawn 时注入 VOLUND_TASK_RUN → 本会话流发射 task.* 生命周期
+  // 事件。读后即删：防 Bash 工具再 spawn 的 volund 误认自己是任务运行。
+  let taskRun: { taskId: string; runId: string; scheduledFor: number } | undefined
+  if (process.env.VOLUND_TASK_RUN) {
+    try {
+      const parsed = JSON.parse(process.env.VOLUND_TASK_RUN) as Record<string, unknown>
+      if (
+        typeof parsed.taskId === 'string' &&
+        typeof parsed.runId === 'string' &&
+        typeof parsed.scheduledFor === 'number'
+      )
+        taskRun = { taskId: parsed.taskId, runId: parsed.runId, scheduledFor: parsed.scheduledFor }
+    } catch {
+      // 非法形状按缺省处理（无害：只是不发 task.* 事件）。
+    }
+    delete process.env.VOLUND_TASK_RUN
+  }
   let resumeSelection: { id: string; cwd: string } | undefined
   const unsupportedGlobalFlag =
     subcommand === undefined ? firstUnsupportedGlobalFlag(rawArgs) : undefined
@@ -196,6 +258,8 @@ export async function runCli(
     }),
     createMemoryCommand(io),
     createRemoteCommand(),
+    tasksCommand,
+    daemonCommand,
   ])
   if (subcommand && registry.has(subcommand))
     return registry.dispatch(subcommand, { args, cwd, ports })
@@ -298,7 +362,11 @@ export async function runCli(
       return { exitCode: 2, stdout, stderr: 'local plugin port is not connected' }
     const action = args._[1] ?? 'builtin'
     if (action !== 'builtin') {
-      return { exitCode: 2, stdout, stderr: `Unknown plugins action: ${action}` }
+      return {
+        exitCode: 2,
+        stdout,
+        stderr: `Unknown plugins action: ${action}`,
+      }
     }
     try {
       // volund plugins builtin [--enable <id> | --disable <id>]：第一方工具域
@@ -876,7 +944,13 @@ export async function runCli(
       }
       const interactive = resumeSelection
         ? await ports.session.resumeInteractive!(resumeSelection.id)
-        : await ports.session.startInteractive!({ cwd })
+        : await ports.session.startInteractive!({
+            cwd,
+            ...(typeof args.model === 'string' && args.model ? { model: args.model } : {}),
+            ...(taskBudget ? { budget: taskBudget } : {}),
+            ...(taskTools && taskTools.length > 0 ? { allowedTools: taskTools } : {}),
+            ...(taskRun ? { taskRun } : {}),
+          })
       // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件装载：内置插件（产物自带
       // 的 apps/cli/plugins/，如 /env、/plugins）先装载；dev 插件随后
       // （~/.volund/plugins-dev 约定目录 + VOLUND_DEV_PLUGINS=<dir>[,<dir>...] 的
@@ -935,6 +1009,23 @@ export async function runCli(
             `Remote control failed to start: ${cause instanceof Error ? cause.message : String(cause)}`,
           )
         }
+      }
+      // W-17 r1.4 开关自愈：enabled=true 而 daemon 不在场 → 补拉一次（detached，
+      // TUI 退出不带走）。失败进 notices 不阻塞 TUI。
+      try {
+        const merged = await ports.config.listMerged?.({ cwd })
+        const tasksSection = merged?.config?.['tasks'] as { enabled?: unknown } | undefined
+        if (tasksSection?.enabled === true) {
+          const daemonHome = process.env.VOLUND_HOME ?? join(homedir(), '.volund')
+          if (
+            !(await readDaemonStatus(daemonHome)).running &&
+            spawnDetachedDaemon(daemonHome, { cwd })
+          ) {
+            startupNotices.push('Task scheduler enabled: daemon started in background.')
+          }
+        }
+      } catch {
+        // 自愈尽力而为：读不到配置/锁就不动。
       }
       // uplink 启动快照进欢迎屏（多半还是 connecting——online 后经 remoteStatus
       // 订阅回填）；'off' 即未启用，不渲染 remote 行。
@@ -1491,6 +1582,10 @@ function redactTransport(value: string): string {
 const chatGlobalFlags = new Set([
   '--cwd',
   '--json',
+  // W-17 任务约束（headless 会话启动注入；F1-02 execution surface）
+  '--model',
+  '--budget',
+  '--allowed-tools',
   '--no-color',
   '--no-tui',
   '--strict-sandbox',
@@ -1501,7 +1596,15 @@ const chatGlobalFlags = new Set([
 ])
 /** `plugins` is the pre-rename alias kept out of the help-topic table. */
 const reservedCommandNames: ReadonlySet<string> = new Set([...Object.keys(commandUsage), 'plugins'])
-const valueFlags = new Set(['--cwd', '--namespace', '--since', '--to'])
+const valueFlags = new Set([
+  '--cwd',
+  '--namespace',
+  '--since',
+  '--to',
+  '--model',
+  '--budget',
+  '--allowed-tools',
+])
 
 function firstUnsupportedGlobalFlag(rawArgs: string[]): string | undefined {
   for (let i = 0; i < rawArgs.length; i++) {

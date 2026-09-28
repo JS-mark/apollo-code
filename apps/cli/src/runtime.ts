@@ -21,6 +21,7 @@ import {
   createMcpDomain,
   createNativeDomain,
   createPluginDomain,
+  broadcastPluginLifecycleHook,
   createPluginHookDispatcher,
   escapeUntrustedText,
   languagePromptFragment,
@@ -101,11 +102,13 @@ import type {
 } from '@volund/ui'
 
 import { readConfigFileOrEmpty } from './config-edit'
+import { readDaemonStatus } from './daemon'
 import { createHistoryPort } from './history'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import type { VolundPorts } from './ports'
 import { createRemoteControlPort } from './remote'
+import { createScheduleTaskTool } from './schedule-task-tool'
 import type { AppIdentity } from './shared/app-identity'
 import { createSkillTool, SKILL_TOOL_NAME } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
@@ -114,6 +117,7 @@ import { createWebPort } from './web'
 // P1-04 兼容适配：以下符号已迁至 @volund/app-runtime；既有测试与消费方经此再导出，
 // 新代码一律直接从 app-runtime 导入。
 export {
+  broadcastPluginLifecycleHook,
   collectPluginSkillDirs,
   composeAttachmentInput,
   createPluginHookDispatcher,
@@ -1032,7 +1036,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     parentToolNames: collectParentToolNames,
     onWarning: (message) => logger.warn(message),
   })
-  const createRunner: RunnerFactory = async (state, events, agent) => {
+  const createRunner: RunnerFactory = async (state, events, agent, overrides) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
     await permissionRules.ready()
@@ -1437,29 +1441,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         liveToolServices.delete(kernel.tools)
         kernel.tools.unregisterAllPluginTools()
       }
-      // H5：会话生命周期事件广播给插件 hooks（session.on / hooks.on 订阅）。
-      const pluginEvent =
-        event.type === 'session.started'
-          ? 'sessionStart'
-          : event.type === 'session.ended'
-            ? 'sessionEnd'
-            : undefined
-      if (!pluginEvent) return
-      for (const loaded of loadedPluginEntries) {
-        if (!loaded.handle) continue
-        for (const hook of loaded.handle.hooks) {
-          if (hook.event !== pluginEvent) continue
-          void hook
-            .invoke({ schemaVersion: 1, sessionId: event.sessionId })
-            .catch((error) =>
-              logger.warn(
-                `plugin hook ${pluginEvent} from ${loaded.name} failed: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              ),
-            )
-        }
-      }
+      // H5：会话生命周期 + 任务运行终态（W-17 r1.5）事件广播给插件 hooks
+      // （session.on / hooks.on 订阅）。
+      broadcastPluginLifecycleHook(event, loadedPluginEntries, logger)
     })
     const registry = kernel.tools.registry
     await ensureBuiltinToolsConfig()
@@ -1500,6 +1484,22 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       // 交互面——tui 进共享提问队列（TUI/Web/Mobile 任一端作答），line 终端
       // 数字问答，none 由工具降级为「用户不可达」。
       registry.register(createAskUserQuestionTool())
+      // W-17：schedule_task 会话工具（写任务定义表；触发权仍归 daemon）。
+      registry.register(
+        createScheduleTaskTool({
+          home,
+          sessionCwd: state.cwd,
+          status: async () => {
+            const section = (userConfig.tasks ?? {}) as { enabled?: unknown }
+            const daemon = await readDaemonStatus(home)
+            return {
+              enabled: section['enabled'] === true,
+              daemonRunning: daemon.running,
+              ...(daemon.pid ? { pid: daemon.pid } : {}),
+            }
+          },
+        }),
+      )
     }
     // G 插件一等公民：已激活插件的工具贡献注册进本会话注册表——
     // permissionSpec 收敛到 {custom:{pluginTool:{plugin,tool}}} 进统一权限决策链；
@@ -1577,8 +1577,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       dispatchHook,
     )
     // §2.7.1：agent 的 tools 白名单只能收紧——schemas 与 execute 两处同时过滤，
-    // 白名单外的工具对模型不可见、调用即拒绝。
-    const allowedTools = agent?.definition.tools
+    // 白名单外的工具对模型不可见、调用即拒绝。W-17：会话启动 overrides
+    // （任务约束）与 agent 定义白名单取交——两者同时在场时更严者胜。
+    const sessionAllowed = overrides?.allowedTools
+    const allowedTools = sessionAllowed
+      ? agent?.definition.tools
+        ? agent.definition.tools.filter((name) => sessionAllowed.includes(name))
+        : sessionAllowed
+      : agent?.definition.tools
     const tools: RunnerToolPort = {
       schemas: () => {
         const all = registry.forProvider()
@@ -1621,8 +1627,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       composer,
       tools,
       events,
-      // §2.7.1：maxTurns 等价于该 agent 的 maxToolLoopsPerTurn。
-      agent?.definition.maxTurns ? { maxToolLoopsPerTurn: agent.definition.maxTurns } : {},
+      // §2.7.1：maxTurns 等价于该 agent 的 maxToolLoopsPerTurn；W-17 任务预算
+      // （--budget，F1-02 frozen budget）随 RunnerOptions 注入，按回合计量。
+      {
+        ...(agent?.definition.maxTurns ? { maxToolLoopsPerTurn: agent.definition.maxTurns } : {}),
+        ...(overrides?.budget ? { budget: overrides.budget } : {}),
+        ...(overrides?.taskRun ? { taskRun: overrides.taskRun } : {}),
+      },
       contextPolicy,
     )
     return runner
