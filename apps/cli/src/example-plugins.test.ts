@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { probeSandbox, resolveBinary } from '@volund/native-bridge'
 import { activateLocalPlugin, type ActivatedLocalPlugin } from '@volund/plugin-runtime'
@@ -143,5 +143,147 @@ describe('TS 插件入口（strip-types）', () => {
     expect(tool).toBeDefined()
     const raw = (await tool!.invoke({ text: 'a b c' })) as { words: number; chars: number }
     expect(raw).toEqual({ words: 3, characters: 5, lines: 1 })
+  }, 30_000)
+})
+
+/* ── volund-plugin-task-notify（W-17 r1.5 任务终态 webhook 示例）────────────── */
+
+const taskNotifyDir = join(repoRoot, 'examples', 'plugins', 'volund-plugin-task-notify')
+
+interface FakeHook {
+  event: string
+  handler: (payload: unknown) => Promise<unknown>
+}
+
+interface FakeCommandSpec {
+  name: string
+  handler(args: readonly string[]): Promise<string>
+}
+
+function taskNotifyBridge() {
+  const store = new Map<string, unknown>()
+  const fetches: { url: string; init?: Record<string, unknown> }[] = []
+  const hooks: FakeHook[] = []
+  let command: FakeCommandSpec | undefined
+  const volund = {
+    hooks: {
+      on: (event: string, handler: (payload: unknown) => Promise<unknown>) => {
+        hooks.push({ event, handler })
+        return { dispose() {} }
+      },
+    },
+    storage: {
+      get: async (key: string) => store.get(key),
+      set: async (key: string, value: unknown) => {
+        store.set(key, value)
+      },
+    },
+    commands: {
+      register: async (spec: FakeCommandSpec) => {
+        command = spec
+      },
+    },
+    http: {
+      fetch: async (url: string, init?: Record<string, unknown>) => {
+        fetches.push(init ? { url, init } : { url })
+        return { status: 200 }
+      },
+    },
+    log: { info() {}, warn() {}, error() {}, debug() {} },
+  }
+  return { volund, store, fetches, hooks, command: () => command }
+}
+
+describe('volund-plugin-task-notify（任务终态 webhook 通知示例）', () => {
+  const payload = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    schemaVersion: 1,
+    sessionId: 'sess-1',
+    taskId: 'nightly',
+    runId: 'run-abc123',
+    scheduledFor: 1_700_000_000_000,
+    ...overrides,
+  })
+
+  async function activated() {
+    const module = (await import(pathToFileURL(join(taskNotifyDir, 'index.ts')).href)) as {
+      activate(volund: unknown): Promise<void>
+    }
+    const bridge = taskNotifyBridge()
+    await module.activate(bridge.volund)
+    return bridge
+  }
+
+  it('registers both terminal hooks and the /task-notify command', async () => {
+    const bridge = await activated()
+    expect(bridge.hooks.map((hook) => hook.event)).toEqual(['task.completed', 'task.failed'])
+    expect(bridge.command()?.name).toBe('task-notify')
+  })
+
+  it('stays silent without config, routes by task then default, shapes bodies per host', async () => {
+    const bridge = await activated()
+    const [completed, failed] = bridge.hooks
+    // 未配置：不出网
+    await completed!.handler(payload())
+    expect(bridge.fetches).toHaveLength(0)
+
+    await bridge.command()!.handler(['https://hooks.example.com/default'])
+    await bridge.command()!.handler(['nightly', 'https://oapi.dingtalk.com/robot/send?token=x'])
+    expect(bridge.store.get('notify-config')).toEqual({
+      defaultUrl: 'https://hooks.example.com/default',
+      routes: { nightly: 'https://oapi.dingtalk.com/robot/send?token=x' },
+    })
+
+    // 单任务路由 + 钉钉体
+    await completed!.handler(payload({ durationMs: 1500 }))
+    expect(bridge.fetches).toHaveLength(1)
+    expect(bridge.fetches[0]?.url).toBe('https://oapi.dingtalk.com/robot/send?token=x')
+    expect(bridge.fetches[0]?.init?.['body']).toEqual({
+      msgtype: 'text',
+      text: { content: '✅ 定时任务 nightly 运行完成（run run-abc1，耗时 1.5s）' },
+    })
+
+    // 其余任务走默认接收端 + 通用体（含 reason）
+    await failed!.handler(
+      payload({ taskId: 'other', runId: 'run-xyz', durationMs: 500, reason: 'error' }),
+    )
+    expect(bridge.fetches).toHaveLength(2)
+    expect(bridge.fetches[1]?.url).toBe('https://hooks.example.com/default')
+    expect(bridge.fetches[1]?.init?.['body']).toMatchObject({
+      event: 'task.failed',
+      taskId: 'other',
+      reason: 'error',
+      text: expect.stringContaining('❌ 定时任务 other 运行失败'),
+    })
+  })
+
+  it('command supports status / remove / off', async () => {
+    const bridge = await activated()
+    const command = bridge.command()!
+    expect(await command.handler([])).toContain('未配置')
+    await command.handler(['https://hooks.example.com/default'])
+    await command.handler(['nightly', 'https://hooks.example.com/nightly'])
+    expect(await command.handler([])).toContain('nightly → https://hooks.example.com/nightly')
+    expect(await command.handler(['remove', 'missing'])).toContain('没有 missing')
+    expect(await command.handler(['remove', 'nightly'])).toContain('已删除')
+    expect(await command.handler(['off'])).toContain('已清空')
+    expect(bridge.store.get('notify-config')).toEqual({})
+  })
+
+  it('activates through the sandbox with hooks and command contributions', async () => {
+    if (!(await sandboxAvailable())) return
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-task-notify-'))
+    dirs.push(dataDir)
+    const activatedPlugin = await activateLocalPlugin({
+      dir: taskNotifyDir,
+      volundVersion: '0.1.0',
+      dataDirRoot: dataDir,
+      services: {},
+    })
+    handles.push(activatedPlugin)
+    expect(activatedPlugin.hooks.map((hook) => hook.event)).toEqual([
+      'task.completed',
+      'task.failed',
+    ])
+    expect(activatedPlugin.commands.find((command) => command.name === 'task-notify')).toBeDefined()
   }, 30_000)
 })

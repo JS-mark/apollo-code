@@ -18,6 +18,15 @@ export type HookEvent =
   | 'memory.postWrite'
   | 'memory.preRead'
   | 'memory.deleted'
+  /**
+   * W-17 r1.5：任务运行终态广播（会话内视角）。payload = §2.3 同名事件 payload
+   * （taskId/runId/scheduledFor，completed 加 durationMs，failed 加 durationMs/reason）
+   * + sessionId。注意覆盖面：daemon 侧超时击杀 / config drift / trust 丢失 / boot
+   * 收尸无会话载体，不经此面——全终态通知走宿主 `[tasks].webhook_url`。
+   */
+  | 'task.started'
+  | 'task.completed'
+  | 'task.failed'
 
 export interface HookResult {
   veto?: boolean

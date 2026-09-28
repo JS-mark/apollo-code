@@ -325,12 +325,13 @@ app-runtime ─ Runner / EventBus / SessionStore / PermissionManager
 
 **验收**：axe/Playwright keyboard suite 无 blocker；中英文切换不重启 session；窄屏无关键操作丢失。
 
-### W-17 本地定时任务（Later）
+### W-17 本地定时任务（r1 已落地，2026-09-27）
 
-- 目标是对受控任务模板执行 `volund` 非交互入口，并记录 schedule、输入、权限策略、结果和重试。
-- 默认关闭；不允许把 `--dangerously-skip-permissions` 存进任务模板。
-- 任务创建时冻结 cwd、模型、最大预算、允许工具、网络域和超时；执行时重新检查 trust/config hash。
-- 该能力需单独 threat model、持久 scheduler 所有权和休眠/重启语义，不能附带进首版。
+- 所有权拍板为用户级 daemon（`volund daemon` 单实现；web/mobile 只读，写操作只在 CLI/daemon）。
+- 默认关闭（`[tasks].enabled`，全部项目级 forbidden）；任务模板禁止存任何提权字段（strictObject 形状保证）。
+- 创建时冻结 cwd/configHash/schedule/missedRun/overlap/constraints；每次运行前重验 trust/configHash，无人值守 permission 'none' 默认 deny。
+- 补跑/在途/单实例/崩溃收尾语义见 [`W17-scheduler-design.md`](./W17-scheduler-design.md)（含威胁模型与 OS 保活）。
+- 已知缺口：constraints.model/budget/allowedTools 执行面随会话层能力落地；OS 保活与 L1 e2e 尚未进 CI 矩阵。
 
 ### W-18 远程、团队与消息平台（Long-term）
 

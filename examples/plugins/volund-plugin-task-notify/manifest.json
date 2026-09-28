@@ -1,0 +1,13 @@
+{
+  "name": "volund-plugin-task-notify",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.ts",
+  "engines": { "volund": "^0.1.0" },
+  "permissions": {
+    "net": {
+      "allowlist": ["oapi.dingtalk.com", "hooks.slack.com", "hooks.example.com"]
+    },
+    "volund": ["hooks.on", "http.fetch", "commands.register", "storage.read", "storage.write", "log.write"]
+  }
+}
