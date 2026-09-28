@@ -569,12 +569,12 @@ describe('volund-plugin-web-search（内置 WebSearch provider，沙箱端到端
       expect(text).toContain('<untrusted source="web-search:volund-plugin-web-search/web-search">')
       expect(text).toContain('Beijing weather')
 
-      // 配置即时生效：清掉 backend 后下一次搜索报配置指引。
+      // 配置即时生效：清空配置后 backend 默认 tavily，缺 key 报对应指引。
       await writeFile(join(home, 'config.toml'), '')
       const unconfigured = await webSearchTool.invoke({ query: 'cats' }, toolContext())
       expect(unconfigured.isError).toBe(true)
       expect((unconfigured.content[0] as { text: string }).text).toContain(
-        'web search is not configured',
+        'web_search.tavily_api_key is not set',
       )
     } finally {
       await domain.localPlugins.deactivateAll()

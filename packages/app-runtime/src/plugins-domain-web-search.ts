@@ -86,14 +86,10 @@ export async function webSearchExtraAllowedHosts(home: string): Promise<readonly
   }
 }
 
-const CONFIG_GUIDANCE =
-  'web search is not configured — set [web_search] backend = "tavily", "brave" or "custom" ' +
-  '(custom also needs custom_url) and the matching API key in ~/.volund/config.toml, ' +
-  'or use the settings UI'
-
 /**
  * 把插件的 provider 贡献适配成内置 WebSearch 工具消费的 WebSearchProvider：
- * search 前重读 [web_search]，未配置 fail-closed（指引信息进工具错误）；
+ * search 前重读 [web_search]，backend 未设置时默认注入 tavily（与设置页下拉
+ * 「默认选中 tavily」同口径；缺对应 key 仍 fail-closed，指引信息进工具错误）；
  * 返回值逐项校验形状，坏数据 fail-closed 而不是透传给模型。
  */
 export function pluginWebSearchProvider(input: {
@@ -106,10 +102,10 @@ export function pluginWebSearchProvider(input: {
     id: `${input.plugin}/${input.id}`,
     async search(request, context) {
       const config = await input.readConfig()
-      if (!config.backend) throw new Error(CONFIG_GUIDANCE)
+      const effective = { ...config, backend: config.backend ?? 'tavily' }
       const raw = (await input.invoke(
         { query: request.query, limit: request.limit },
-        config,
+        effective,
       )) as unknown
       if (!Array.isArray(raw))
         throw new Error(`web search provider '${input.plugin}' returned a non-array response`)

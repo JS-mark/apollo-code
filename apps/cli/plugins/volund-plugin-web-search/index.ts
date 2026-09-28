@@ -289,8 +289,9 @@ async function searchBrave(
 }
 
 export async function activate(volund: VolundBridge): Promise<void> {
-  // provider 贡献：宿主每次调用注入 [web_search] 快照；未配置时 fail-closed
-  // 并给出指引（错误信息直达工具结果，模型会转述给用户）。
+  // provider 贡献：宿主每次调用注入 [web_search] 快照（backend 未设置时宿主
+  // 默认注入 tavily）；缺对应 key 时报带命令行的指引（错误信息直达工具结果，
+  // 模型会转述给用户）。
   volund.webSearch?.provide({
     id: 'web-search',
     search: async (request, config) => {
@@ -299,7 +300,7 @@ export async function activate(volund: VolundBridge): Promise<void> {
       if (settings.backend === 'tavily') {
         if (!settings.tavily_api_key)
           throw new Error(
-            'web_search.tavily_api_key is not set — run: volund config set web_search.tavily_api_key <key>',
+            'web_search.tavily_api_key is not set — run: volund config set web_search.tavily_api_key <key> (backend defaults to "tavily" when web_search.backend is unset)',
           )
         return searchTavily(volund, query, limit, settings.tavily_api_key)
       }
@@ -351,15 +352,14 @@ export async function activate(volund: VolundBridge): Promise<void> {
         {
           id: 'backend',
           label: 'backend',
-          value: backend ?? 'unset',
-          status: backend ? 'configured' : 'not configured',
+          value: backend ?? 'unset (defaults to tavily)',
+          status: backend ? 'configured' : 'not configured · defaults to tavily',
           detail: backend
             ? `web_search.backend = "${backend}"`
             : [
-                'web_search.backend is not set — WebSearch fails closed until it is.',
-                'Pick a backend:',
+                'web_search.backend is not set — the search backend defaults to "tavily".',
+                'Set web_search.tavily_api_key to enable, or pick another backend:',
                 '',
-                '  volund config set web_search.backend tavily',
                 '  volund config set web_search.backend brave',
                 '  volund config set web_search.backend custom',
               ].join('\n'),

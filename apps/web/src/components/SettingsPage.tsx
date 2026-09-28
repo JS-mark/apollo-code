@@ -272,20 +272,23 @@ function EnumField({
   title,
   hint,
   options,
+  defaultValue,
 }: {
   ctx: Ctx
   configKey: string
   title: string
   hint?: string | undefined
   options: { value: string; label: string }[]
+  /** 未设置时的展示默认值；给出时隐藏清除按钮（清除会弹回默认，属坏交互）。 */
+  defaultValue?: string | undefined
 }) {
   const raw = asString(getPath(ctx.config, configKey))
   return (
     <Row title={title} hint={hint}>
       <Select
         style={{ minWidth: 180 }}
-        value={raw}
-        allowClear
+        value={raw ?? defaultValue}
+        {...(defaultValue === undefined ? { allowClear: true } : {})}
         placeholder="未设置（默认）"
         options={options}
         onChange={(value: string | undefined) =>
@@ -976,6 +979,8 @@ export function SettingsPage({
 
   const native = capabilities.native
   const startedAt = new Date(bootstrap.server.startedAt).toLocaleString()
+  // web_search.backend 未设置时运行时默认 tavily（宿主注入前收敛），下拉展示同口径
+  const webSearchBackend = asString(getPath(ctx.config, 'web_search.backend')) ?? 'tavily'
 
   return (
     <div className="settings-wrap">
@@ -1323,7 +1328,7 @@ export function SettingsPage({
           {/* Web 搜索 */}
           {configCapable && (
             <>
-              <Typography.Title level={5} id="settings-websearch">
+              <Typography.Title level={5} id="settings-webSearch">
                 Web 搜索
               </Typography.Title>
               <Card size="small" style={{ marginBottom: 24 }}>
@@ -1331,38 +1336,47 @@ export function SettingsPage({
                   ctx={ctx}
                   configKey="web_search.backend"
                   title="搜索后端"
-                  hint="web_search.backend（未设置时 WebSearch 工具不可用；改后即时生效）"
+                  hint="web_search.backend（未设置时默认 tavily；改后即时生效）"
+                  defaultValue="tavily"
                   options={[
                     { value: 'tavily', label: 'tavily' },
                     { value: 'brave', label: 'brave' },
                     { value: 'custom', label: '自定义 API' },
                   ]}
                 />
-                <CredentialField
-                  ctx={ctx}
-                  configKey="web_search.tavily_api_key"
-                  title="Tavily API Key"
-                  hint="backend=tavily 时必填（tavily.com 免费申请）"
-                />
-                <CredentialField
-                  ctx={ctx}
-                  configKey="web_search.brave_api_key"
-                  title="Brave API Key"
-                  hint="backend=brave 时必填（brave.com/search/api 免费申请）"
-                />
-                <TextField
-                  ctx={ctx}
-                  configKey="web_search.custom_url"
-                  title="自定义搜索 API 端点"
-                  hint="backend=custom 时必填；先 POST {query, max_results}，不行回退 GET ?q=&format=json；返回数组或 {results:[…]}（title/url + snippet|content|description），SearXNG 等直接可接"
-                  width={360}
-                />
-                <CredentialField
-                  ctx={ctx}
-                  configKey="web_search.custom_api_key"
-                  title="自定义 API Key（可选）"
-                  hint="backend=custom 时有则带 Authorization: Bearer"
-                />
+                {webSearchBackend === 'tavily' && (
+                  <CredentialField
+                    ctx={ctx}
+                    configKey="web_search.tavily_api_key"
+                    title="Tavily API Key"
+                    hint="backend=tavily 时必填（tavily.com 免费申请）"
+                  />
+                )}
+                {webSearchBackend === 'brave' && (
+                  <CredentialField
+                    ctx={ctx}
+                    configKey="web_search.brave_api_key"
+                    title="Brave API Key"
+                    hint="backend=brave 时必填（brave.com/search/api 免费申请）"
+                  />
+                )}
+                {webSearchBackend === 'custom' && (
+                  <>
+                    <TextField
+                      ctx={ctx}
+                      configKey="web_search.custom_url"
+                      title="自定义搜索 API 端点"
+                      hint="backend=custom 时必填；先 POST {query, max_results}，不行回退 GET ?q=&format=json；返回数组或 {results:[…]}（title/url + snippet|content|description），SearXNG 等直接可接"
+                      width={360}
+                    />
+                    <CredentialField
+                      ctx={ctx}
+                      configKey="web_search.custom_api_key"
+                      title="自定义 API Key（可选）"
+                      hint="backend=custom 时有则带 Authorization: Bearer"
+                    />
+                  </>
+                )}
                 <NumberField
                   ctx={ctx}
                   configKey="web_search.max_results"

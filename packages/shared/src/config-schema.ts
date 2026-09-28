@@ -300,7 +300,7 @@ export const ConfigSchema = z.strictObject({
     })
     .optional(),
   // [web_search]（volund-plugin-web-search）：WebSearch 工具的搜索后端。
-  // backend 未设置时插件 provider 仍在，但每次搜索 fail-closed 并给出配置指引；
+  // backend 未设置时宿主默认注入 tavily（缺对应 key 仍报配置指引错误）；
   // api key 一律项目级 forbidden（凭据只允许用户级 config）；custom_url 是
   // 搜索流量的去向（query + key 都会发过去），项目级不得改指第三方。
   web_search: z
