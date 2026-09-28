@@ -787,6 +787,9 @@ describe('plugin runtime', () => {
     expect(() => bridge.hooks.on('preToolUse', () => undefined, { priority: 101 })).toThrow(
       'plugin_hook_priority_invalid',
     )
+    // W-17 r1.5：任务终态事件走桥注册不被拒（名单校验在宿主激活侧，见
+    // local-plugin.test.ts 的 HOOK_EVENTS 用例）。
+    bridge.hooks.on('task.completed', () => undefined)
     const slow = runtime.create(hookManifest, cwd, 'tool-2')
     slow.hooks.on('postToolUse', () => new Promise(() => {}))
     await expect(runtime.runHooks('postToolUse', {})).rejects.toThrow('timeout')

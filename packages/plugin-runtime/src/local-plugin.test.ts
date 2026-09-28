@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { PluginCallbackRef } from './bridge-server'
 import {
   createLocalPluginDispatch,
+  HOOK_EVENTS,
   type CommandContribution,
   type StatusTabContribution,
   type ToolContribution,
@@ -360,5 +361,14 @@ describe('createLocalPluginDispatch', () => {
   it('rejects unknown methods', () => {
     const { dispatch } = dispatchFixture(['ui.status'])
     expect(() => dispatch('volund.provider.stream', {})).toThrow(/denied/)
+  })
+})
+
+describe('HOOK_EVENTS', () => {
+  it('admits the W-17 task terminal events and SDK-named memory.deleted', () => {
+    for (const event of ['task.started', 'task.completed', 'task.failed', 'memory.deleted'])
+      expect(HOOK_EVENTS.has(event)).toBe(true)
+    // 历史笔误（'deleted'）已对齐 SDK 的 'memory.deleted'，不得回潮。
+    expect(HOOK_EVENTS.has('deleted')).toBe(false)
   })
 })

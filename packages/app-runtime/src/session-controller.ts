@@ -52,10 +52,19 @@ import {
 } from './session-attachments'
 
 /** 与 @volund/subagent 的 RunnerFactory 同形；agent 为 §2.7.1 解析出的自定义定义。 */
+/** W-17 F1-02：随会话启动注入的运行约束（budget 走 RunnerOptions，白名单在工具执行器收口）。 */
+export interface SessionRunOverrides {
+  budget?: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number }
+  allowedTools?: readonly string[]
+  /** W-17：daemon 触发的任务运行元数据（在场时 Runner 发射 task.* 生命周期事件）。 */
+  taskRun?: { taskId: string; runId: string; scheduledFor: number }
+}
+
 export type RunnerFactory = (
   state: SessionState,
   events: EventBus,
   agent?: ResolvedAgentDefinition,
+  overrides?: SessionRunOverrides,
 ) => Runner | Promise<Runner>
 
 /** 会话 id 的唯一合法形状（uuidv7）：拼 sessions 目录文件名前的守门。 */
@@ -101,6 +110,7 @@ export class SessionController<TStatusView = unknown> extends Service {
   private events: EventBus | undefined
   /** 会话级钉住模型（/model 选择的 provider/model id）；activate 时从 replay 的 state 回填。 */
   private sessionModel: string | undefined
+  private startOverrides: SessionRunOverrides | undefined
   private readonly backgroundShells: BackgroundShells | undefined
   private output?: { json: boolean; write: (value: string) => void }
   private lastExitCode = 0
@@ -170,11 +180,28 @@ export class SessionController<TStatusView = unknown> extends Service {
     return { id: session.id, exitCode: session.exitCode() }
   }
 
-  async startInteractive(input: { cwd: string }): Promise<InteractiveSession<TStatusView>> {
+  async startInteractive(input: {
+    cwd: string
+    /** W-17 F1-02：任务约束随会话启动注入（--model / --budget / --allowed-tools）。 */
+    model?: string
+    budget?: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number }
+    allowedTools?: readonly string[]
+    taskRun?: { taskId: string; runId: string; scheduledFor: number }
+  }): Promise<InteractiveSession<TStatusView>> {
     const id = uuidv7()
+    // overrides 须在 activate（createRunner）之前就位。
+    if (input.budget || input.allowedTools || input.taskRun) {
+      this.startOverrides = {
+        ...(input.budget ? { budget: input.budget } : {}),
+        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+        ...(input.taskRun ? { taskRun: input.taskRun } : {}),
+      }
+    }
     await this.activate(
       createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
     )
+    // 钉住模型（session.model_changed 落盘，resume 由 replay 还原）。
+    if (input.model) await this.setModel(input.model)
     return this.publishActive()
   }
 
@@ -608,7 +635,7 @@ export class SessionController<TStatusView = unknown> extends Service {
     }
     const store = new SessionStore(this.path(state.id))
     store.attach(events)
-    const runner = await this.options.createRunner(state, events)
+    const runner = await this.options.createRunner(state, events, undefined, this.startOverrides)
     let lastExitCode = 0
     events.subscribe((event) => {
       if (event.type !== 'turn.aborted') return

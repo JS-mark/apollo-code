@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isTranscriptToolEntry } from './contracts'
 import { Context, createAppKernel } from './index'
 import { SessionController } from './session-controller'
-import type { RunnerFactory } from './session-controller'
+import type { RunnerFactory, SessionRunOverrides } from './session-controller'
 
 const fixtures: string[] = []
 afterEach(async () =>
@@ -255,6 +255,39 @@ describe('SessionController', () => {
     await expect(controller.startSession({ cwd: process.cwd() })).rejects.toThrow(
       'Interactive chat requires a TTY or a prompt',
     )
+  })
+
+  it('applies startup constraint overrides to the factory and pins the model (W-17 F1-02)', async () => {
+    const sessionsDir = await sessionsRoot()
+    const seen: Array<SessionRunOverrides | undefined> = []
+    const factory: RunnerFactory = (state, events, _agent, overrides) => {
+      seen.push(overrides)
+      return fakeFactory()(state, events)
+    }
+    const controller = new SessionController(new Context(), {
+      sessionsDir,
+      createRunner: factory,
+    })
+    const session = await controller.startInteractive({
+      cwd: process.cwd(),
+      model: 'anthropic/mimo-v2.5',
+      budget: { timeMsMax: 600_000 },
+      allowedTools: ['Read', 'Bash'],
+    })
+    // overrides 原样到达 createRunner（第 4 参）。
+    expect(seen.at(-1)).toEqual({
+      budget: { timeMsMax: 600_000 },
+      allowedTools: ['Read', 'Bash'],
+    })
+    // 启动注入的模型等价 /model 钉住：facade 暴露 + session.model_changed 落盘。
+    expect(session.model).toBe('anthropic/mimo-v2.5')
+    const stored = await new SessionStore(join(sessionsDir, `${session.id}.jsonl`)).load()
+    expect(
+      stored
+        .filter((entry) => entry.type === 'session.model_changed')
+        .map((entry) => entry.payload),
+    ).toEqual([{ model: 'anthropic/mimo-v2.5' }])
+    await session.end()
   })
 
   it('pins the /model selection: persists session.model_changed and restores it on resume', async () => {

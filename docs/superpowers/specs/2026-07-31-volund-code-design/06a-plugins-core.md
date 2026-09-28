@@ -13,7 +13,7 @@
 | 桥方法 | 贡献 | 宿主落点 |
 |---|---|---|
 | `tools.register` / `tools.unregister` | 模型可调用工具（名字必须 `plugin:<manifest.name>:` 前缀） | 每会话内核 `tools` 服务；permissionSpec 收敛 `{custom:{pluginTool}}` 进统一权限决策链；输出 `<untrusted>` 包裹 |
-| `hooks.on` / `session.on` | 生命周期订阅（15 种 HookEvent） | `preToolUse/postToolUse` 走 ToolExecutor dispatchHook；`sessionStart/sessionEnd` 由会话事件广播 |
+| `hooks.on` / `session.on` | 生命周期订阅（18 种 HookEvent，W-17 r1.5 起） | `preToolUse/postToolUse` 走 ToolExecutor dispatchHook；`sessionStart/sessionEnd` 与 `task.started/completed/failed`（payload=§2.3 同名事件 payload + sessionId）由会话事件广播（broadcastPluginLifecycleHook）；daemon 侧超时击杀/drift/trust/boot 收尸无会话载体不经此面 |
 | `prompt.contribute` / `prompt.revoke` | 静态 prompt fragment | 每会话 PromptComposer（`plugin:<名>:` id 命名空间，priority 缺省 600） |
 | `plugins.list` 扩展 | `domains` 组：第一方工具域（volund.core-tools / volund.exec / volund.orchestration） | /plugins 面板 Domains 页签 + `volund plugins builtin --enable/--disable`，落 `[plugins] builtin_disabled` |
 

@@ -69,7 +69,10 @@ export const HOOK_EVENTS: ReadonlySet<string> = new Set([
   'memory.preWrite',
   'memory.postWrite',
   'memory.preRead',
-  'deleted',
+  'memory.deleted',
+  'task.started',
+  'task.completed',
+  'task.failed',
 ])
 
 /**

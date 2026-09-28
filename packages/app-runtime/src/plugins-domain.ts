@@ -279,6 +279,58 @@ export function createPluginHookDispatcher(
   }
 }
 
+/**
+ * H5 广播：会话生命周期 + 任务运行终态（W-17 r1.5）事件 → 插件 hooks。
+ * 订阅经 hooks.on / session.on 注册（HOOK_EVENTS 校验名单）；handler 错误
+ * fail-open（warn 后继续）。task.* 事件名与 §2.3 同名直传，payload = 事件
+ * payload + sessionId；sessionStart/sessionEnd payload = { schemaVersion,
+ * sessionId }（既有形状不变）。独立导出以便单测（与 createPluginHookDispatcher
+ * 同理）。
+ */
+export function broadcastPluginLifecycleHook(
+  event: { type: string; sessionId: string; payload: unknown },
+  entries: readonly {
+    name: string
+    handle?: Pick<ActivatedLocalPlugin, 'hooks'> | undefined
+  }[],
+  logger: { warn(message: string): void },
+): void {
+  const pluginEvent =
+    event.type === 'session.started'
+      ? 'sessionStart'
+      : event.type === 'session.ended'
+        ? 'sessionEnd'
+        : event.type === 'task.started' ||
+            event.type === 'task.completed' ||
+            event.type === 'task.failed'
+          ? event.type
+          : undefined
+  if (!pluginEvent) return
+  const hookPayload =
+    pluginEvent === 'sessionStart' || pluginEvent === 'sessionEnd'
+      ? { schemaVersion: 1, sessionId: event.sessionId }
+      : {
+          schemaVersion: 1,
+          sessionId: event.sessionId,
+          ...(diagnosticRecord(event.payload) ? event.payload : {}),
+        }
+  for (const loaded of entries) {
+    if (!loaded.handle) continue
+    for (const hook of loaded.handle.hooks) {
+      if (hook.event !== pluginEvent) continue
+      void hook
+        .invoke(hookPayload)
+        .catch((error) =>
+          logger.warn(
+            `plugin hook ${pluginEvent} from ${loaded.name} failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        )
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // createPluginDomain（P1-04d part2）：本地插件三源生命周期的完整装配。
 // 从 createProductionPorts 闭包迁入；宿主读数（home/version/telemetry/logger/

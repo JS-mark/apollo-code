@@ -35,6 +35,7 @@ export type {
 } from './plugins-domain'
 export {
   assertLegacyPluginName,
+  broadcastPluginLifecycleHook,
   resolveBuiltinPluginRoot,
   collectPluginSkillDirs,
   createPluginHookDispatcher,
@@ -55,6 +56,15 @@ export { createAuthDomain, readAuthSection } from './auth-domain'
 export type { AuthDomainOptions } from './auth-domain'
 export { createConfigDomain } from './config-domain'
 export type { ConfigDomain, ConfigDomainOptions } from './config-domain'
+export {
+  computeNextRunAt,
+  evaluateTick,
+  type ScheduleTickInput,
+  type TaskFire,
+  type TaskMissed,
+  type TaskSkipped,
+  type TaskTickResult,
+} from './scheduler-domain'
 export { createNativeDomain } from './native-domain'
 export type { NativeDomainOptions } from './native-domain'
 export * from './memory-scope'
