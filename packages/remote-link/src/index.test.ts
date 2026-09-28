@@ -226,6 +226,32 @@ function createLinkOptions(): RemoteLinkOptions {
     hub,
     workspaceCwd: storeDir,
     listSessions: () => Promise.resolve([{ id: 'sess-9', title: '本机会话' }]),
+    tasksPort: {
+      status: () =>
+        Promise.resolve({ enabled: true, daemonRunning: true, pid: 4242, taskCount: 1 }),
+      list: () =>
+        Promise.resolve([
+          {
+            id: 'nightly',
+            name: 'Nightly',
+            enabled: true,
+            cwd: storeDir,
+            schedule: { kind: 'daily', at: '03:30' },
+            missedRun: 'skip',
+            overlap: 'skip',
+            createdAt: 1,
+          },
+        ]),
+      runs: (task, limit) =>
+        Promise.resolve(
+          [
+            { runId: 'r1', taskId: 'nightly', status: 'completed', scheduledFor: 1 },
+            { runId: 'r2', taskId: 'other', status: 'failed', scheduledFor: 2 },
+          ]
+            .filter((run) => !task || run.taskId === task)
+            .slice(0, limit),
+        ),
+    },
     version: '1.0.0-test',
     hostname: 'test-host',
     initialBackoffMs: 50,
@@ -276,6 +302,40 @@ describe('RemoteLink', () => {
     expect(deleteRes.status).toBe(200)
     expect(await deleteRes.json()).toEqual({ deleted: true })
     expect(hub.deletedSessions).toEqual(['sess-9'])
+  })
+
+  it('serves the W-17 task read surface through the tunnel (no mutation methods)', async () => {
+    await startGateway()
+    link = createLink()
+    link.start()
+    await waitOnline(link)
+    await hub.start({ cwd: storeDir })
+    await sleep(100)
+
+    const tokenRes = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      }),
+    })
+    const token = ((await tokenRes.json()) as { access_token: string }).access_token
+    const headers = { Authorization: `Bearer ${token}` }
+
+    const tasksRes = await fetch(`${base}/v1/tasks`, { headers })
+    expect(await tasksRes.json()).toMatchObject({
+      status: { enabled: true, daemonRunning: true, pid: 4242, taskCount: 1 },
+      tasks: [{ id: 'nightly' }],
+    })
+
+    const runsRes = await fetch(`${base}/v1/tasks/runs?task=nightly&limit=5`, { headers })
+    expect(await runsRes.json()).toMatchObject({ runs: [{ runId: 'r1', taskId: 'nightly' }] })
+
+    // 直挂（非 relay）网关没有任务面：空视图而非错误。
+    const unauthRes = await fetch(`${base}/v1/tasks`)
+    expect(unauthRes.status).toBe(401)
   })
 
   it('serves a mobile ws client end-to-end (turn + events)', async () => {

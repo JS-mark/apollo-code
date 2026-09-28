@@ -906,6 +906,48 @@ export async function createGatewayServer(
         return
       }
 
+      // W-17 移动站只读面：调度器状态/任务定义/运行 journal（relay 经隧道取自
+      // 本机 TaskStore；直挂网关没有本地任务面，返回空视图）。写操作不经网关。
+      if (path === '/v1/tasks' && req.method === 'GET') {
+        if (options.relay) {
+          const remote = resolveHub(auth) as unknown as {
+            tasksStatus?: () => Promise<unknown>
+            tasksList?: () => Promise<readonly unknown[]>
+          }
+          if (!remote.tasksStatus || !remote.tasksList)
+            return fail(
+              res,
+              new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+            )
+          ok(res, { status: await remote.tasksStatus(), tasks: await remote.tasksList() })
+          return
+        }
+        ok(res, {
+          status: { enabled: false, daemonRunning: false, taskCount: 0 },
+          tasks: [],
+        })
+        return
+      }
+      if (path === '/v1/tasks/runs' && req.method === 'GET') {
+        const rawLimit = Number(url.searchParams.get('limit') ?? '20')
+        const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 20
+        const task = url.searchParams.get('task') ?? undefined
+        if (options.relay) {
+          const remote = resolveHub(auth) as unknown as {
+            tasksRuns?: (task: string | undefined, limit: number) => Promise<readonly unknown[]>
+          }
+          if (!remote.tasksRuns)
+            return fail(
+              res,
+              new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+            )
+          ok(res, { runs: await remote.tasksRuns(task, limit) })
+          return
+        }
+        ok(res, { runs: [] })
+        return
+      }
+
       if (path === '/v1/sessions' && req.method === 'GET') {
         if (options.relay) {
           // RemoteHub 在 GatewayHubLike 之外多一个 listSessions（会话清单经隧道取自本机）。

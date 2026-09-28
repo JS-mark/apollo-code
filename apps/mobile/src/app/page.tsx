@@ -6,7 +6,13 @@
  * 待审批，event 帧进聊天 reducer；发消息 = 乐观回显 + turn.submit。创建会话只
  * 由显式「新会话」触发，不再有首条消息自动补建。
  */
-import { CommentOutlined, HistoryOutlined, UserOutlined, WifiOutlined } from '@ant-design/icons'
+import {
+  ClockCircleOutlined,
+  CommentOutlined,
+  HistoryOutlined,
+  UserOutlined,
+  WifiOutlined,
+} from '@ant-design/icons'
 import { App as AntApp, Badge, ConfigProvider, Select, theme as antdTheme, Typography } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -15,6 +21,7 @@ import { ChatView, type SubmitImage } from '../components/ChatView'
 import { MineView } from '../components/MineView'
 import { PairView } from '../components/PairView'
 import { SessionsView } from '../components/SessionsView'
+import { TasksView } from '../components/TasksView'
 import { WelcomeView } from '../components/WelcomeView'
 import {
   initialChatState,
@@ -36,7 +43,7 @@ import {
 } from '../lib/gateway'
 import { ThemeModeProvider, useThemeMode } from '../lib/theme'
 
-type Tab = 'sessions' | 'chat' | 'mine'
+type Tab = 'sessions' | 'chat' | 'tasks' | 'mine'
 
 /** antd 主题壳：亮/暗 algorithm 跟随 ThemeModeProvider 的 resolved（cssVar 随之切换）。 */
 function Themed({ children }: { children: React.ReactNode }) {
@@ -102,7 +109,13 @@ function MobileApp() {
     setModelOverride(loadModelOverride())
     // 恢复上次视图（SSR 首帧后读 localStorage，避免水合不匹配）。
     const storedTab = window.localStorage.getItem('volund-mobile-tab')
-    if (storedTab === 'chat' || storedTab === 'sessions' || storedTab === 'mine') setTab(storedTab)
+    if (
+      storedTab === 'chat' ||
+      storedTab === 'sessions' ||
+      storedTab === 'tasks' ||
+      storedTab === 'mine'
+    )
+      setTab(storedTab)
     setBooted(true)
   }, [])
 
@@ -515,6 +528,8 @@ function MobileApp() {
             onNewChat={newChat}
             onDelete={(id) => void deleteSession(id)}
           />
+        ) : tab === 'tasks' ? (
+          <TasksView token={session.token} active={tab === 'tasks'} />
         ) : (
           <MineView
             session={session}
@@ -529,6 +544,7 @@ function MobileApp() {
           [
             ['sessions', '会话', <HistoryOutlined key="icon" style={{ fontSize: 20 }} />],
             ['chat', '对话', <CommentOutlined key="icon" style={{ fontSize: 20 }} />],
+            ['tasks', '任务', <ClockCircleOutlined key="icon" style={{ fontSize: 20 }} />],
             ['mine', '我的', <UserOutlined key="icon" style={{ fontSize: 20 }} />],
           ] as const
         ).map(([key, label, icon]) => (

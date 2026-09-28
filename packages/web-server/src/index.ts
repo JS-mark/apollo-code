@@ -19,6 +19,7 @@ import type { IncomingMessage } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 
 import { acceptWebSocket, WsConnection } from '@volund/gateway-server'
+import type { TaskDefinition } from '@volund/shared'
 import type { SubmitAttachment } from '@volund/shared'
 
 import { actionDispatcher, parseMcpAddBody, type ManagementPorts } from './management'
@@ -37,6 +38,33 @@ export interface ChangesPortLike {
   /** W-08+：按路径预览/执行撤销（批次含多文件时整批）。 */
   previewUndoPath?(sessionId: string, path: string): Promise<unknown>
   undoPath?(sessionId: string, path: string): Promise<unknown>
+}
+
+/**
+ * W-17 批次 3：任务调度只读面（TaskStore 背书，apps/cli 装配）。
+ * 只读是所有权铁律的镜像（F1-01）：触发与写操作只在 daemon/CLI，web/mobile
+ * 不经 HTTP 写任务表——mutation 端点故意不存在。
+ */
+export interface TaskRunView {
+  readonly runId: string
+  readonly taskId: string
+  readonly status: 'missed' | 'skipped' | 'running' | 'completed' | 'failed'
+  readonly scheduledFor: number
+  readonly startedAt?: number
+  readonly finishedAt?: number
+  readonly sessionId?: string
+  readonly exitCode?: number
+  readonly error?: { readonly code: string; readonly message: string }
+}
+
+export interface TasksPortLike {
+  /** 调度器状态：[tasks].enabled + daemon 在场性（doctor 同源的观测口径）。 */
+  status(): Promise<{ enabled: boolean; daemonRunning: boolean; pid?: number; taskCount: number }>
+  list(): Promise<readonly TaskDefinition[]>
+  runs(taskId: string | undefined, limit: number): Promise<readonly TaskRunView[]>
+  /** W-17 r1.5：定义表 mutation（与 CLI/工具同 TaskStore 同锁；触发权仍归 daemon）。 */
+  setEnabled(id: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>
+  remove(id: string): Promise<{ removed: boolean }>
 }
 
 /**
@@ -124,6 +152,8 @@ export interface WebServerOptions {
   readonly management?: ManagementPorts
   /** W-08：会话变更与 undo。 */
   readonly changes?: ChangesPortLike
+  /** W-17：任务调度只读面（TaskStore 背书；缺端口=前端隐藏任务入口）。 */
+  readonly tasks?: TasksPortLike
   /** W-06：模型列表（当前生效模型 + config 别名解析后的 provider/model 候选）。 */
   readonly models?: {
     list(): Promise<unknown>
@@ -567,6 +597,8 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
               mcp: options.management?.mcp !== undefined,
               plugins: options.management?.plugins !== undefined,
               telemetry: options.management?.telemetry !== undefined,
+              // W-17：任务只读页签（TaskStore 端口装配即可见；无 mutation）。
+              tasks: options.tasks !== undefined,
             },
           },
         },
@@ -877,6 +909,73 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             code: 'web_schema_invalid',
             message: 'type must be start | stop | create-pairing | revoke-device',
           })
+      }
+      return
+    }
+
+    // ── W-17 任务调度只读面（definitions + run journal；写操作只在 daemon/CLI）──
+    if (path === '/api/v1/tasks' && req.method === 'GET') {
+      const tasksPort = options.tasks
+      if (!tasksPort) {
+        fail(res, 503, {
+          code: 'web_capability_unavailable',
+          message: 'tasks port is not wired',
+        })
+        return
+      }
+      ok(res, { status: await tasksPort.status(), tasks: await tasksPort.list() })
+      return
+    }
+    if (path === '/api/v1/tasks/runs' && req.method === 'GET') {
+      const tasksPort = options.tasks
+      if (!tasksPort) {
+        fail(res, 503, {
+          code: 'web_capability_unavailable',
+          message: 'tasks port is not wired',
+        })
+        return
+      }
+      const task = url.searchParams.get('task') ?? undefined
+      const rawLimit = Number(url.searchParams.get('limit') ?? '20')
+      const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 20
+      ok(res, { runs: await tasksPort.runs(task, limit) })
+      return
+    }
+
+    // ── W-17 r1.5 任务定义 mutation（定义表写；触发仍只有 daemon）──────────
+    if (path === '/api/v1/tasks/set-enabled' && req.method === 'POST') {
+      const tasksPort = options.tasks
+      if (!tasksPort) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: 'tasks port is not wired' })
+        return
+      }
+      const body = (await readJsonBody(req)) as { id?: unknown; enabled?: unknown }
+      if (typeof body.id !== 'string' || !body.id || typeof body.enabled !== 'boolean') {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'id and enabled are required' })
+        return
+      }
+      try {
+        ok(res, await tasksPort.setEnabled(body.id, body.enabled))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (path === '/api/v1/tasks/remove' && req.method === 'POST') {
+      const tasksPort = options.tasks
+      if (!tasksPort) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: 'tasks port is not wired' })
+        return
+      }
+      const body = (await readJsonBody(req)) as { id?: unknown }
+      if (typeof body.id !== 'string' || !body.id) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'id is required' })
+        return
+      }
+      try {
+        ok(res, await tasksPort.remove(body.id))
+      } catch (cause) {
+        failFrom(res, cause)
       }
       return
     }

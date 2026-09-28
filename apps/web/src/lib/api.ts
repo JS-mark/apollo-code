@@ -98,6 +98,53 @@ export interface StatusView {
   [key: string]: unknown
 }
 
+// ── W-17 任务调度（只读：写操作只在 daemon/CLI，web 不存在 mutation 面）───
+export interface TaskScheduleView {
+  kind: 'interval' | 'daily' | 'weekly'
+  everyMs?: number
+  at?: string
+  weekdays?: number[]
+}
+
+export interface TaskView {
+  id: string
+  name: string
+  enabled: boolean
+  prompt: string
+  cwd: string
+  schedule: TaskScheduleView
+  timezone?: string
+  missedRun: 'skip' | 'run_latest'
+  overlap: 'skip' | 'queue'
+  constraints?: { model?: string; timeoutMs?: number; maxRetries?: number }
+  createdAt: number
+}
+
+export interface TaskSchedulerStatusView {
+  enabled: boolean
+  daemonRunning: boolean
+  pid?: number
+  taskCount: number
+}
+
+export interface TaskRunView {
+  runId: string
+  taskId: string
+  status: 'missed' | 'skipped' | 'running' | 'completed' | 'failed'
+  scheduledFor: number
+  startedAt?: number
+  finishedAt?: number
+  sessionId?: string
+  exitCode?: number
+  error?: { code: string; message: string }
+}
+
+export function formatSchedule(schedule: TaskScheduleView): string {
+  if (schedule.kind === 'interval') return `每 ${Math.round((schedule.everyMs ?? 0) / 60_000)} 分钟`
+  if (schedule.kind === 'daily') return `每天 ${schedule.at ?? ''}`
+  return `每周 ${(schedule.weekdays ?? []).join(',')} ${schedule.at ?? ''}`
+}
+
 // ── REM-r1 远程控制 ────────────────────────────────────────────────────
 export interface RemoteStatusView {
   state: 'off' | 'connecting' | 'online'
@@ -213,6 +260,36 @@ export interface WbFileBytes {
 
 export class WebApi {
   constructor(private readonly session: BrowserSession) {}
+
+  // ── W-17 任务调度（只读）────────────────────────────────────────────
+  async tasks(): Promise<{ status: TaskSchedulerStatusView; tasks: TaskView[] }> {
+    return parseResponse(await fetch('/api/v1/tasks'))
+  }
+  async taskRuns(taskId?: string, limit = 20): Promise<{ runs: TaskRunView[] }> {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (taskId) query.set('task', taskId)
+    return parseResponse(await fetch(`/api/v1/tasks/runs?${query.toString()}`))
+  }
+
+  /** W-17 r1.5：定义表 mutation（启停/删除；触发仍归 daemon）。 */
+  async taskSetEnabled(id: string, enabled: boolean): Promise<{ id: string; enabled: boolean }> {
+    return parseResponse(
+      await fetch('/api/v1/tasks/set-enabled', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ id, enabled }),
+      }),
+    )
+  }
+  async taskRemove(id: string): Promise<{ removed: boolean }> {
+    return parseResponse(
+      await fetch('/api/v1/tasks/remove', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ id }),
+      }),
+    )
+  }
 
   // ── P3 会话生命周期 ────────────────────────────────────────────────
   async activeSession(): Promise<ActiveSession> {

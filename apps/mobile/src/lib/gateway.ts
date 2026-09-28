@@ -222,6 +222,44 @@ export interface UndoPreview {
 const attachmentBlobCache = new Map<string, Promise<Blob>>()
 const ATTACHMENT_CACHE_LIMIT = 30
 
+/** W-17 任务调度只读面（relay 经隧道取自本机 TaskStore；写操作不经网关）。 */
+export interface MobileTaskSchedule {
+  kind: 'interval' | 'daily' | 'weekly'
+  everyMs?: number
+  at?: string
+  weekdays?: number[]
+}
+
+export interface MobileTask {
+  id: string
+  name: string
+  enabled: boolean
+  cwd: string
+  schedule: MobileTaskSchedule
+  missedRun: 'skip' | 'run_latest'
+  overlap: 'skip' | 'queue'
+  createdAt: number
+}
+
+export interface MobileTaskSchedulerStatus {
+  enabled: boolean
+  daemonRunning: boolean
+  pid?: number
+  taskCount: number
+}
+
+export interface MobileTaskRun {
+  runId: string
+  taskId: string
+  status: 'missed' | 'skipped' | 'running' | 'completed' | 'failed'
+  scheduledFor: number
+  startedAt?: number
+  finishedAt?: number
+  sessionId?: string
+  exitCode?: number
+  error?: { code: string; message: string }
+}
+
 /** 网关 REST 面（Bearer token）。 */
 export class GatewayApi {
   constructor(private readonly token: string) {}
@@ -264,6 +302,18 @@ export class GatewayApi {
 
   transcript(): Promise<{ id?: string; cwd?: string; transcript: unknown[] }> {
     return this.get('/v1/sessions/active/transcript')
+  }
+
+  /** 任务调度状态 + 任务定义（W-17 只读腿）。 */
+  tasks(): Promise<{ status: MobileTaskSchedulerStatus; tasks: MobileTask[] }> {
+    return this.get<{ status: MobileTaskSchedulerStatus; tasks: MobileTask[] }>('/v1/tasks')
+  }
+
+  /** 运行 journal（新→旧；task 过滤 + limit 夹取在网关侧完成）。 */
+  taskRuns(task?: string, limit = 20): Promise<{ runs: MobileTaskRun[] }> {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (task) query.set('task', task)
+    return this.get<{ runs: MobileTaskRun[] }>(`/v1/tasks/runs?${query.toString()}`)
   }
 
   /** 模型清单（relay 模式经隧道取自本机；data 为 OpenAI 形状，current 为默认模型）。 */

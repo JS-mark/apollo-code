@@ -70,6 +70,12 @@ export interface RemoteLinkOptions {
   readonly hub: GatewayHubLike
   /** /v1/sessions 数据源（缺省空列表）。 */
   readonly listSessions?: () => Promise<readonly unknown[]>
+  /** W-17 任务调度只读面（缺省 = RPC 回 capability 缺失错误；写操作不存在）。 */
+  readonly tasksPort?: {
+    status(): Promise<unknown>
+    list(): Promise<readonly unknown[]>
+    runs(taskId: string | undefined, limit: number): Promise<readonly unknown[]>
+  }
   /** cwd 关卡根（会话 cwd 被关进这里）。 */
   readonly workspaceCwd: string
   readonly version?: string
@@ -455,6 +461,25 @@ export class RemoteLink {
     }
     if (method === 'sessions.list')
       return this.options.listSessions ? this.options.listSessions() : []
+    if (method === 'tasks.status') {
+      const port = this.options.tasksPort
+      if (!port) throw new Error('tasks surface is not supported by this hub')
+      return port.status()
+    }
+    if (method === 'tasks.list') {
+      const port = this.options.tasksPort
+      if (!port) throw new Error('tasks surface is not supported by this hub')
+      return port.list()
+    }
+    if (method === 'tasks.runs') {
+      const port = this.options.tasksPort
+      if (!port) throw new Error('tasks surface is not supported by this hub')
+      const limit = Number(params.limit ?? 20)
+      return port.runs(
+        typeof params.task === 'string' && params.task ? params.task : undefined,
+        Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 20,
+      )
+    }
     if (method === 'sessions.delete') {
       const del = this.options.hub.deleteSession
       if (!del) throw new Error('session deletion is not supported by this hub')

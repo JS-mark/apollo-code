@@ -22,7 +22,7 @@ import {
 import type { InputRef } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { Bootstrap, ConfigView, ModelsView, WebApi } from '../lib/api'
+import type { Bootstrap, ConfigView, ModelsView, TaskSchedulerStatusView, WebApi } from '../lib/api'
 import { useThemeMode } from '../lib/theme'
 import { PERMISSION_MODES as PERMISSION_MODES_SOURCE } from './ChatPanel'
 
@@ -89,6 +89,7 @@ const SECTIONS = [
   { key: 'behavior', label: '行为' },
   { key: 'webSearch', label: 'Web 搜索' },
   { key: 'memory', label: '记忆' },
+  { key: 'tasks', label: '定时任务' },
   { key: 'language', label: '语言' },
   { key: 'agents', label: 'Agent 预设' },
   { key: 'advanced', label: '高级' },
@@ -125,6 +126,44 @@ function ResetLink({ ctx, configKey }: { ctx: Ctx; configKey: string }) {
     <Typography.Link style={{ fontSize: 12 }} onClick={() => void ctx.unset(configKey)}>
       重置
     </Typography.Link>
+  )
+}
+
+/** 定时任务调度器状态（W-17）：daemon 在场性是开关之外的第二半语义。 */
+function TasksSchedulerStatus({ api }: { api: WebApi }) {
+  const [status, setStatus] = useState<TaskSchedulerStatusView>()
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    void api
+      .tasks()
+      .then((view) => {
+        if (!cancelled) setStatus(view.status)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [api, tick])
+  const running = status?.daemonRunning === true
+  return (
+    <Row
+      title="调度器状态"
+      hint="触发由 volund daemon 独占；启停在 CLI（volund daemon / launchd·systemd 保活）"
+    >
+      <Space size={8}>
+        <Tag color={!status ? 'default' : running ? 'green' : 'orange'}>
+          {!status
+            ? '读取中'
+            : running
+              ? `daemon 运行中（pid ${status.pid ?? '?'}）`
+              : 'daemon 未运行——任务不会触发'}
+        </Tag>
+        <Button size="small" onClick={() => setTick((value) => value + 1)}>
+          刷新
+        </Button>
+      </Space>
+    </Row>
   )
 }
 
@@ -1379,6 +1418,41 @@ export function SettingsPage({
                   configKey="memory.paths.project"
                   title="项目记忆路径"
                   hint="memory.paths.project（缺省内置布局）"
+                />
+              </Card>
+            </>
+          )}
+
+          {/* 定时任务（W-17）：enabled 是用户级 config（机器所有者面，项目级 forbidden）；
+              daemon 在场性是触发条件的另一半，只读展示。 */}
+          {configCapable && (
+            <>
+              <Typography.Title level={5} id="settings-tasks">
+                定时任务
+              </Typography.Title>
+              <Card size="small" style={{ marginBottom: 24 }}>
+                <TasksSchedulerStatus api={api} />
+                <BoolField
+                  ctx={ctx}
+                  configKey="tasks.enabled"
+                  title="启用定时任务调度"
+                  hint="tasks.enabled（默认 false；开启后还需 volund daemon 在场才会触发）"
+                />
+                <NumberField
+                  ctx={ctx}
+                  configKey="tasks.max_concurrent"
+                  title="同时在途运行上限"
+                  hint="tasks.max_concurrent（1–8，默认 1）"
+                  min={1}
+                  max={8}
+                />
+                <NumberField
+                  ctx={ctx}
+                  configKey="tasks.journal_retention"
+                  title="运行记录保留条数"
+                  hint="tasks.journal_retention（10–10000，默认 200）"
+                  min={10}
+                  max={10000}
                 />
               </Card>
             </>

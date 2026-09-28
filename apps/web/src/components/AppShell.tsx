@@ -13,6 +13,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ReadOutlined,
+  ClockCircleOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
 import { Button, Dropdown, Tooltip, Typography } from 'antd'
@@ -32,6 +33,7 @@ import { SettingsPage } from './SettingsPage'
 import { ShortcutsPage } from './ShortcutsPage'
 import { StatsPage } from './StatsPage'
 import { StatusPage } from './StatusPage'
+import { TasksPage } from './TasksPage'
 import { WorkbenchPanel } from './WorkbenchPanel'
 
 type Route =
@@ -39,6 +41,7 @@ type Route =
   | 'code'
   | 'status'
   | 'manage'
+  | 'tasks'
   | 'settings'
   | 'shortcuts'
   | 'changes'
@@ -293,6 +296,9 @@ export function AppShell() {
 
   const { bootstrap, status, activeId } = loaded
   const embedded = bootstrap.capabilities.embedded === true
+  // W-17：任务只读面已装配（服务端 capabilities.management.tasks）才显示侧栏入口。
+  const tasksAvailable =
+    (bootstrap.capabilities.management as Record<string, unknown> | undefined)?.tasks === true
   const activeTitle = loaded.sessions.find((session) => session.id === activeId)?.title
 
   // 选中态对齐 CodeBuddy：左侧蓝色指示条 + 图标提亮，不用实心圆底。
@@ -376,6 +382,7 @@ export function AppShell() {
           '管理（Memory / Skills / MCP / Plugins / Telemetry）',
           <AppstoreOutlined />,
         )}
+        {tasksAvailable && railButton('tasks', '任务', <ClockCircleOutlined />)}
         {railButton('status', '状态', <ApiOutlined />)}
         {railButton('remote', '远程控制', <CloudServerOutlined />)}
         <span style={{ flex: 1 }} />
@@ -467,6 +474,8 @@ export function AppShell() {
           {route !== 'code' &&
             (route === 'manage' ? (
               <ManagePage api={loaded.api} capabilities={bootstrap.capabilities} />
+            ) : route === 'tasks' ? (
+              <TasksPage api={loaded.api} />
             ) : route === 'status' ? (
               <StatusPage status={status} />
             ) : route === 'remote' ? (

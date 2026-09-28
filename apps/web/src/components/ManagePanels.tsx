@@ -6,8 +6,9 @@
  * （add/remove/域级 reload/inspect）/ Plugins（三源 inventory + approve 权限清单）。
  * 全部走 tagged-union actions，零直连文件系统。
  */
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
+  App,
   Button,
   Descriptions,
   Empty,
@@ -22,11 +23,13 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { WebApi } from '../lib/api'
+import type { TaskRunView, TaskSchedulerStatusView, TaskView, WebApi } from '../lib/api'
+import { formatSchedule } from '../lib/api'
 import {
   CountBadge,
   ItemCard,
@@ -44,6 +47,224 @@ import {
 } from './manage-shared'
 import { Markdown } from './Markdown'
 import { MarkdownMemoEditor } from './MarkdownMemoEditor'
+
+// ── Tasks（W-17 批次 4，只读）─────────────────────────────────────────
+
+/** 任务调度面板：调度器状态 + 任务定义 + 运行 journal。写操作只在 daemon/CLI。 */
+export function TasksPanel({ api }: { api: WebApi }) {
+  const { message } = App.useApp()
+  const [status, setStatus] = useState<TaskSchedulerStatusView>()
+  const [tasks, setTasks] = useState<TaskView[]>([])
+  const [runs, setRuns] = useState<TaskRunView[]>([])
+  const [taskFilter, setTaskFilter] = useState<string | undefined>(undefined)
+  const [error, setError] = useState<string>()
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    void api
+      .tasks()
+      .then((view) => {
+        if (cancelled) return
+        setStatus(view.status)
+        setTasks(view.tasks)
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    void api
+      .taskRuns(taskFilter, 20)
+      .then((view) => {
+        if (!cancelled) setRuns(view.runs)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [api, taskFilter, tick])
+
+  const reload = () => setTick((value) => value + 1)
+  const setEnabled = useCallback(
+    async (id: string, enabled: boolean) => {
+      try {
+        await api.taskSetEnabled(id, enabled)
+        message.success(enabled ? '已启用' : '已停用（daemon 下一 tick 不再触发）')
+        reload()
+      } catch (cause) {
+        message.error(cause instanceof Error ? cause.message : String(cause))
+      }
+    },
+    [api, message],
+  )
+  const removeTask = useCallback(
+    async (id: string) => {
+      try {
+        await api.taskRemove(id)
+        message.success('已删除')
+        if (taskFilter === id) setTaskFilter(undefined)
+        reload()
+      } catch (cause) {
+        message.error(cause instanceof Error ? cause.message : String(cause))
+      }
+    },
+    [api, message, taskFilter],
+  )
+  const statusColor = !status
+    ? 'gray'
+    : !status.enabled
+      ? 'gray'
+      : status.daemonRunning
+        ? 'green'
+        : 'orange'
+  const statusText = !status
+    ? '加载中'
+    : !status.enabled
+      ? '未启用（[tasks].enabled）'
+      : status.daemonRunning
+        ? `daemon 运行中（pid ${status.pid ?? '?'}）`
+        : '已启用但 daemon 未运行——任务不会触发（volund daemon 启动）'
+
+  const runStatusColor = (run: TaskRunView): string =>
+    run.status === 'completed'
+      ? 'green'
+      : run.status === 'running'
+        ? 'blue'
+        : run.status === 'failed'
+          ? 'red'
+          : 'default'
+
+  return (
+    <div>
+      <PanelToolbar>
+        <StatusDot color={statusColor} text={statusText} />
+        <Button icon={<ReloadOutlined />} aria-label="刷新任务" onClick={reload} />
+      </PanelToolbar>
+      <Notice message={error} />
+      <Table<TaskView>
+        size="small"
+        rowKey="id"
+        dataSource={tasks}
+        pagination={false}
+        locale={{ emptyText: <Empty description="没有任务定义（volund tasks add 创建）" /> }}
+        columns={[
+          {
+            title: '任务',
+            dataIndex: 'name',
+            render: (_, task) => (
+              <Space size={6}>
+                <Typography.Text strong>{task.name}</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {task.id}
+                </Typography.Text>
+              </Space>
+            ),
+          },
+          { title: '调度', render: (_, task) => formatSchedule(task.schedule) },
+          {
+            title: '状态',
+            dataIndex: 'enabled',
+            width: 90,
+            render: (enabled: boolean, task) => (
+              <Switch
+                size="small"
+                checked={enabled}
+                checkedChildren="启用"
+                unCheckedChildren="停用"
+                onChange={(checked) => void setEnabled(task.id, checked)}
+              />
+            ),
+          },
+          { title: 'cwd', dataIndex: 'cwd', ellipsis: true },
+          {
+            title: '',
+            width: 48,
+            render: (_, task) => (
+              <Popconfirm
+                title={`删除任务 ${task.name}？`}
+                description="运行记录一并移除游标；已触发的会话档案保留。"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => void removeTask(task.id)}
+              >
+                <Tooltip title="删除任务">
+                  <Button
+                    size="small"
+                    danger
+                    type="text"
+                    aria-label={`删除任务 ${task.name}`}
+                    icon={<DeleteOutlined />}
+                  />
+                </Tooltip>
+              </Popconfirm>
+            ),
+          },
+        ]}
+      />
+      <Typography.Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>
+        运行记录
+      </Typography.Title>
+      <Space style={{ marginBottom: 8 }}>
+        <Select
+          allowClear
+          placeholder="全部任务"
+          style={{ minWidth: 200 }}
+          value={taskFilter}
+          onChange={(value) => setTaskFilter(value)}
+          options={tasks.map((task) => ({ value: task.id, label: `${task.name} (${task.id})` }))}
+        />
+      </Space>
+      <Table<TaskRunView>
+        size="small"
+        rowKey="runId"
+        dataSource={runs}
+        pagination={false}
+        locale={{ emptyText: <Empty description="没有运行记录" /> }}
+        columns={[
+          {
+            title: '计划时刻',
+            dataIndex: 'scheduledFor',
+            width: 150,
+            render: (ms: number) => formatEpoch(ms),
+          },
+          {
+            title: '结果',
+            dataIndex: 'status',
+            width: 110,
+            render: (_, run) => (
+              <Space size={6}>
+                <Tag color={runStatusColor(run)}>{run.status}</Tag>
+                {run.exitCode !== undefined && run.exitCode !== 0 ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    exit {run.exitCode}
+                  </Typography.Text>
+                ) : null}
+              </Space>
+            ),
+          },
+          { title: '错误', render: (_, run) => run.error?.message ?? '', ellipsis: true },
+          {
+            title: '会话',
+            dataIndex: 'sessionId',
+            width: 140,
+            render: (sessionId: string | undefined) =>
+              sessionId ? (
+                <Typography.Text code style={{ fontSize: 12 }}>
+                  {sessionId}
+                </Typography.Text>
+              ) : (
+                ''
+              ),
+          },
+        ]}
+      />
+    </div>
+  )
+}
+
+function formatEpoch(ms: number): string {
+  const date = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
 
 // ── Memory（§S3.2）────────────────────────────────────────────────────
 

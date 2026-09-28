@@ -179,6 +179,22 @@ export class RemoteHub implements GatewayHubLike {
     return this.call('sessions.list', {}) as Promise<readonly unknown[]>
   }
 
+  /** W-17 移动站只读腿：调度器状态 / 任务定义 / 运行 journal（写操作不存在）。 */
+  tasksStatus(): Promise<unknown> {
+    return this.call('tasks.status', {})
+  }
+
+  tasksList(): Promise<readonly unknown[]> {
+    return this.call('tasks.list', {}) as Promise<readonly unknown[]>
+  }
+
+  tasksRuns(task: string | undefined, limit: number): Promise<readonly unknown[]> {
+    return this.call('tasks.runs', {
+      ...(task ? { task } : {}),
+      limit,
+    }) as Promise<readonly unknown[]>
+  }
+
   /** 删除会话档案（POST /v1/sessions/delete 的隧道腿）：本机侧含活动会话收尾。 */
   deleteSession(id: string): Promise<{ deleted: true; next?: string }> {
     return this.call('sessions.delete', { id }) as Promise<{ deleted: true; next?: string }>

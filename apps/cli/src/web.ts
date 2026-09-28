@@ -11,13 +11,15 @@ import { join } from 'node:path'
 
 import { createMemoryPanelController, projectMemoryScope } from '@volund/app-runtime'
 import { standaloneArtifactDir } from '@volund/native-bridge'
+import { TaskStore } from '@volund/storage'
 import { createWebServer } from '@volund/web-server'
-import type { WebServerOptions } from '@volund/web-server'
+import type { TasksPortLike, WebServerOptions } from '@volund/web-server'
 import { createSessionGroupStore } from '@volund/web-server/session-groups'
 import { SessionHub } from '@volund/web-server/session-hub'
 import { createTerminalPort } from '@volund/web-server/terminal'
 import { createWorkbenchPort } from '@volund/web-server/workbench'
 
+import { readDaemonStatus, syncDaemonWithSwitch, taskStorePath } from './daemon'
 import type { VolundPorts } from './ports'
 
 /**
@@ -99,6 +101,37 @@ export async function listModels(ports: VolundPorts, cwd: string): Promise<CliMo
   return { ...(current ? { current } : {}), options }
 }
 
+/**
+ * W-17 批次 3：web 侧任务只读端口。enabled 从 config 现读（热生效），
+ * daemon 在场性读 daemon.lock（只读探测，不持锁）。
+ */
+function createTasksPort(home: string, ports: VolundPorts, cwd: string): TasksPortLike {
+  const store = new TaskStore(taskStorePath(home))
+  return {
+    status: async () => {
+      const merged = await ports.config.listMerged?.({ cwd }).catch(() => undefined)
+      const section = (merged?.config?.['tasks'] ?? {}) as { enabled?: unknown }
+      const daemon = await readDaemonStatus(home)
+      return {
+        enabled: section['enabled'] === true,
+        daemonRunning: daemon.running,
+        ...(daemon.pid ? { pid: daemon.pid } : {}),
+        taskCount: (await store.listTasks()).length,
+      }
+    },
+    list: () => store.listTasks(),
+    runs: (taskId, limit) => store.recentRuns({ ...(taskId ? { taskId } : {}), limit }),
+    // W-17 r1.5：定义表 mutation（与 CLI/schedule_task 工具同 TaskStore 同锁）。
+    setEnabled: async (id, enabled) => {
+      const existing = await store.getTask(id)
+      if (!existing) throw new Error(`no such task: ${id}`)
+      const updated = await store.upsertTask({ ...existing, enabled })
+      return { id: updated.id, enabled: updated.enabled }
+    },
+    remove: async (id) => ({ removed: await store.removeTask(id) }),
+  }
+}
+
 function buildServerOptions(
   ports: VolundPorts,
   cwd: string,
@@ -109,6 +142,7 @@ function buildServerOptions(
     terminal?: { shell?: string; font_size?: number; scrollback?: number } | undefined
   },
 ): { options: WebServerOptions; hub: SessionHub } {
+  const serverHome = input.home
   // §22 W-07 多路审批：共享 PermissionPromptController（runtime 装配进权限链），
   // TUI 与 Web 订阅同一队列，任一端决策全端清卡。
   const sessionHub = new SessionHub(
@@ -168,6 +202,8 @@ function buildServerOptions(
       embedded: true,
       management,
       ...(ports.changes ? { changes: ports.changes } : {}),
+      // W-17：任务调度只读面（TaskStore 背书；daemon 在场性经 daemon.lock 探测）。
+      tasks: createTasksPort(input.home, ports, cwd),
       models: { list: () => listModels(ports, cwd) },
       // 侧栏会话分组：与端口记忆同目录（<home>/web/），跨重启保留。
       sessionGroups: createSessionGroupStore(join(input.home, 'web', 'session-groups.json')),
@@ -211,8 +247,17 @@ function buildServerOptions(
                   : {}),
                 ...(ports.config.setValue
                   ? {
-                      setValue: (input: { cwd: string; key: string; value: unknown }) =>
-                        ports.config!.setValue!(input as never),
+                      setValue: async (input: { cwd: string; key: string; value: unknown }) => {
+                        const result = await ports.config!.setValue!(input as never)
+                        // W-17 r1.4：开关翻转联动 daemon 启停（fire-and-forget；
+                        // 状态行刷新即真相）。serverHome = buildServerOptions 的 home。
+                        if (input.key === 'tasks.enabled' && typeof input.value === 'boolean') {
+                          void syncDaemonWithSwitch(serverHome, input.value, {
+                            cwd: input.cwd,
+                          }).catch(() => undefined)
+                        }
+                        return result
+                      },
                     }
                   : {}),
                 // W-13 设置页全量配置：读取（合并视图）/清除/文件路径。
