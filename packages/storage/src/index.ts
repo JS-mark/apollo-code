@@ -28,6 +28,7 @@ export * from './memory-store'
 export * from './memory-index'
 export * from './memory-runtime'
 export * from './memory-transfer'
+export * from './task-store'
 export * from './memory-prompt-provider'
 export interface StoredEvent {
   v: 1
