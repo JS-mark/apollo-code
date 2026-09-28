@@ -534,6 +534,15 @@ export function ChatView({
         ? '正在思考…'
         : '思考中…'
 
+  // 中断提示上的「重试」：重发最后一条已收口的 user 消息（乐观回显不重发；
+  // 纯图消息 chip 剥离后 text 为空，没有可重发的文本，不出现按钮）。
+  const lastUserText = [...state.messages]
+    .reverse()
+    .find((message) => message.role === 'user' && !message.local && !!message.text.trim())?.text
+  const retryLast = () => {
+    if (lastUserText) onSubmit(lastUserText, [])
+  }
+
   // 无活动会话：整页空态引导（创建/恢复只从会话列表发起，输入区不出现）。
   if (activeSessionId === undefined && !loading) {
     return (
@@ -600,6 +609,22 @@ export function ChatView({
               <TypingDots />
             </div>
           )}
+        {/* 用户主动中断：灰字弱化 + 重试（不是报错，不进警示条）。 */}
+        {state.interrupted && (
+          <div className="overlay-hint chat-interrupted">
+            <span>已中断本次回复</span>
+            {lastUserText && (
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0, height: 'auto' }}
+                onClick={retryLast}
+              >
+                重试
+              </Button>
+            )}
+          </div>
+        )}
         {state.notice && (
           <Alert
             type="warning"

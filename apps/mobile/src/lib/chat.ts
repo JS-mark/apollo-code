@@ -106,6 +106,11 @@ export interface ChatState {
    */
   streamedChars: number
   notice: string | undefined
+  /**
+   * 用户主动中断（turn.aborted 非错误原因）：走独立友好提示 + 重试入口，
+   * 不进报错 notice 槽（主动停止不是警告，警示条观感差）。turn.started 清除。
+   */
+  interrupted: boolean
   /** 下一个到达序号（消息/工具卡的会话流排序键分配器）。 */
   nextSeq: number
   /**
@@ -124,6 +129,7 @@ export const initialChatState: ChatState = {
   asks: [],
   streamedChars: 0,
   notice: undefined,
+  interrupted: false,
   nextSeq: 1,
   lastEventAt: 0,
 }
@@ -554,12 +560,14 @@ function reduceEnvelope(
       }
     }
     case 'turn.started':
-      return { ...state, turn: 'running', streamedChars: 0 }
+      return { ...state, turn: 'running', streamedChars: 0, interrupted: false }
     case 'turn.completed':
       return { ...state, turn: 'idle', messages: finalizeStreaming(state.messages) }
     case 'turn.aborted': {
       const messages = finalizeStreaming(state.messages)
-      // 兜底串与 error.raised 通知同槽位，保持英文（报错文案一律英文+code）。
+      // reason=error 时 error.raised 通常已给出具体原因，不覆盖；user_interrupt
+      // 才是「用户中断」语义——走 interrupted 友好提示（可重试），不与报错
+      // notice 同槽（报错文案一律英文+code，中断提示是 UI chrome 中文）。
       const reason = payload.reason
       if (reason === 'error')
         return {
@@ -570,7 +578,7 @@ function reduceEnvelope(
         }
       if (reason === 'stream_interrupted')
         return { ...state, turn: 'idle', messages, notice: state.notice ?? 'stream interrupted' }
-      return { ...state, turn: 'idle', messages, notice: 'turn interrupted' }
+      return { ...state, turn: 'idle', messages, interrupted: true }
     }
     case 'tool.requested': {
       // requested 帧带 input：非 Task 工具在此建卡并提取单行目标 + 展开正文（折叠行/

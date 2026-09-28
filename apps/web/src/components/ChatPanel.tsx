@@ -28,7 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ModelsView, SessionSummary, StagedAttachment, WebApi } from '../lib/api'
 import type { ChatImage, ChatMessage, SubagentActivity, ToolCard } from '../lib/session-stream'
-import { chatImageSrc, toolLabel, useSessionStream } from '../lib/session-stream'
+import { chatImageSrc, chatFeed, toolLabel, useSessionStream } from '../lib/session-stream'
 import { BrandMark } from './BrandMark'
 import { ChangesCard } from './ChangesCard'
 import { Markdown } from './Markdown'
@@ -493,6 +493,19 @@ export function ChatPanel({
     [api, chat.turn, ensureSession, images, modelOverride, stream],
   )
 
+  // 中断提示上的「重试」：重发最后一条已收口的 user 消息（乐观回显不重发；
+  // 纯图消息 chip 剥离后 text 为空，没有可重发的文本，不出现按钮）。
+  const retryLast = useCallback(() => {
+    const last = [...chat.messages]
+      .reverse()
+      .find((message) => message.role === 'user' && !message.local && message.text.trim())
+    if (last) void send(last.text)
+  }, [chat.messages, send])
+
+  const canRetryLast = chat.messages.some(
+    (message) => message.role === 'user' && !message.local && !!message.text.trim(),
+  )
+
   const decide = useCallback(
     async (kind: string) => {
       if (!chat.permission) return
@@ -544,35 +557,38 @@ export function ChatPanel({
   const canSend =
     !busy && !running && (draft.trim().length > 0 || images.some((item) => item.status === 'ready'))
 
+  // 会话流混排：消息与工具卡按到达 seq 合并渲染——工具卡跟随其发生的时点，
+  // 不再整体沉到消息流末尾（多回合/中途工具调用的时序靠它保住）。
+  const feed = chatFeed(chat)
+
   // 「已思考」摘要行的插入点：最后一个 user 消息之后的首条 assistant（即本回合回复）。
   const lastUserIndex = chat.messages.findLastIndex((message) => message.role === 'user')
-  const turnReplyIndex = chat.messages.findIndex(
+  const turnReplyId = chat.messages.find(
     (message, index) => index > lastUserIndex && message.role === 'assistant',
-  )
-  const showTurnStats = turnStats !== undefined && turnReplyIndex !== -1 && !running
+  )?.id
+  const showTurnStats = turnStats !== undefined && turnReplyId !== undefined && !running
 
-  /** 时间分隔行是否在该条目前渲染（首条/与上一条带时间的消息间隔超阈值）。 */
-  const timeBreaks: boolean[] = []
+  /** 时间分隔行挂哪条消息（id）：按混排序相邻消息间隔超阈值才再出一次（对齐 IM 惯例）。 */
+  const timeBreaks = new Set<string>()
   let lastShownAt = 0
-  chat.messages.forEach((message, index) => {
-    const at = message.at
-    if (at === undefined) {
-      timeBreaks[index] = false
-      return
+  for (const entry of feed) {
+    if (entry.kind !== 'message') continue
+    const at = entry.message.at
+    if (at === undefined) continue
+    if (at - lastShownAt > TIME_GAP_MS) {
+      timeBreaks.add(entry.message.id)
+      lastShownAt = at
     }
-    const show = at - lastShownAt > TIME_GAP_MS
-    timeBreaks[index] = show
-    if (show) lastShownAt = at
-  })
+  }
 
-  const renderMessage = (message: ChatMessage, index: number) => {
+  const renderMessage = (message: ChatMessage) => {
     const at = message.at
-    const timeRow = timeBreaks[index] && at !== undefined && (
+    const timeRow = timeBreaks.has(message.id) && at !== undefined && (
       <div key={`${message.id}-time`} className="msg-time">
         {formatHHMM(at)}
       </div>
     )
-    const statsRow = index === turnReplyIndex && showTurnStats && turnStats !== undefined && (
+    const statsRow = message.id === turnReplyId && showTurnStats && turnStats !== undefined && (
       <div key={`${message.id}-stats`} className="think-row settled">
         已思考 · {turnStats.seconds} 秒 · {turnStats.steps} 个步骤
       </div>
@@ -944,10 +960,13 @@ export function ChatPanel({
             }}
           >
             <div className="chat-disclaimer">回答由 AI 生成，仅供参考</div>
-            {chat.messages.map(renderMessage)}
-            {chat.tools.map((tool) => (
-              <ToolRowCard key={tool.toolUseId} tool={tool} subagents={chat.subagents} />
-            ))}
+            {feed.map((entry) =>
+              entry.kind === 'tool' ? (
+                <ToolRowCard key={entry.key} tool={entry.tool} subagents={chat.subagents} />
+              ) : (
+                renderMessage(entry.message)
+              ),
+            )}
             {running && !streamingReply && (
               <div className="think-row">
                 <TypingDots />
@@ -956,13 +975,6 @@ export function ChatPanel({
                   {elapsed >= 2 ? ` · ${elapsed}s` : ''}
                   {streamedTokens > 0 ? ` · ↑ ${streamedTokens} tokens` : ''}
                 </span>
-                <button
-                  type="button"
-                  className="think-interrupt"
-                  onClick={() => void api.interrupt()}
-                >
-                  中断
-                </button>
               </div>
             )}
             {chat.permission && (
@@ -983,7 +995,7 @@ export function ChatPanel({
                       </Button>
                     </>
                   ) : null}
-                  <Button size="small" danger onClick={() => void decide('deny')}>
+                  <Button size="small" type="primary" danger onClick={() => void decide('deny')}>
                     拒绝
                   </Button>
                 </div>
@@ -1012,6 +1024,23 @@ export function ChatPanel({
                     跳过（不作答）
                   </Button>
                 </div>
+              </div>
+            )}
+            {/* 用户主动中断：弱化为灰字 + 重试（不是报错，不进黄色警示条）。 */}
+            {chat.interrupted && (
+              <div className="chat-interrupted">
+                <span>已中断本次回复</span>
+                {canRetryLast && (
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, height: 'auto' }}
+                    disabled={busy || chat.turn === 'running'}
+                    onClick={retryLast}
+                  >
+                    重试
+                  </Button>
+                )}
               </div>
             )}
             {chat.notice && (

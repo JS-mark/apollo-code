@@ -438,6 +438,13 @@ body[data-theme='dark'] {
   color: rgba(255, 255, 255, 0.45);
 }
 
+/* ── 用户主动中断：灰字弱化 + 重试入口（同 overlay-hint 语气，非警示）。 */
+.chat-interrupted {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── 审批队列卡（亮暗双主题；变量集中在 .permstack 上，暗色只改值不改结构） ── */
 .permstack {
   /* 亮色默认值 */

@@ -152,7 +152,7 @@ export function SessionsView({
   // antd-mobile 的 useImperativeHandle 未给 deps，每次 commit 都会把 callback ref
   // 先置 null 再重挂同一实例；若 null 分支立即清归属，单开 effect 会把刚展开的
   // 行当场收起——表现为「左滑松手根本停不住」（展开动作自身的重渲染即可复现）。
-  const swipeRefFor = (id: string): (ref: SwipeActionRef | null) => void => {
+  const swipeRefFor = (id: string): ((ref: SwipeActionRef | null) => void) => {
     let callback = swipeRefCallbacks.current.get(id)
     if (!callback) {
       callback = (ref) => {

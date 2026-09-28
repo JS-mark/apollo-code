@@ -8,7 +8,7 @@
  * UI 挂进容器，侧栏面板抢装配会污染代码页的 DOM 归属。
  */
 import { EyeOutlined, EditOutlined, DownloadOutlined } from '@ant-design/icons'
-import { App, Button, Empty, Input, Spin, Tag, Tooltip, Typography } from 'antd'
+import { App, Button, Empty, Input, Spin, Tooltip, Typography } from 'antd'
 import { Highlight, themes } from 'prism-react-renderer'
 import { useEffect, useRef, useState } from 'react'
 

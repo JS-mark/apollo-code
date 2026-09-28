@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ChatState } from './session-stream'
 import {
+  chatFeed,
   initialChatState,
   reduceChatState,
   toolBodyLabel,
@@ -46,7 +47,14 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(state.turn).toBe('running')
     // at 是到达打点（Date.now()），不参与内容断言。
     expect(state.messages).toEqual([
-      { id: 'm1', role: 'assistant', text: '你好', streaming: true, at: expect.any(Number) },
+      {
+        id: 'm1',
+        role: 'assistant',
+        text: '你好',
+        streaming: true,
+        at: expect.any(Number),
+        seq: 1,
+      },
     ])
     const done = reduceChatState(
       state,
@@ -303,7 +311,7 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
       type: 'hydrate',
       transcript: [{ id: 't1', role: 'user', text: '持久化' }],
     })
-    expect(state.messages).toEqual([{ id: 't1', role: 'user', text: '持久化' }])
+    expect(state.messages).toEqual([{ id: 't1', role: 'user', text: '持久化', seq: 2 }])
   })
 
   it('hydrate 与 SSE 并发：快照后到达的消息不被冲掉，本地回声被收口', () => {
@@ -348,6 +356,19 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     )
     expect(state.turn).toBe('idle')
     expect(state.notice).toBe('runner_error: model does not support images')
+  })
+
+  it('turn.aborted 用户中断：走 interrupted 友好位不污染 notice，turn.started 清除', () => {
+    let state = reduceChatState(initialChatState, envelope('core', { type: 'turn.started' }))
+    state = reduceChatState(
+      state,
+      envelope('core', { type: 'turn.aborted', payload: { reason: 'user_interrupt' } }),
+    )
+    expect(state.turn).toBe('idle')
+    expect(state.interrupted).toBe(true)
+    expect(state.notice).toBeUndefined()
+    state = reduceChatState(state, envelope('core', { type: 'turn.started' }))
+    expect(state.interrupted).toBe(false)
   })
 
   it('control 帧（hello/heartbeat）不是业务信封：原样返回不抛错', () => {
@@ -684,7 +705,7 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
       expect(state.messages).toHaveLength(1)
       expect(state.messages[0]).toMatchObject({ id: 'm1', text: '主会话' })
       expect(state.tools).toEqual([
-        { toolUseId: 'tu1', tool: 'bash', status: 'done', turnId: 't1' },
+        { toolUseId: 'tu1', tool: 'bash', status: 'done', turnId: 't1', seq: 2 },
       ])
       expect(state.subagents).toEqual({})
     })
@@ -761,5 +782,82 @@ describe('streamedChars（状态行 ↑ tokens 估算的数据源）', () => {
       envelope('core', { type: 'turn.started' }),
     ])
     expect(state.streamedChars).toBe(0)
+  })
+})
+
+describe('chatFeed 会话流混排（工具卡跟随其发生的时点）', () => {
+  it('消息与工具卡按到达 seq 混排；完成/失败只拨状态不挪位置', () => {
+    let state = reduceMany(initialChatState, [
+      envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm1', role: 'user', content: [{ type: 'text', text: '读文件' }] },
+      }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Read' } }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't2', tool: 'Write' } }),
+      envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm2', role: 'assistant', content: [{ type: 'text', text: '完成' }] },
+      }),
+    ])
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2'])
+    // 工具完成：位置不变，状态原地更新。
+    state = reduceChatState(
+      state,
+      envelope('core', { type: 'tool.completed', payload: { toolUseId: 't1', isError: false } }),
+    )
+    const after = chatFeed(state)
+    expect(after.map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2'])
+    const t1 = after.find((entry) => entry.key === 't1')
+    if (t1?.kind === 'tool') expect(t1.tool.status).toBe('done')
+  })
+
+  it('tool 卡先于消息到达也保序；重复 requested 原位补参不挪尾', () => {
+    let state = reduceMany(initialChatState, [
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Bash' } }),
+      envelope('core', {
+        type: 'stream.delta',
+        payload: { kind: 'text', messageId: 'm1', fragment: '输出' },
+      }),
+    ])
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['t1', 'm1'])
+    // 迟到的 requested 补 target/body：卡不得挪到列表尾。
+    state = reduceChatState(
+      state,
+      envelope('core', {
+        type: 'tool.requested',
+        payload: { toolUseId: 't1', tool: 'Bash', input: { command: 'pnpm test' } },
+      }),
+    )
+    const feed = chatFeed(state)
+    expect(feed.map((entry) => entry.key)).toEqual(['t1', 'm1'])
+    const t1 = feed.find((entry) => entry.key === 't1')
+    if (t1?.kind === 'tool') expect(t1.tool.target).toBe('pnpm test')
+  })
+
+  it('hydrate：快照条目按顺序分配 seq，工具卡与消息保序混排', () => {
+    const state = reduceChatState(initialChatState, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm-1', role: 'user', text: '跑' },
+        { id: 'tu-1', kind: 'tool', tool: 'Bash', input: { command: 'pnpm test' }, status: 'done' },
+        { id: 'm-2', role: 'assistant', text: '完成' },
+      ],
+    })
+    expect(state.nextSeq).toBe(4)
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m-1', 'tu-1', 'm-2'])
+    expect(state.tools[0]).toMatchObject({ status: 'done', seq: 2, target: 'pnpm test' })
+  })
+
+  it('水合后乐观回显钉在末尾（seq 单调递增）', () => {
+    let state = reduceChatState(initialChatState, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'h1', role: 'user', text: '一' },
+        { id: 'h2', role: 'assistant', text: '二' },
+      ],
+    })
+    state = reduceChatState(state, { type: 'echo', text: '三', images: [] })
+    expect(state.messages.map((message) => message.seq)).toEqual([1, 2, 3])
+    expect(state.nextSeq).toBe(4)
   })
 })

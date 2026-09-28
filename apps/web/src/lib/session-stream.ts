@@ -39,12 +39,19 @@ export interface ChatMessage {
    * transcript 水合的历史消息没有时间戳（条目本就不带），不渲染分隔行。
    */
   at?: number
+  /**
+   * 到达序号：会话流混排的排序键（chatFeed）——工具卡跟随其发生的时点插进
+   * 消息流。live 事件建立时分配；transcript 水合按快照顺序单调分配。
+   */
+  seq?: number
 }
 
 export interface ToolCard {
   toolUseId: string
   tool: string
   status: 'running' | 'done' | 'error'
+  /** 到达序号：工具卡在会话流中的混排位置（chatFeed 排序键）。 */
+  seq?: number
   /**
    * Task 卡：派发时所在父 turn 的 id（CoreEvent.turnId）——子代理冒泡事件按
    * parentTurnId 归属到本卡（§2.7bis.5 U3 折叠行的连接键）。
@@ -128,6 +135,13 @@ export interface ChatState {
    */
   permissionMode: 'ask' | 'auto' | 'full' | undefined
   notice: string | undefined
+  /**
+   * 用户主动中断（turn.aborted 非错误原因）：走独立友好提示 + 重试入口，
+   * 不进报错 notice 槽（主动停止不是警告，黄条横幅观感差）。turn.started 清除。
+   */
+  interrupted: boolean
+  /** 下一个到达序号（消息/工具卡的会话流排序键分配器，chatFeed 混排数据源）。 */
+  nextSeq: number
 }
 
 export const initialChatState: ChatState = {
@@ -141,6 +155,28 @@ export const initialChatState: ChatState = {
   streamedChars: 0,
   permissionMode: undefined,
   notice: undefined,
+  interrupted: false,
+  nextSeq: 1,
+}
+
+/**
+ * 会话流混排：消息气泡与工具卡按到达序号排序渲染（工具卡跟随其发生的时点，
+ * 完成/失败只更新状态不挪位置）。缺 seq 的历史数据（旧持久化）排最后保底。
+ */
+export type FeedEntry =
+  | { kind: 'message'; key: string; message: ChatMessage }
+  | { kind: 'tool'; key: string; tool: ToolCard }
+
+export function chatFeed(state: ChatState): FeedEntry[] {
+  const entries: FeedEntry[] = [
+    ...state.messages.map((message): FeedEntry => ({ kind: 'message', key: message.id, message })),
+    ...state.tools.map((tool): FeedEntry => ({ kind: 'tool', key: tool.toolUseId, tool })),
+  ]
+  return entries.toSorted((a, b) => {
+    const seqA = a.kind === 'message' ? a.message.seq : a.tool.seq
+    const seqB = b.kind === 'message' ? b.message.seq : b.tool.seq
+    return (seqA ?? Number.MAX_SAFE_INTEGER) - (seqB ?? Number.MAX_SAFE_INTEGER)
+  })
 }
 
 type Envelope = {
@@ -439,21 +475,32 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       const base =
         role === 'user' ? state.messages.filter((message) => !message.local) : state.messages
       const images = echoImages?.length ? echoImages : contentImages
-      // 流式中已存在的同 id 流式消息：以持久化完整消息收口（保留到达时间）。
+      // 流式中已存在的同 id 流式消息：以持久化完整消息收口（保留到达时间与 seq）。
       const messages = exists
         ? base.map((message) =>
             message.id === id
               ? { ...message, text, streaming: false, ...(images.length ? { images } : {}) }
               : message,
           )
-        : [...base, { id, role, text, at: Date.now(), ...(images.length ? { images } : {}) }]
-      return { ...state, messages }
+        : [
+            ...base,
+            {
+              id,
+              role,
+              text,
+              at: Date.now(),
+              seq: state.nextSeq,
+              ...(images.length ? { images } : {}),
+            },
+          ]
+      return { ...state, messages, ...(exists ? {} : { nextSeq: state.nextSeq + 1 }) }
     }
     case 'stream.delta': {
       if (payload.kind !== 'text') return state
       const id = String(payload.messageId)
       const fragment = String(payload.fragment)
-      const messages = state.messages.some((message) => message.id === id)
+      const exists = state.messages.some((message) => message.id === id)
+      const messages = exists
         ? state.messages.map((message) =>
             message.id === id
               ? { ...message, text: message.text + fragment, streaming: true }
@@ -461,9 +508,21 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
           )
         : [
             ...state.messages,
-            { id, role: 'assistant' as const, text: fragment, streaming: true, at: Date.now() },
+            {
+              id,
+              role: 'assistant' as const,
+              text: fragment,
+              streaming: true,
+              at: Date.now(),
+              seq: state.nextSeq,
+            },
           ]
-      return { ...state, messages, streamedChars: state.streamedChars + fragment.length }
+      return {
+        ...state,
+        messages,
+        streamedChars: state.streamedChars + fragment.length,
+        ...(exists ? {} : { nextSeq: state.nextSeq + 1 }),
+      }
     }
     case 'stream.completed': {
       const id = String(payload.messageId)
@@ -475,7 +534,7 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       }
     }
     case 'turn.started':
-      return { ...state, turn: 'running', usage: undefined, streamedChars: 0 }
+      return { ...state, turn: 'running', usage: undefined, streamedChars: 0, interrupted: false }
     case 'turn.completed':
       return {
         ...state,
@@ -484,14 +543,14 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       }
     case 'turn.aborted': {
       // reason=error 时 error.raised 通常已给出具体原因，不覆盖；
-      // user_interrupt 才是「用户中断」语义。兜底串与 error.raised 通知同槽位，
-      // 保持英文（报错文案一律英文+code，code 缺省时至少语言一致）。
+      // user_interrupt 才是「用户中断」语义——走 interrupted 友好提示（可重试），
+      // 不与报错 notice 同槽（报错文案一律英文+code，中断提示是 UI chrome 中文）。
       const reason = payload.reason
       if (reason === 'error')
         return { ...state, turn: 'idle', notice: state.notice ?? 'turn aborted due to an error' }
       if (reason === 'stream_interrupted')
         return { ...state, turn: 'idle', notice: state.notice ?? 'stream interrupted' }
-      return { ...state, turn: 'idle', notice: 'turn interrupted' }
+      return { ...state, turn: 'idle', interrupted: true }
     }
     case 'tool.requested': {
       // 附录 D.2：input 携带工具参数——requested 帧建卡并提取单行目标 + 展开正文
@@ -506,14 +565,25 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         ...(target === undefined ? {} : { target }),
         ...(body === undefined ? {} : { body }),
       }
-      if (tool !== 'Task')
+      if (tool !== 'Task') {
+        const exists = state.tools.some((card) => card.toolUseId === id)
+        if (exists)
+          return {
+            ...state,
+            // 重复 requested 原位补 target/body——filter 重建会把卡挪到列表尾，混排序就乱了。
+            tools: state.tools.map((card) =>
+              card.toolUseId === id ? { ...card, status: 'running' as const, ...extras } : card,
+            ),
+          }
         return {
           ...state,
+          nextSeq: state.nextSeq + 1,
           tools: [
-            ...state.tools.filter((card) => card.toolUseId !== id),
-            { toolUseId: id, tool, status: 'running' as const, ...extras },
+            ...state.tools,
+            { toolUseId: id, tool, status: 'running' as const, seq: state.nextSeq, ...extras },
           ],
         }
+      }
       const input: unknown = payload.input
       const record = input !== null && typeof input === 'object' ? input : undefined
       const agentType =
@@ -538,9 +608,10 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         }
       return {
         ...state,
+        nextSeq: state.nextSeq + 1,
         tools: [
           ...state.tools,
-          { toolUseId: id, tool: 'Task', status: 'running', task, ...extras },
+          { toolUseId: id, tool: 'Task', status: 'running', task, seq: state.nextSeq, ...extras },
         ],
       }
     }
@@ -561,12 +632,14 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         }
       return {
         ...state,
+        nextSeq: state.nextSeq + 1,
         tools: [
           ...state.tools,
           {
             toolUseId: id,
             tool: String(payload.tool),
             status: 'running',
+            seq: state.nextSeq,
             ...(turnId ? { turnId } : {}),
           },
         ],
@@ -650,8 +723,10 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       // 本地回声一律丢弃——其真实副本要么已在快照里，要么会经 appended 到达。
       // 快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：target/body 从快照
       // 携带的 input 现算，展开面与 live 卡一致；与 live 卡同 id 时以 live 为准。
+      // seq 按快照顺序单调分配（消息与工具卡保序，混排跟 live 一致）。
       const messages: ChatMessage[] = []
       const tools: ToolCard[] = []
+      let seq = state.nextSeq
       for (const entry of action.transcript) {
         const item = entry as {
           id?: string
@@ -674,6 +749,7 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             toolUseId: item.id,
             tool: item.tool,
             status,
+            seq: seq++,
             ...(target === undefined ? {} : { target }),
             ...(body === undefined ? {} : { body }),
           })
@@ -699,6 +775,7 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
           id: item.id,
           role: item.role as ChatMessage['role'],
           text: text.replace(/[^\S\n]+/g, ' ').trim(),
+          seq: seq++,
           ...(images.length ? { images } : {}),
         })
       }
@@ -712,11 +789,13 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
         ...state,
         messages: [...messages, ...tail],
         tools: [...hydratedTools, ...state.tools],
+        nextSeq: seq,
       }
     }
     case 'echo':
       return {
         ...state,
+        nextSeq: state.nextSeq + 1,
         messages: [
           ...state.messages,
           {
@@ -724,6 +803,7 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             role: 'user',
             text: action.text,
             at: Date.now(),
+            seq: state.nextSeq,
             ...(action.images.length ? { images: action.images } : {}),
             local: true,
           },

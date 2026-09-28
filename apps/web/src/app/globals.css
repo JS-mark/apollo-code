@@ -272,18 +272,6 @@ body {
   font-size: 13px;
   color: var(--ant-color-text-secondary);
 }
-/* 状态行内联中断（对齐 TUI 的 esc to interrupt；web 以可点按钮承载）。 */
-.think-interrupt {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  color: var(--ant-color-error, #ff4d4f);
-  cursor: pointer;
-}
-.think-interrupt:hover {
-  text-decoration: underline;
-}
 .think-row.settled {
   font-weight: 500;
 }
@@ -490,6 +478,15 @@ div.tool-row:hover {
   font-size: 12px;
   text-align: right;
   color: var(--ant-color-text-quaternary);
+}
+/* ── 用户主动中断：灰字弱化 + 重试入口（对齐 disclaimer 的静默语气，非警示）。 */
+.chat-interrupted {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--ant-color-text-quaternary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 /* ── 欢迎屏（空会话）：品牌标 + 标语 + cwd + composer 卡片。 */
 .chat-hero {

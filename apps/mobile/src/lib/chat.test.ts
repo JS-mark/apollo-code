@@ -552,6 +552,28 @@ describe('mobile chat reducer', () => {
     expect(state.turn).toBe('idle')
   })
 
+  it('turn.aborted 用户中断：走 interrupted 友好位不污染 notice，turn.started 清除', () => {
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.started', payload: { turnId: 't1' } }),
+    })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'turn.aborted',
+        payload: { turnId: 't', reason: 'user_interrupt' },
+      }),
+    })
+    expect(state.turn).toBe('idle')
+    expect(state.interrupted).toBe(true)
+    expect(state.notice).toBeUndefined()
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', { type: 'turn.started', payload: { turnId: 't2' } }),
+    })
+    expect(state.interrupted).toBe(false)
+  })
+
   it('surfaces context.reason for stream_interrupted errors', () => {
     let state = initialChatState
     state = reduceChatState(state, {
