@@ -28,7 +28,7 @@ import { turnStartedPayloadSchema } from './turn-started'
 describe('EVENT_SCHEMAS registry (附录 D.2)', () => {
   it('registers exactly the 28 §2.3 event names', () => {
     expect(Object.keys(EVENT_SCHEMAS).sort()).toEqual([...EVENT_NAMES].sort())
-    expect(EVENT_NAMES).toHaveLength(28)
+    expect(EVENT_NAMES).toHaveLength(31)
   })
 
   it('pairs every envelope type with its payload contract via eventEnvelopeFor', () => {
@@ -522,6 +522,20 @@ function payloadFixture(name: (typeof EVENT_NAMES)[number]): unknown {
     'reflection.failed': { runId: 'r1', code: 'reflection_output_invalid' },
     'reflection.skipped': { reason: 'budget_exhausted' },
     'reflection.promoted': { lessonId: 'l1', memoryId: 'm1', scope: 'project' },
+    'task.started': { taskId: 'nightly-sync', runId: 'run-1', scheduledFor: 1_700_000_100_000 },
+    'task.completed': {
+      taskId: 'nightly-sync',
+      runId: 'run-1',
+      scheduledFor: 1_700_000_100_000,
+      durationMs: 5_000,
+    },
+    'task.failed': {
+      taskId: 'nightly-sync',
+      runId: 'run-1',
+      scheduledFor: 1_700_000_100_000,
+      durationMs: 1_000,
+      reason: 'error',
+    },
   } as const
   return fixtures[name]
 }

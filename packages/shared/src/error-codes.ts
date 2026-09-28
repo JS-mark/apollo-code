@@ -195,6 +195,16 @@ export const ErrorCodes = {
   memoryUnknown: 'memory_unknown', // ui memoryPanelError 兜底
   memoryValidation: 'memory_validation',
 
+  /* ── tasks 域（TaskError，packages/storage task-store + W-17 调度线） ─── */
+  taskConfigDrift: 'task_config_drift', // daemon F1-03：运行前重算 config hash 与冻结值不一致，拒绝执行
+  taskDaemonRunning: 'task_daemon_running', // volund daemon 单实例：另一 daemon（活 pid）持有调度权
+  taskDefinitionInvalid: 'task_definition_invalid', // tasks-schema 校验拒绝（TaskStore.upsertTask 实参）
+  taskIo: 'task_io', // task-store.ts 等锁超时 / 存储事务 IO
+  taskRunFailed: 'task_run_failed', // 任务运行失败（spawn 失败 / 超时击杀 / 非零退出 / daemon 中断）
+  taskStoreCorrupt: 'task_store_corrupt', // task-store.ts 快照与恢复备份均不可读
+  taskTrustMissing: 'task_trust_missing', // daemon F1-03：任务冻结 cwd 已不被信任，拒绝执行
+  tasksDisabled: 'tasks_disabled', // [tasks].enabled=false（W-17 默认关闭）时 daemon 拒绝启动
+
   /* ── CLI `--json` 错误协议 / 状态 reason 码（apps/cli） ───────────────── */
   configInvalid: 'config_invalid',
   configProjectForbidden: 'config_project_forbidden',

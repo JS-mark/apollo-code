@@ -89,6 +89,66 @@ describe('Runner', () => {
   beforeEach(() => {
     tools.execute.mockClear()
   })
+  it('emits task.started/task.completed when spawned as a task run (W-17)', async () => {
+    const client = provider([[{ kind: 'message.stop', stopReason: 'end_turn' }]])
+    const bus = new EventBus()
+    const taskEvents: { type: string; payload: Record<string, unknown> }[] = []
+    bus.subscribe((event) => {
+      if (event.type.startsWith('task.'))
+        taskEvents.push({ type: event.type, payload: event.payload as Record<string, unknown> })
+    })
+    const state = await new Runner(context(), router(client), composer, tools, bus, {
+      taskRun: { taskId: 'nightly-sync', runId: 'run-1', scheduledFor: 1_700_000_100_000 },
+    }).run('hi')
+    expect(state.activeTurn).toBeNull()
+    expect(taskEvents.map((entry) => entry.type)).toEqual(['task.started', 'task.completed'])
+    expect(taskEvents[0]!.payload).toMatchObject({
+      taskId: 'nightly-sync',
+      runId: 'run-1',
+      scheduledFor: 1_700_000_100_000,
+    })
+    expect(taskEvents[1]!.payload).toMatchObject({
+      taskId: 'nightly-sync',
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it('emits task.failed with reason interrupted when the turn aborts (W-17)', async () => {
+    // 预算耗尽 → turn 中止（abortReason='error' 路径）→ task.failed。
+    const toolStream: ProviderChunk[] = [
+      { kind: 'usage', usage: { input: 4, output: 6, costUSD: 0.01 } },
+      { kind: 'tool_use.start', id: 'id', name: 'x' },
+      { kind: 'tool_use.delta', id: 'id', argsFragment: '{}' },
+      { kind: 'tool_use.end', id: 'id' },
+      { kind: 'message.stop', stopReason: 'tool_use' },
+    ]
+    const client = provider(Array.from({ length: 25 }, () => toolStream))
+    const state = context()
+    state.resourceBudget = { tokenMax: 10 }
+    const bus = new EventBus()
+    const taskEvents: { type: string; payload: Record<string, unknown> }[] = []
+    bus.subscribe((event) => {
+      if (event.type.startsWith('task.'))
+        taskEvents.push({ type: event.type, payload: event.payload as Record<string, unknown> })
+    })
+    await new Runner(state, router(client), composer, tools, bus, {
+      taskRun: { taskId: 'nightly-sync', runId: 'run-1', scheduledFor: 1_700_000_100_000 },
+    }).run('hi')
+    expect(taskEvents.map((entry) => entry.type)).toEqual(['task.started', 'task.failed'])
+    expect(taskEvents[1]!.payload).toMatchObject({ reason: 'interrupted' })
+  })
+
+  it('emits no task events without taskRun metadata (interactive sessions)', async () => {
+    const client = provider([[{ kind: 'message.stop', stopReason: 'end_turn' }]])
+    const bus = new EventBus()
+    const taskEvents: string[] = []
+    bus.subscribe((event) => {
+      if (event.type.startsWith('task.')) taskEvents.push(event.type)
+    })
+    await new Runner(context(), router(client), composer, tools, bus).run('hi')
+    expect(taskEvents).toEqual([])
+  })
+
   it('limits tool loops to 25', async () => {
     const toolStream: ProviderChunk[] = [
       { kind: 'tool_use.start', id: 'id', name: 'x' },
@@ -143,7 +203,10 @@ describe('Runner', () => {
     expect(raised).toContainEqual(
       expect.objectContaining({
         code: 'subagent_budget_exhausted',
-        context: expect.objectContaining({ dimension: 'token', message: expect.stringContaining('token usage') }),
+        context: expect.objectContaining({
+          dimension: 'token',
+          message: expect.stringContaining('token usage'),
+        }),
       }),
     )
     expect(final.turns.at(-1)?.status).toBe('aborted')

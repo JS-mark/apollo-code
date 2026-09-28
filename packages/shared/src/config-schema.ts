@@ -107,6 +107,14 @@ export const configKeyRegistry = {
   'remote.gateway_url': 'allowed',
   'remote.client_id': 'allowed',
   'remote.client_secret': 'forbidden',
+  // [tasks] 定时任务调度（W-17 / Web 计划 F1）：整段是机器所有者面——项目级
+  // config 不得启停调度器或改写资源参数（clone 来的仓库不得给自己排任务），
+  // 全部项目级 forbidden；enabled 默认 false（W-17 硬门：默认关闭，独立发布门）。
+  // 任务定义本体在 ~/.volund/tasks.json（TaskStore，不经 ConfigSchema）。
+  'tasks.enabled': 'forbidden',
+  'tasks.max_concurrent': 'forbidden',
+  'tasks.journal_retention': 'forbidden',
+  'tasks.webhook_url': 'forbidden',
   // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
@@ -331,6 +339,17 @@ export const ConfigSchema = z.strictObject({
       gateway_url: z.string().min(1).optional(),
       client_id: z.string().min(1).optional(),
       client_secret: z.string().min(16).optional(),
+    })
+    .optional(),
+  // [tasks] 定时任务调度（W-17）：daemon 宿主的资源面；enabled 默认 false
+  // （W-17 硬门）。任务定义/运行 journal 在 TaskStore，不走本 schema。
+  tasks: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      max_concurrent: z.number().int().min(1).max(8).optional(),
+      journal_retention: z.number().int().min(10).max(10_000).optional(),
+      // 运行终态（completed/failed）的 webhook 通知地址；daemon 投递，空缺 = 不通知。
+      webhook_url: z.url().optional(),
     })
     .optional(),
   // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地

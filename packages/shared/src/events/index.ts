@@ -23,6 +23,9 @@ import { streamDeltaPayloadSchema } from './stream-delta'
 import { streamStartedPayloadSchema } from './stream-started'
 import { subagentDispatchedPayloadSchema } from './subagent-dispatched'
 import { subagentSettledPayloadSchema } from './subagent-settled'
+import { taskCompletedPayloadSchema } from './task-completed'
+import { taskFailedPayloadSchema } from './task-failed'
+import { taskStartedPayloadSchema } from './task-started'
 import { toolCompletedPayloadSchema } from './tool-completed'
 import { toolPermissionAskedPayloadSchema } from './tool-permission_asked'
 import { toolRequestedPayloadSchema } from './tool-requested'
@@ -64,6 +67,9 @@ export const EVENT_SCHEMAS = {
   'reflection.failed': reflectionFailedPayloadSchema,
   'reflection.skipped': reflectionSkippedPayloadSchema,
   'reflection.promoted': reflectionPromotedPayloadSchema,
+  'task.started': taskStartedPayloadSchema,
+  'task.completed': taskCompletedPayloadSchema,
+  'task.failed': taskFailedPayloadSchema,
 } as const satisfies Record<EventName, z.ZodType>
 
 export type EventSchemas = typeof EVENT_SCHEMAS
@@ -141,3 +147,6 @@ export { toolStartedPayloadSchema, type ToolStartedPayload } from './tool-starte
 export { turnAbortedPayloadSchema, type TurnAbortedPayload } from './turn-aborted'
 export { turnCompletedPayloadSchema, type TurnCompletedPayload } from './turn-completed'
 export { turnStartedPayloadSchema, type TurnStartedPayload } from './turn-started'
+export { taskCompletedPayloadSchema, type TaskCompletedPayload } from './task-completed'
+export { taskFailedPayloadSchema, type TaskFailedPayload } from './task-failed'
+export { taskStartedPayloadSchema, type TaskStartedPayload } from './task-started'

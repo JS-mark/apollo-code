@@ -37,6 +37,13 @@ export interface RunnerToolPort {
 export interface RunnerOptions {
   maxToolLoopsPerTurn?: number
   budget?: { tokenMax?: number; costUSDMax?: number; timeMsMax?: number; toolCallMax?: number }
+  /**
+   * W-17：daemon 触发的任务运行元数据。在场时 run() 在自己的会话流发射
+   * task.started / task.completed / task.failed（附录 D.2）；缺省不发。
+   * 超时击杀（daemon SIGKILL）进程即死，task.failed 不发——由 TaskStore
+   * journal 记账（task_run_failed）。
+   */
+  taskRun?: { taskId: string; runId: string; scheduledFor: number }
 }
 /** subagent_budget_exhausted 的 context.dimension → 用户可读标签（context.message 用）。 */
 const BUDGET_DIMENSION_LABEL = {
@@ -142,6 +149,7 @@ export class Runner {
         : {}),
       ...(this.#state.lineage?.agentType ? { agentType: this.#state.lineage.agentType } : {}),
     })
+    if (this.options.taskRun) await this.emit('task.started', turnId, { ...this.options.taskRun })
     const user = this.message(
       'user',
       typeof input === 'string' ? [{ type: 'text', text: input }] : [...input],
@@ -509,6 +517,17 @@ export class Runner {
         },
         ...(lastStopReason ? { stopReason: lastStopReason } : {}),
       })
+    }
+    if (this.options.taskRun) {
+      const taskRun = { ...this.options.taskRun }
+      const durationMs = Math.max(0, Date.now() - turnStartedAt)
+      await this.emit(
+        aborted ? 'task.failed' : 'task.completed',
+        turnId,
+        aborted
+          ? { ...taskRun, durationMs, reason: failed ? 'error' : 'interrupted' }
+          : { ...taskRun, durationMs },
+      )
     }
     return this.#state
   }

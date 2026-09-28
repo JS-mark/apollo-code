@@ -143,6 +143,9 @@ Turn = {
 | `reflection.failed`     | 反思模型错误/输出非法/超时（§21.4）          | ui / storage / telemetry                |
 | `reflection.skipped`    | 预算耗尽/抢占/无新内容/disabled（§21.3）     | ui / storage / telemetry                |
 | `reflection.promoted`   | lesson 提升写入长期 Memory 成功（§21.7）     | ui / storage / telemetry                |
+| `task.started`          | W-17 任务运行开始（daemon 触发的 headless 会话自发射；详情见 W17-scheduler-design.md） | ui / storage / telemetry |
+| `task.completed`        | W-17 任务运行正常完成                        | ui / storage / telemetry                |
+| `task.failed`           | W-17 任务运行失败（error/interrupted；超时击杀不发，journal 记账） | ui / storage / telemetry |
 
 **订阅原则**：
 

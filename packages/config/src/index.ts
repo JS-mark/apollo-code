@@ -227,10 +227,13 @@ function scanTomlArray(text: string, position: { index: number }): JsonValue[] {
   }
 }
 
-export async function parseTomlFile(path: string): Promise<Config> {
-  const text = await readFile(path, 'utf8'),
-    out: Config = {},
-    section: string[] = []
+/**
+ * 解析 TOML 文本（无文件 IO）。与 parseTomlFile 共用实现；config hash 的
+ * [tasks] 段排除（W-17）需要纯内容入口。
+ */
+export function parseTomlContent(text: string): Config {
+  const out: Config = {}
+  let section: string[] = []
   for (const raw of text.split('\n')) {
     const line = stripComment(raw).trim()
     if (!line) continue
@@ -253,6 +256,10 @@ export async function parseTomlFile(path: string): Promise<Config> {
     assign(out, [...section, pairKey].join('.'), value)
   }
   return out
+}
+
+export async function parseTomlFile(path: string): Promise<Config> {
+  return parseTomlContent(await readFile(path, 'utf8'))
 }
 
 export interface ConfigValidationOptions {
