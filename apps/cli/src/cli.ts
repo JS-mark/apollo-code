@@ -246,10 +246,19 @@ export async function runCli(
     delete process.env.VOLUND_TASK_RUN
   }
   let resumeSelection: { id: string; cwd: string } | undefined
-  const unsupportedGlobalFlag =
-    subcommand === undefined ? firstUnsupportedGlobalFlag(rawArgs) : undefined
+  // 未知全局旗标检查：无子命令时扫全量；有子命令时只扫它之前的「全局区」——
+  // 子命令自己的旗标（--name/--id/…）不归本检查管，但 `volund --foo status`
+  // 这种全局区里的未知旗标不再静默忽略。
+  const unsupportedGlobalFlag = firstUnsupportedGlobalFlag(
+    subcommand !== undefined && firstPositionalIndex !== -1
+      ? rawArgs.slice(0, firstPositionalIndex)
+      : rawArgs,
+  )
   if (unsupportedGlobalFlag) {
-    const message = `Unsupported global flag without a command: ${unsupportedGlobalFlag}`
+    const message =
+      subcommand === undefined
+        ? `Unsupported global flag without a command: ${unsupportedGlobalFlag}`
+        : `Unsupported global flag before '${subcommand}': ${unsupportedGlobalFlag}`
     return jsonMode
       ? jsonFailure(message, 2, 'unsupported_flag', 'usage')
       : { exitCode: 2, stdout, stderr: message }
@@ -526,7 +535,11 @@ export async function runCli(
     if (action === 'add') {
       if (!ports.mcp)
         return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
-      const parsed = parseMcpAddArgs(rawArgs.slice(rawArgs.indexOf('add') + 1))
+      // 'add' 是第二个位置参数，按 citty 的 value-flag 消费口径定位它的真实
+      // 下标——字面量搜索（indexOf('add')）会被 `--model add mcp add …` 这类
+      // 旗标值恰好等于动作名的输入错切。
+      const addIndex = nthPositionalIndex(rawArgs, 2)
+      const parsed = parseMcpAddArgs(addIndex === -1 ? [] : rawArgs.slice(addIndex + 1))
       if (parsed.error)
         return args.json
           ? jsonFailure(parsed.error, 2, 'mcp_add_invalid', 'usage')
@@ -1704,6 +1717,34 @@ function firstNonFlagTokenIndex(tokens: string[]): number {
     if (!token?.startsWith('-')) return i
     const flag = token.split('=')[0]!
     if (valueFlags.has(flag) && !token.includes('=')) i++
+  }
+  return -1
+}
+
+/** argsDefinition 里全部声明为 string 的旗标（kebab 形态）——空格赋值时其值被 citty 消费。 */
+const declaredValueFlags = new Set(
+  Object.entries(argsDefinition)
+    .filter(([, def]) => def.type === 'string')
+    .map(([name]) => `--${name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`),
+)
+
+/**
+ * 第 n 个（从 1 起）位置参数在 tokens 里的下标；与 citty 的 value-flag 值消费
+ * 同口径（声明为 string 的旗标吃掉下一个 token）。用于把 args._[k] 映射回
+ * raw token 下标——比如 `volund mcp add` 的 'add' 定位不能靠字面量搜索，
+ * 否则 `--model add mcp add …` 这类旗标值恰好等于动作名的输入会错切。
+ */
+function nthPositionalIndex(tokens: readonly string[], n: number): number {
+  let seen = 0
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (!token?.startsWith('-')) {
+      seen += 1
+      if (seen === n) return i
+      continue
+    }
+    const flag = token.split('=')[0]!
+    if (declaredValueFlags.has(flag) && !token.includes('=')) i += 1
   }
   return -1
 }

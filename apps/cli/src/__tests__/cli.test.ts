@@ -166,6 +166,44 @@ describe('runCli', () => {
     expect(trustCheck).not.toHaveBeenCalled()
   })
 
+  it('rejects unknown global flags in the leading zone before a subcommand', async () => {
+    const result = await runCli(['--foo', 'status'], ports())
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toBe("Unsupported global flag before 'status': --foo")
+  })
+
+  it('still accepts known global flags in the leading zone before a subcommand', async () => {
+    const result = await runCli(
+      ['--json', 'status'],
+      ports({
+        config: {
+          health: vi.fn(async () => ({ valid: true, detail: 'valid' })),
+          status: vi.fn(async () => ({ settings: [], config: [], status: [] })),
+        },
+      }),
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('"status"')
+  })
+
+  it('locates the mcp add action by positional, not by literal search', async () => {
+    // `--model add` 的旗标值恰好等于动作名：indexOf('add') 会错切，按位置
+    // 参数定位后应正常落库。
+    const add = vi.fn(async () => ({ file: '/home/user/.volund/mcp.toml' }))
+    const result = await runCli(
+      ['--model', 'add', 'mcp', 'add', 'x', '--', 'npx', '-y', 'foo'],
+      ports({ mcp: { add } as never }),
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('Added MCP server x (stdio)')
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'x',
+        transport: { kind: 'stdio', command: 'npx', args: ['-y', 'foo'], env: {} },
+      }),
+    )
+  })
+
   it('renders status as stable JSON without ANSI or secrets', async () => {
     const result = await runCli(
       ['status', '--json'],
