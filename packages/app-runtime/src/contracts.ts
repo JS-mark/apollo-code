@@ -17,6 +17,8 @@ export type InteractivePermissionDecisionKind =
 
 export interface InteractivePermissionDecision {
   kind: InteractivePermissionDecisionKind
+  /** 网关超时 auto-deny 标记（SessionHub.decide 透传）；语义同 PermissionDecision.reason。 */
+  reason?: 'timeout'
 }
 
 /**
@@ -118,6 +120,8 @@ export type AskPromptListener = (requests: readonly InteractiveAskRequest[]) => 
 export class AskPromptController {
   private readonly pending: PendingAskRequest[] = []
   private readonly listeners = new Set<AskPromptListener>()
+  /** 网关超时自动关闭的提问 id：交互层在 await request() 后消费，模型侧据此给出 ask_timeout。 */
+  private readonly timedOut = new Set<string>()
 
   subscribe(listener: AskPromptListener): () => void {
     this.listeners.add(listener)
@@ -132,12 +136,18 @@ export class AskPromptController {
     })
   }
 
-  decide(id: string, value: string | undefined): void {
+  decide(id: string, value: string | undefined, reason?: 'timeout'): void {
     const index = this.pending.findIndex((item) => item.request.id === id)
     if (index < 0) return
     const [pending] = this.pending.splice(index, 1)
+    if (reason === 'timeout' && value === undefined) this.timedOut.add(id)
     pending?.resolve(value)
     this.notify()
+  }
+
+  /** 该次关闭是否网关超时（消费即清除；与 decide 的 reason 标记配对）。 */
+  consumeTimedOut(id: string): boolean {
+    return this.timedOut.delete(id)
   }
 
   requests(): readonly InteractiveAskRequest[] {

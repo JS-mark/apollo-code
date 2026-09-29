@@ -266,6 +266,8 @@ export const ErrorCodes = {
   gatewayEnrollmentDisabled: 'gateway_enrollment_disabled', // 动态注册被策略关闭（403）
   remoteCwdInvalid: 'remote_cwd_invalid', // REM-r1 uplink RPC 的 cwd 不存在/逃逸本机工作区（400）
   remoteHubFailed: 'remote_hub_failed', // REM-r1 本机侧 hub RPC 执行失败（经隧道回传网关）
+  permissionTimeout: 'permission_timeout', // 网关审批卡超时 auto-deny（GATEWAY_PERMISSION_TIMEOUT_MS）后模型侧工具结果
+  askTimeout: 'ask_timeout', // 网关提问卡超时自动关闭（同一时钟）后模型侧工具结果
 
   /* ── ui 域（主题 / 斜杠命令，packages/ui） ───────────────────────────── */
   slashCommandBuiltinReserved: 'slash_command_builtin_reserved',

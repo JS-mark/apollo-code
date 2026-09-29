@@ -126,8 +126,10 @@ Server frames: `hello` / `event` (core event passthrough) / command replies /
 
 Approvals follow the desktop permission mode: approval cards travel through the tunnel to
 the desktop TUI, the Web console, and paired phones at once — a decision on any end clears
-the card everywhere. Undecided requests are auto-denied after
-`GATEWAY_PERMISSION_TIMEOUT_MS` (default 120s).
+the card everywhere. Undecided approval requests are auto-denied after
+`GATEWAY_PERMISSION_TIMEOUT_MS` (default 120s), and unanswered question (ask) cards
+are auto-closed on the same clock — the model sees `permission_timeout` /
+`ask_timeout` in the tool result instead of a bare denial.
 
 ## Device pairing
 

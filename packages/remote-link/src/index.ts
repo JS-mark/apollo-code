@@ -449,7 +449,11 @@ export class RemoteLink {
     if (method === 'hub.interrupt') return this.options.hub.interrupt()
     if (method === 'hub.closeActive') return this.options.hub.closeActive()
     if (method === 'hub.decide')
-      return this.options.hub.decide(String(params.requestId ?? ''), String(params.kind ?? ''))
+      return this.options.hub.decide(
+        String(params.requestId ?? ''),
+        String(params.kind ?? ''),
+        params.reason === 'timeout' ? 'timeout' : undefined,
+      )
     if (method === 'hub.answerAsk') {
       const answer = this.options.hub.answerAsk
       if (!answer) throw new Error('ask answering is not supported by this hub')
@@ -457,6 +461,7 @@ export class RemoteLink {
         this.options.hub,
         String(params.requestId ?? ''),
         typeof params.value === 'string' ? params.value : undefined,
+        params.reason === 'timeout' ? 'timeout' : undefined,
       )
     }
     if (method === 'sessions.list')

@@ -305,12 +305,15 @@ packages/gateway-server 域（HTTP 状态码映射见括号）：
 | `gateway_enrollment_disabled`  | 动态注册被策略关闭（403）                       |
 | `remote_cwd_invalid`           | uplink RPC 的 cwd 不存在或逃逸本机工作区（400） |
 | `remote_hub_failed`            | 本机侧 hub RPC 执行失败（经隧道回传）           |
+| `permission_timeout`           | 审批卡超时被自动拒绝后模型侧看到的工具结果       |
+| `ask_timeout`                  | 提问卡超时被自动关闭后模型侧看到的工具结果       |
 
-::: tip 权限审批卡超时
-经由网关的权限审批卡默认 **120 秒无人应答自动拒绝**
-（`GATEWAY_PERMISSION_TIMEOUT_MS`，设为 `0` 关闭自动拒绝）。此时模型看到的工具结果
-是 `Permission denied for <工具名>`——它表示「超时未审批」，不是权限配置错误。
-远程任务频繁卡住时优先检查审批卡是否有人处理。
+::: tip 审批卡与提问卡超时
+经由网关的权限审批卡默认 **120 秒无人决策自动拒绝**，提问卡（ask）共用同一时钟、
+无人作答自动关闭（`GATEWAY_PERMISSION_TIMEOUT_MS`，设为 `0` 关闭兜底）。此时模型
+看到的工具结果是 `permission_timeout: <工具名> approval timed out …`（提问为
+`ask_timeout: …`）——它表示「超时无人处理」，不是权限配置错误。远程任务频繁卡住时
+优先检查卡片是否有人处理。
 :::
 
 ## UI（主题 / 斜杠命令）

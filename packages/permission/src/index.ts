@@ -41,6 +41,11 @@ export type PermissionDecision = {
     | 'allow-forever'
     | 'deny'
     | 'deny-forever'
+  /**
+   * 网关审批卡超时 auto-deny 标记（GATEWAY_PERMISSION_TIMEOUT_MS）：模型侧
+   * 工具结果据此给出 permission_timeout 而非笼统 denied（用户主动拒绝不带它）。
+   */
+  reason?: 'timeout'
 }
 export interface PermissionRules {
   projectDeny?: (request: PermissionRequest) => boolean
@@ -246,8 +251,13 @@ export class PermissionManager {
   }
   async requestAndExecute<T>(request: PermissionRequest, operation: () => Promise<T>): Promise<T> {
     const decision = await this.request(request)
-    if (decision.kind.startsWith('deny'))
+    if (decision.kind.startsWith('deny')) {
+      if (decision.reason === 'timeout')
+        throw new Error(
+          `permission_timeout: ${request.toolName} approval timed out without a response; the request was auto-denied. Ask the user again or proceed without it.`,
+        )
       throw new Error(`Permission denied for ${request.toolName}`)
+    }
     return operation()
   }
   private autoAllow(request: PermissionRequest): PermissionDecision | undefined {

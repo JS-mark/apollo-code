@@ -430,7 +430,7 @@ export async function requestPermission(input: {
   if (!input.interactivePermissionPrompt) return { kind: 'deny' }
   const decision = await input.interactivePermissionPrompt(uiRequest)
   if (!approvalAllowed) return { kind: 'deny' }
-  return { kind: decision.kind }
+  return decision
 }
 
 export interface ProductionPermissionConfiguration {

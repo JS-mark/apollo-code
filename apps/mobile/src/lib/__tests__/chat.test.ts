@@ -277,6 +277,31 @@ describe('mobile chat reducer', () => {
     expect(state.permissions[0]?.expiresAt).toBeUndefined()
   })
 
+  it('ask.request 的 expiresAt 摊给队列每张卡；旧网关缺省不添字段', () => {
+    const ask = (id: string) => ({
+      id,
+      question: '继续吗？',
+      options: [{ label: 'A' }, { label: 'B' }],
+    })
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', {
+        type: 'ask.request',
+        requests: [ask('a'), ask('b')],
+        expiresAt: 1_700_000_000_000,
+      }),
+    })
+    expect(state.asks.map((entry) => entry.expiresAt)).toEqual([
+      1_700_000_000_000, 1_700_000_000_000,
+    ])
+    // 旧网关：帧上无 expiresAt → 卡面不添噪音字段（不渲染倒计时）。
+    state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', { type: 'ask.request', request: ask('solo') }),
+    })
+    expect(state.asks[0]?.expiresAt).toBeUndefined()
+  })
+
   it('permission.resolved 清空待审批队列', () => {
     let state = reduceChatState(initialChatState, {
       type: 'envelope',

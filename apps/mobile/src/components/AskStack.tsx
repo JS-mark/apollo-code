@@ -13,6 +13,13 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { AskCard } from '../lib/chat'
 
+/** 提问倒计时文案：剩余秒数；归零后到局前（网关关闭 → resolved 清卡）的过渡文案。 */
+function countdownLabel(expiresAt: number, now: number): string {
+  const remaining = Math.round((expiresAt - now) / 1000)
+  if (remaining <= 0) return '自动关闭中…'
+  return `${remaining}s 后自动关闭`
+}
+
 export function AskStack({
   asks,
   onAnswer,
@@ -24,6 +31,16 @@ export function AskStack({
   /** 在途作答（点过的选项）：锁全部按钮直到队列投影变化；超时兜底解锁。 */
   const [pendingValue, setPendingValue] = useState<string | undefined>()
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // 提问倒计时：网关到点自动关闭（时钟权威在网关，expiresAt 由帧盖章下发），
+  // 本地每秒重算剩余；无一帧带截止（旧网关）时不起表。
+  const [now, setNow] = useState(() => Date.now())
+  const hasDeadline = asks.some((entry) => entry.expiresAt !== undefined)
+  useEffect(() => {
+    if (!hasDeadline) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(timer)
+  }, [hasDeadline])
 
   // 队列收缩（本端或他端作答）时钳住焦点，tab 跟着剩队走。
   useEffect(() => {
@@ -57,6 +74,9 @@ export function AskStack({
       <div className="perm-head">
         <span className="perm-pulse" aria-hidden />
         <span className="perm-title">提问</span>
+        {ask.expiresAt !== undefined && (
+          <span className="perm-countdown">{countdownLabel(ask.expiresAt, now)}</span>
+        )}
         {asks.length > 1 && (
           <span className="perm-count">
             {activeIndex + 1}/{asks.length}

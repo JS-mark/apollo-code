@@ -1,4 +1,4 @@
-import type { ToolChoiceRequest } from '@volund/tool-kit'
+import type { AskChoiceDismissal, ToolChoiceRequest } from '@volund/tool-kit'
 /**
  * AskUserQuestion 的宿主交互面：把 ToolUiPort 的可选 `requestChoice` 通道
  * （tool-kit 接缝）接到本进程的共享提问队列。工具本体在 packages/tools
@@ -35,7 +35,7 @@ function projectOptions(options: ToolChoiceRequest['options']): ToolChoiceReques
 
 export function createAskUserInteraction(
   options: AskUserInteractionOptions,
-): (request: ToolChoiceRequest) => Promise<string | undefined> {
+): (request: ToolChoiceRequest) => Promise<string | AskChoiceDismissal | undefined> {
   return async (request) => {
     if (options.mode === 'none')
       throw new Error('user interaction is unavailable in non-interactive mode')
@@ -56,10 +56,14 @@ export function createAskUserInteraction(
           : request.options.find((option) => option.label === answer)
       return picked?.label
     }
-    return options.prompts.request({
-      id: uuidv7(),
+    const id = uuidv7()
+    const answer = await options.prompts.request({
+      id,
       question: request.question,
       options: projectOptions(request.options),
     })
+    // 网关超时自动关闭（AskPromptController.decide 带 timeout 标记）：模型侧要能
+    // 区分「用户主动跳过」与「无人应答超时」，故以结构化结果外露。
+    return options.prompts.consumeTimedOut(id) ? { reason: 'timeout' } : answer
   }
 }

@@ -88,6 +88,8 @@ export interface AskCard {
   id: string
   question: string
   options: { label: string; description?: string }[]
+  /** 网关超时自动关闭的绝对截止（epoch ms）；旧网关帧无此字段。 */
+  expiresAt?: number
 }
 
 export interface ChatState {
@@ -716,13 +718,19 @@ function reduceEnvelope(
     }
     if (view.type === 'permission.resolved') return { ...state, permissions: [] }
     // 提问队列：同款投影/清空语义（问答卡多 tab 的数据源）。
+    // expiresAt（网关超时自动关闭的绝对截止）盖章在帧上，摊给队列里每张卡。
     if (view.type === 'ask.request') {
-      const queue =
+      const rawExpiresAt = (view as { expiresAt?: unknown }).expiresAt
+      const expiresAt = typeof rawExpiresAt === 'number' ? rawExpiresAt : undefined
+      const rawQueue =
         Array.isArray(view.requests) && view.requests.length > 0
           ? (view.requests as AskCard[])
           : view.request
             ? [view.request as AskCard]
             : []
+      const queue = rawQueue.map((card) =>
+        expiresAt === undefined ? card : { ...card, expiresAt },
+      )
       return queue.length > 0 ? { ...state, asks: queue } : state
     }
     if (view.type === 'ask.resolved') return { ...state, asks: [] }

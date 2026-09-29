@@ -310,13 +310,17 @@ packages/gateway-server domain (HTTP status mapping in parentheses):
 | `gateway_enrollment_disabled`  | Dynamic enrollment is disabled by policy (403)                           |
 | `remote_cwd_invalid`           | The uplink RPC's cwd does not exist or escapes the local workspace (400) |
 | `remote_hub_failed`            | The local hub RPC failed (relayed through the tunnel)                    |
+| `permission_timeout`           | Model-facing tool result when an approval card times out and is auto-denied |
+| `ask_timeout`                  | Model-facing tool result when a question card times out and is auto-closed |
 
-::: tip Permission approval cards
+::: tip Approval and question cards
 Permission approval cards that travel through the gateway are **auto-denied after
-120 seconds** without an answer (`GATEWAY_PERMISSION_TIMEOUT_MS`; set it to `0` to
-disable auto-deny). The model then sees `Permission denied for <tool>` as the tool
-result — that means "the approval timed out", not "permissions are misconfigured".
-If remote tasks keep stalling, check whether anyone answered the approval card.
+120 seconds** without a decision, and question (ask) cards are **auto-closed** on
+the same clock (`GATEWAY_PERMISSION_TIMEOUT_MS`; set it to `0` to disable the
+fallback). The model then sees `permission_timeout: <tool> approval timed out …`
+or `ask_timeout: …` as the tool result — that means "nobody answered in time",
+not "permissions are misconfigured". If remote tasks keep stalling, check whether
+anyone answered the card.
 :::
 
 ## UI (themes / slash commands)

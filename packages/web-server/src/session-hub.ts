@@ -376,11 +376,12 @@ export class SessionHub {
   }
 
   /** 决策落到共享审批队列（TUI/Web 同队列；重复/过期 decision 幂等忽略）。 */
-  decide(requestId: string, kind: string): boolean {
+  decide(requestId: string, kind: string, reason?: 'timeout'): boolean {
     const pending = this.ports.permissions.requests().some((request) => request.id === requestId)
     if (!pending) return false
     this.ports.permissions.decide(requestId, {
       kind: kind as InteractivePermissionDecision['kind'],
+      ...(reason === 'timeout' ? { reason } : {}),
     })
     return true
   }
@@ -390,11 +391,11 @@ export class SessionHub {
   }
 
   /** 作答落到共享提问队列（语义同 decide；重复/过期 answer 幂等忽略）。 */
-  answerAsk(requestId: string, value: string | undefined): boolean {
+  answerAsk(requestId: string, value: string | undefined, reason?: 'timeout'): boolean {
     const asks = this.ports.asks
     if (!asks) return false
     if (!asks.requests().some((request) => request.id === requestId)) return false
-    asks.decide(requestId, value)
+    asks.decide(requestId, value, reason === 'timeout' ? 'timeout' : undefined)
     return true
   }
 

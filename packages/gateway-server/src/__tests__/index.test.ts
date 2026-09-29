@@ -31,8 +31,8 @@ class FakeHub implements GatewayHubLike {
     attachments?: readonly GatewaySubmitAttachment[]
   }[] = []
   readonly staged: { mime: string; dataBase64: string }[] = []
-  readonly decisions: [string, string][] = []
-  readonly askAnswers: [string, string | undefined][] = []
+  readonly decisions: (string | undefined)[][] = []
+  readonly askAnswers: (string | undefined)[][] = []
   /** 测试注入：删除会话的桩（GatewayHubLike.deleteSession 的可变镜像）。 */
   deleteSession?: (id: string) => Promise<{ deleted: true; next?: string }>
   private counter = 0
@@ -100,18 +100,18 @@ class FakeHub implements GatewayHubLike {
     return () => this.listeners.delete(listener)
   }
 
-  decide(requestId: string, kind: string): boolean {
-    this.decisions.push([requestId, kind])
+  decide(requestId: string, kind: string, reason?: 'timeout'): boolean {
+    this.decisions.push([requestId, kind, ...(reason ? [reason] : [])])
     return true
   }
 
-  answerAsk(requestId: string, value: string | undefined): boolean {
-    this.askAnswers.push([requestId, value])
+  answerAsk(requestId: string, value: string | undefined, reason?: 'timeout'): boolean {
+    this.askAnswers.push([requestId, value, ...(reason ? [reason] : [])])
     return true
   }
 
   pendingAskIds(): readonly string[] {
-    return this.askAnswers.map(([id]) => id)
+    return this.askAnswers.map((entry) => entry[0] ?? '')
   }
 
   async stageAttachment(input: { mime: string; dataBase64: string }) {
@@ -768,7 +768,21 @@ describe('permission timeout fallback', () => {
       },
     })
     await expect.poll(() => hub.decisions.length, { timeout: 3000, interval: 20 }).toBe(1)
-    expect(hub.decisions[0]).toEqual(['perm-1', 'deny'])
+    expect(hub.decisions[0]).toEqual(['perm-1', 'deny', 'timeout'])
+  })
+
+  it('auto-closes an unanswered ask card after the same timeout', async () => {
+    await startServer({ permissionTimeoutMs: 50 })
+    hub.emit('view', {
+      type: 'ask.request',
+      request: {
+        id: 'ask-1',
+        question: 'Pick one',
+        options: [{ label: 'A' }, { label: 'B' }],
+      },
+    })
+    await expect.poll(() => hub.askAnswers.length, { timeout: 3000, interval: 20 }).toBe(1)
+    expect(hub.askAnswers[0]).toEqual(['ask-1', undefined, 'timeout'])
   })
 })
 

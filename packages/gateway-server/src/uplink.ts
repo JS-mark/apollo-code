@@ -233,12 +233,16 @@ export class RemoteHub implements GatewayHubLike {
     return () => this.subscribers.delete(listener)
   }
 
-  decide(requestId: string, kind: string): boolean {
+  decide(requestId: string, kind: string, reason?: 'timeout'): boolean {
     const known = this.pendingIds.includes(requestId)
     if (!known || this.closed) return false
     // 布尔语义 = 「是否在待审批列表」（ws.ts 的 permission.decided 应答面）；
     // 决策本体 fire-and-forget——本机队列幂等，重复/过期决策被静默忽略。
-    void this.call('hub.decide', { requestId, kind }).catch(() => {})
+    void this.call('hub.decide', {
+      requestId,
+      kind,
+      ...(reason === 'timeout' ? { reason } : {}),
+    }).catch(() => {})
     return true
   }
 
@@ -247,12 +251,14 @@ export class RemoteHub implements GatewayHubLike {
   }
 
   /** AskUserQuestion 作答隧道（布尔语义同 decide；本机投影幂等忽略过期作答）。 */
-  answerAsk(requestId: string, value: string | undefined): boolean {
+  answerAsk(requestId: string, value: string | undefined, reason?: 'timeout'): boolean {
     const known = this.askIdSnapshot.includes(requestId)
     if (!known || this.closed) return false
-    void this.call('hub.answerAsk', { requestId, ...(value === undefined ? {} : { value }) }).catch(
-      () => {},
-    )
+    void this.call('hub.answerAsk', {
+      requestId,
+      ...(value === undefined ? {} : { value }),
+      ...(reason === 'timeout' ? { reason } : {}),
+    }).catch(() => {})
     return true
   }
 

@@ -39,7 +39,7 @@ export interface GatewayHubLike {
   interrupt(): Promise<void>
   closeActive(): Promise<void>
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void
-  decide(requestId: string, kind: string): boolean
+  decide(requestId: string, kind: string, reason?: 'timeout'): boolean
   pendingPermissionIds(): string[]
   /**
    * 待审批队列完整投影（hello 后补发 permission.request 用）：仅直连 hub 提供
@@ -51,7 +51,7 @@ export interface GatewayHubLike {
    * AskUserQuestion 的作答隧道（POST /v1/asks/answer 与 WS ask.answer 的终点）：
    * value 缺省 = 未作答关闭提问。布尔 = 是否确有该待决提问。
    */
-  answerAsk?(requestId: string, value: string | undefined): boolean
+  answerAsk?(requestId: string, value: string | undefined, reason?: 'timeout'): boolean
   /** 待决提问 id 面（注册/状态帧与 hello 的快照源；缺省 = hub 不支持提问）。 */
   pendingAskIds?(): readonly string[]
   /** 待决提问完整投影（hello 后补发 ask.request 用；语义同 pendingPermissionRequests）。 */

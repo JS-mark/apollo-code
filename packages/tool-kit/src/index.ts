@@ -26,14 +26,19 @@ export interface NativeBridge {
     env?: Record<string, string>,
   ): Promise<unknown>
 }
+/** 提问被网关超时自动关闭（非用户主动跳过）的结构化结果。 */
+export interface AskChoiceDismissal {
+  reason: 'timeout'
+}
 export interface ToolUiPort {
   requestInput(prompt: string): Promise<string>
   /**
    * 结构化单选提问（AskUserQuestion 等）：宿主决定交互面（TUI/Web 提问队列、
-   * 终端数字问答），返回选中项 label；undefined = 用户未作答/跳过。
+   * 终端数字问答），返回选中项 label；undefined = 用户未作答/跳过；
+   * { reason: 'timeout' } = 网关超时自动关闭（GATEWAY_PERMISSION_TIMEOUT_MS）。
    * 可选——宿主未实现时调用方按「交互不可用」降级。
    */
-  requestChoice?(request: ToolChoiceRequest): Promise<string | undefined>
+  requestChoice?(request: ToolChoiceRequest): Promise<string | AskChoiceDismissal | undefined>
 }
 export interface ToolChoiceOption {
   label: string

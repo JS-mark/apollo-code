@@ -363,41 +363,89 @@ export async function createGatewayServer(
   hub?.subscribe((envelope) => dispatchEnvelope(undefined, envelope))
   if (options.relay) registry.subscribe((client, envelope) => dispatchEnvelope(client, envelope))
 
-  // ── 审批超时兜底：无人决策的权限请求到点自动 deny（chat/completions 没有
-  // 交互审批面；WS 客户端掉线同理）。decide 幂等，已被决策的请求静默忽略。
-  // relay 模式下审批来自某台已注册机器——deny 必须路由回同一台。 ─────────────
-  let permissionTimer: ReturnType<typeof setTimeout> | undefined
-  let permissionSource: string | undefined
+  // ── 审批/提问超时兜底：无人决策的权限请求到点自动 deny、无人作答的提问卡到点
+  // 自动关闭（chat/completions 没有交互审批面；WS 客户端掉线同理）。decide/
+  // answerAsk 幂等，已被处理的请求静默忽略。relay 模式下卡片来自某台已注册机器
+  // ——决策必须路由回同一台。per-request timer（按 source 分组对账）：多卡同时
+  // 在队时各按各的 deadline 到点；resolved 帧不带 id，用后续队列重投影做清账。 ──
+  const pendingPermissionTimers = new Map<
+    string | undefined,
+    Map<string, ReturnType<typeof setTimeout>>
+  >()
+  const pendingAskTimers = new Map<string | undefined, Map<string, ReturnType<typeof setTimeout>>>()
+  const resolveTarget = (source: string | undefined) =>
+    source ? registry.resolve(source)?.hub : hub
+  const armTimers = (
+    timers: Map<string | undefined, Map<string, ReturnType<typeof setTimeout>>>,
+    source: string | undefined,
+    ids: string[],
+    fire: (requestId: string) => void,
+  ) => {
+    const mine = timers.get(source) ?? new Map<string, ReturnType<typeof setTimeout>>()
+    for (const [id, timer] of mine) {
+      if (!ids.includes(id)) {
+        clearTimeout(timer)
+        mine.delete(id)
+      }
+    }
+    for (const id of ids) {
+      if (mine.has(id)) continue
+      const timer = setTimeout(() => {
+        mine.delete(id)
+        fire(id)
+      }, permissionTimeoutMs)
+      timer.unref?.()
+      mine.set(id, timer)
+    }
+    timers.set(source, mine)
+  }
+  const clearTimers = (
+    timers: Map<string | undefined, Map<string, ReturnType<typeof setTimeout>>>,
+    source: string | undefined,
+  ) => {
+    const mine = timers.get(source)
+    if (!mine) return
+    for (const timer of mine.values()) clearTimeout(timer)
+    timers.delete(source)
+  }
   if (permissionTimeoutMs > 0) {
     envelopeListeners.add((source, envelope) => {
       const event = envelope.event as {
         type?: unknown
         request?: { id?: unknown }
+        requests?: { id?: unknown }[]
         expiresAt?: number
       }
+      const idsFrom = (frames: { id?: unknown }[] | undefined) =>
+        (frames ?? [])
+          .map((frame) => (typeof frame?.id === 'string' ? frame.id : undefined))
+          .filter((id): id is string => id !== undefined)
+      // 审批/提问卡倒计时的数据源：自动兜底的时钟权威在网关，经手时把绝对截止
+      // （epoch ms）盖在帧上随广播下发；旧客户端不认识该字段，零影响。
       if (envelope.kind === 'view' && event?.type === 'permission.request') {
-        const requestId = typeof event.request?.id === 'string' ? event.request.id : undefined
-        if (!requestId) return
-        // 审批卡倒计时的数据源：自动 deny 的时钟权威在网关，经手时把绝对截止
-        // （epoch ms）盖在帧上随广播下发；旧客户端不认识该字段，零影响。
+        const ids = idsFrom(event.requests ?? (event.request ? [event.request] : undefined))
+        if (ids.length === 0) return
         event.expiresAt = Date.now() + permissionTimeoutMs
-        permissionSource = source
-        if (permissionTimer) clearTimeout(permissionTimer)
-        permissionTimer = setTimeout(() => {
+        armTimers(pendingPermissionTimers, source, ids, (requestId) => {
           log(
             `permission ${requestId} auto-denied after ${permissionTimeoutMs}ms without a decider`,
           )
-          const target = permissionSource ? registry.resolve(permissionSource)?.hub : hub
-          target?.decide(requestId, 'deny')
-          permissionSource = undefined
-        }, permissionTimeoutMs)
-        permissionTimer.unref?.()
+          resolveTarget(source)?.decide(requestId, 'deny', 'timeout')
+        })
       }
-      if (envelope.kind === 'view' && event?.type === 'permission.resolved' && permissionTimer) {
-        clearTimeout(permissionTimer)
-        permissionTimer = undefined
-        permissionSource = undefined
+      if (envelope.kind === 'view' && event?.type === 'permission.resolved')
+        clearTimers(pendingPermissionTimers, source)
+      if (envelope.kind === 'view' && event?.type === 'ask.request') {
+        const ids = idsFrom(event.requests ?? (event.request ? [event.request] : undefined))
+        if (ids.length === 0) return
+        event.expiresAt = Date.now() + permissionTimeoutMs
+        armTimers(pendingAskTimers, source, ids, (requestId) => {
+          log(`ask ${requestId} auto-closed after ${permissionTimeoutMs}ms without an answer`)
+          resolveTarget(source)?.answerAsk?.(requestId, undefined, 'timeout')
+        })
       }
+      if (envelope.kind === 'view' && event?.type === 'ask.resolved')
+        clearTimers(pendingAskTimers, source)
     })
   }
 
@@ -1371,7 +1419,10 @@ export async function createGatewayServer(
     ...(options.relay ? { registry } : {}),
     close: () =>
       new Promise((resolveClose) => {
-        if (permissionTimer) clearTimeout(permissionTimer)
+        for (const mine of pendingPermissionTimers.values())
+          for (const timer of mine.values()) clearTimeout(timer)
+        for (const mine of pendingAskTimers.values())
+          for (const timer of mine.values()) clearTimeout(timer)
         broadcaster.closeAll()
         registry.closeAll()
         server.close(() => resolveClose())

@@ -21,6 +21,7 @@ export const emittedWithoutLiteral = new Map([
   ['plugin_internal_error', 'apps/cli/src/cli.ts plugin JSON unknown-error fallback'],
   ['memory_unknown', 'packages/ui/src/memory-panel.ts memoryPanelError 兜底'],
   ['memory_index_corrupt', 'packages/storage/src/memory-index.ts 快照读取三元缺省码'],
+  ['ask_timeout', 'packages/tools/src/ask-user.ts 超时关闭的静态文案（码前缀串，无模板插值）'],
   // normalizeError 的 `VOLUND_${category.toUpperCase()}` 动态工厂（shared/src/errors.ts）
   ['VOLUND_NETWORK', 'normalizeError VOLUND_<CATEGORY> 工厂'],
   ['VOLUND_AUTH', 'normalizeError VOLUND_<CATEGORY> 工厂'],

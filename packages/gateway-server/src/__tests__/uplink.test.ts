@@ -50,7 +50,7 @@ class LocalHub implements GatewayHubLike {
   activeSession: { id: string; cwd?: string } | undefined
   readonly listeners = new Set<(envelope: GatewayEnvelope) => void>()
   submitted: { prompt: string; model?: string }[] = []
-  decisions: [string, string][] = []
+  decisions: (string | undefined)[][] = []
   listedSessions = false
   private counter = 0
 
@@ -106,8 +106,8 @@ class LocalHub implements GatewayHubLike {
     return () => this.listeners.delete(listener)
   }
 
-  decide(requestId: string, kind: string): boolean {
-    this.decisions.push([requestId, kind])
+  decide(requestId: string, kind: string, reason?: 'timeout'): boolean {
+    this.decisions.push([requestId, kind, ...(reason ? [reason] : [])])
     return true
   }
 
@@ -303,7 +303,11 @@ class TestUplink {
       else if (method === 'hub.interrupt') result = await this.hub.interrupt()
       else if (method === 'hub.closeActive') result = await this.hub.closeActive()
       else if (method === 'hub.decide')
-        result = this.hub.decide(String(params.requestId), String(params.kind))
+        result = this.hub.decide(
+          String(params.requestId),
+          String(params.kind),
+          params.reason === 'timeout' ? 'timeout' : undefined,
+        )
       else if (method === 'sessions.list') result = await this.hub.listSessions()
       else if (method === 'changes.list') result = await this.hub.changesList()
       else if (method === 'changes.diff')

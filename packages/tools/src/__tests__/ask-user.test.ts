@@ -30,6 +30,14 @@ const goodInput = {
 }
 
 describe('createAskUserQuestionTool', () => {
+  it('网关超时关闭（{reason:"timeout"}）→ ask_timeout 码前缀文案，非 error', async () => {
+    const choice: ChoiceFn = async () => ({ reason: 'timeout' })
+    const result = await invoke(goodInput, contextWith({ requestChoice: choice }))
+    expect(result.isError).toBeUndefined()
+    expect(result.text).toContain('ask_timeout:')
+    expect(result.text).toContain('auto-closed')
+  })
+
   it('schema：question + 2..6 个带 label 的选项；免审批', () => {
     const tool = createAskUserQuestionTool()
     expect(tool.name).toBe(ASK_USER_QUESTION_TOOL_NAME)

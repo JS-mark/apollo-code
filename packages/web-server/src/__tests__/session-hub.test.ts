@@ -124,6 +124,24 @@ describe('SessionHub', () => {
     expect(seen).toContainEqual({ type: 'permission.resolved' })
   })
 
+  it('decide/answerAsk 透传网关超时标记（reason: timeout）', async () => {
+    const session = fakeSession()
+    const asks = new AskPromptController()
+    const { hub, permissions } = hubWith(session, { asks })
+    await hub.start({ cwd: '/tmp/hub' })
+
+    const pending = permissions.request(permissionRequest)
+    expect(hub.decide('perm-1', 'deny', 'timeout')).toBe(true)
+    await expect(pending).resolves.toEqual({ kind: 'deny', reason: 'timeout' })
+
+    const answered = asks.request({ id: 'ask-1', question: '继续吗？', options: [] })
+    expect(hub.answerAsk('ask-1', undefined, 'timeout')).toBe(true)
+    await expect(answered).resolves.toBeUndefined()
+    // 超时标记消费一次即清：ask-user 工具据此区分「超时关闭」与「用户跳过」。
+    expect(asks.consumeTimedOut('ask-1')).toBe(true)
+    expect(asks.consumeTimedOut('ask-1')).toBe(false)
+  })
+
   it('projects the full pending queue and re-projects when a non-first request is decided（Mobile 多 tab 数据源）', async () => {
     const session = fakeSession()
     const { hub, permissions } = hubWith(session)

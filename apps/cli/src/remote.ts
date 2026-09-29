@@ -147,10 +147,10 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       // controller 落地，session.attached/deleted 视图帧随事件通道回推。
       deleteSession: (id) => sessionHub.deleteSession(id),
       subscribe: (listener) => sessionHub.subscribe(listener),
-      decide: (requestId, kind) => sessionHub.decide(requestId, kind),
+      decide: (requestId, kind, reason) => sessionHub.decide(requestId, kind, reason),
       pendingPermissionIds: () => sessionHub.pendingPermissionIds(),
       // AskUserQuestion 作答隧道（WS ask.answer / 移动端问答卡）：队列在 hub 侧。
-      answerAsk: (requestId, value) => sessionHub.answerAsk(requestId, value),
+      answerAsk: (requestId, value, reason) => sessionHub.answerAsk(requestId, value, reason),
       pendingAskIds: () => sessionHub.pendingAskIds(),
       pendingAskRequests: () => sessionHub.pendingAskRequests(),
       transcript: () => sessionHub.transcript(),

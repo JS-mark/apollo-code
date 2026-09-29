@@ -177,7 +177,7 @@ ws.onmessage = (e) => {
 | `GATEWAY_CLIENTS_FILE` | `<home>/gateway/clients.json` | 客户端文件（只存 `secretHash`） |
 | `GATEWAY_TOKEN_SECRET` | 生成并落盘 | JWT HS256 签名密钥（任意长字符串，内部 SHA256 拉伸） |
 | `GATEWAY_TOKEN_TTL_SECONDS` | `3600` | token 有效期 |
-| `GATEWAY_PERMISSION_TIMEOUT_MS` | `120000` | 审批无人决策自动 deny 的超时（0 关闭） |
+| `GATEWAY_PERMISSION_TIMEOUT_MS` | `120000` | 审批卡无人决策自动 deny / 提问卡无人作答自动关闭的超时（0 关闭；模型侧结果带 `permission_timeout` / `ask_timeout` 码） |
 | `GATEWAY_QUEUE_TIMEOUT_MS` | `600000` | turn 排队上限，超时 409 |
 | `GATEWAY_MAX_TURN_HOLD_MS` | `1800000` | 单 turn 持锁上限（防卡死） |
 | `GATEWAY_RATE_LIMIT_RPM` | `600` | 每客户端每分钟 API 上限 |

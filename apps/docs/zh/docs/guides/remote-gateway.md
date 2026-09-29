@@ -113,8 +113,9 @@ chat/completions 共享同一个活动会话；chat/completions 在无活动会�
 ## 权限审批
 
 审批在本机侧按桌面权限模式进行：审批卡经隧道同时推到本机 TUI、Web 控制台与手机，
-任一端决策全端清卡；无人决策超过 `GATEWAY_PERMISSION_TIMEOUT_MS`（默认 120s）
-自动 deny。
+任一端决策全端清卡；审批卡无人决策超过 `GATEWAY_PERMISSION_TIMEOUT_MS`（默认
+120s）自动 deny，提问卡共用同一时钟、无人作答自动关闭——模型侧工具结果带
+`permission_timeout` / `ask_timeout` 码，不再是笼统的拒绝。
 
 ## 设备配对
 

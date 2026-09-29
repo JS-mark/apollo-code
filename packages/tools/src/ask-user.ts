@@ -8,7 +8,7 @@
  *
  * 免审批（permissionSpec => {}）：提问本身就是交互，不需要二次授权。
  */
-import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
+import type { AskChoiceDismissal, Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 
@@ -82,12 +82,19 @@ export function createAskUserQuestionTool(): Tool {
         return textResult('AskUserQuestion requires a question and at least 2 options.', true)
       const requestChoice = context.ui.requestChoice
       if (!requestChoice) return textResult(UNAVAILABLE_RESULT, true)
-      let answer: string | undefined
+      let answer: string | AskChoiceDismissal | undefined
       try {
         answer = await requestChoice({ question, options })
       } catch {
         // 宿主明确拒绝（如非交互模式）：与「未接线」同语义，模型自选默认继续。
         return textResult(UNAVAILABLE_RESULT, true)
+      }
+      if (answer !== undefined && typeof answer !== 'string') {
+        if (answer.reason === 'timeout')
+          return textResult(
+            `ask_timeout: No one responded to the question before it was auto-closed; proceed with the best default and note the assumption.`,
+          )
+        return textResult('User dismissed the question without answering.')
       }
       if (answer === undefined || !options.some((option) => option.label === answer))
         return textResult('User dismissed the question without answering.')
