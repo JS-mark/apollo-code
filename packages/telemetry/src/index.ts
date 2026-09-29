@@ -162,14 +162,19 @@ export class Telemetry {
   constructor(readonly sink: TelemetrySink) {}
   async emit(name: string, source: string, payload: Record<string, unknown> = {}): Promise<void> {
     const clean = sanitize(payload) as Record<string, JsonValue>
-    await this.sink.write({
-      v: 1,
-      id: uuidv7(),
-      at: new Date().toISOString(),
-      name,
-      source,
-      payload: clean,
-    })
+    try {
+      await this.sink.write({
+        v: 1,
+        id: uuidv7(),
+        at: new Date().toISOString(),
+        name,
+        source,
+        payload: clean,
+      })
+    } catch {
+      // Telemetry is best-effort: a failed sink write must never surface as an
+      // unhandled rejection in fire-and-forget callers or crash the host.
+    }
   }
   violation(value: SandboxViolation): Promise<void> {
     return this.emit('sandbox.violation', 'sandbox', {
