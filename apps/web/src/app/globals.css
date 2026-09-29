@@ -520,6 +520,42 @@ div.tool-row:hover {
 .chat-composer {
   padding: 2px 0 14px;
 }
+/* 发送排队区（composer 上方）：拖拽排序 + 移出。 */
+.send-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.send-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border-radius: 8px;
+  background: var(--ant-color-bg-container, #fff);
+  font-size: 12px;
+}
+
+.send-queue-row[data-dragging] {
+  opacity: 0.55;
+}
+
+.send-queue-handle {
+  cursor: grab;
+  color: var(--ant-color-text-quaternary, #999);
+}
+
+.send-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer {
   padding: 10px 12px 8px;
   border: 1px solid var(--ant-color-border-secondary);

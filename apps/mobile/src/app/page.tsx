@@ -337,6 +337,19 @@ function MobileApp() {
     [activeSessionId, modelOverride],
   )
 
+  // 排队补发：回合终态边沿（running → idle）逐条发出队首。submitTurn 是
+  // ws.send fire-and-forget，错误经命令应答错误帧落提示条（无 promise 可回队）。
+  const prevTurnRef = useRef(state.turn)
+  useEffect(() => {
+    const previous = prevTurnRef.current
+    prevTurnRef.current = state.turn
+    if (previous !== 'running' || state.turn !== 'idle') return
+    const head = state.sendQueue[0]
+    if (!head) return
+    dispatch({ type: 'queue-remove', id: head.id })
+    submitTurn(head.text)
+  }, [state.turn, state.sendQueue, submitTurn])
+
   const resumeSession = useCallback((id: string) => {
     setHydrating(true)
     dispatch({ type: 'reset' })
@@ -506,6 +519,10 @@ function MobileApp() {
               dispatch({ type: 'echo', text, ...(images.length ? { images } : {}) })
             }
             onSubmit={submitTurn}
+            onQueuePush={(id, text) => dispatch({ type: 'queue-push', id, text })}
+            onQueueRemove={(id) => dispatch({ type: 'queue-remove', id })}
+            onQueueReorder={(order) => dispatch({ type: 'queue-reorder', order })}
+            onNotice={(notice) => dispatch({ type: 'notice', notice })}
             onStage={stageImage}
             onInterrupt={interrupt}
             onDecide={decide}

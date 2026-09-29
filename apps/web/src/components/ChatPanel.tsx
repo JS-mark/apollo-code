@@ -13,6 +13,7 @@ import {
   FolderOpenOutlined,
   GlobalOutlined,
   HistoryOutlined,
+  HolderOutlined,
   LinkOutlined,
   LoadingOutlined,
   PlusOutlined,
@@ -450,10 +451,22 @@ export function ChatPanel({
   )
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, options?: { queued?: boolean }) => {
       const trimmed = text.trim()
       const ready = images.filter((item) => item.status === 'ready' && item.staged)
-      if ((!trimmed && ready.length === 0) || chat.turn === 'running') return
+      if (!trimmed && ready.length === 0) return
+      // 发送排队：回合进行中提交 → 进可见队列，回合终态后由补发 effect 逐条发出。
+      // 带图片的消息不排队（staged handle 有时效），提示等空闲再发。
+      if (chat.turn === 'running' && !options?.queued) {
+        if (ready.length > 0 || images.some((item) => item.status === 'uploading')) {
+          stream.setNotice('当前回合进行中：带图片的消息请等回合结束后再发送')
+          return
+        }
+        stream.queuePush(`q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, trimmed)
+        setDraft('')
+        stream.setNotice(undefined)
+        return
+      }
       if (images.some((item) => item.status === 'uploading')) return
       setBusy(true)
       setDraft('')
@@ -492,6 +505,74 @@ export function ChatPanel({
     },
     [api, chat.turn, ensureSession, images, modelOverride, stream],
   )
+
+  // 排队补发：回合终态边沿（running → idle）逐条发出队首。submit 失败时乐观
+  // 回显已入流、notice 已提示——与手动发送失败同路径，靠「重试」兜底，不自动回队。
+  const prevTurnRef = useRef(chat.turn)
+  const firingRef = useRef(false)
+  useEffect(() => {
+    const previous = prevTurnRef.current
+    prevTurnRef.current = chat.turn
+    if (previous !== 'running' || chat.turn !== 'idle' || firingRef.current) return
+    const head = chat.sendQueue[0]
+    if (!head) return
+    firingRef.current = true
+    stream.queueRemove(head.id)
+    void send(head.text, { queued: true }).finally(() => {
+      firingRef.current = false
+    })
+  }, [chat.turn, chat.sendQueue, send, stream])
+
+  // 发送队列 UI：拖拽排序（HTML5 dnd，桌面鼠标）+ 移出；渲染在 composer 上方。
+  const dragIdRef = useRef<string | undefined>(undefined)
+  const [draggingId, setDraggingId] = useState<string>()
+  const queueBlock =
+    chat.sendQueue.length > 0 ? (
+      <div className="send-queue" aria-label="发送队列">
+        {chat.sendQueue.map((item, index) => (
+          <div
+            key={item.id}
+            className="send-queue-row"
+            draggable
+            data-dragging={draggingId === item.id || undefined}
+            onDragStart={(event) => {
+              dragIdRef.current = item.id
+              setDraggingId(item.id)
+              event.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragOver={(event) => {
+              event.preventDefault()
+              const dragId = dragIdRef.current
+              if (!dragId || dragId === item.id) return
+              const order = chat.sendQueue.map((entry) => entry.id)
+              const from = order.indexOf(dragId)
+              const to = order.indexOf(item.id)
+              if (from < 0 || to < 0) return
+              order.splice(to, 0, ...order.splice(from, 1))
+              stream.queueReorder(order)
+            }}
+            onDragEnd={() => {
+              dragIdRef.current = undefined
+              setDraggingId(undefined)
+            }}
+          >
+            <HolderOutlined className="send-queue-handle" />
+            <span className="send-queue-text" title={item.text}>
+              {index + 1}. {item.text}
+            </span>
+            <Tooltip title="移出队列">
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                aria-label="移出队列"
+                onClick={() => stream.queueRemove(item.id)}
+              />
+            </Tooltip>
+          </div>
+        ))}
+      </div>
+    ) : null
 
   // 中断提示上的「重试」：重发最后一条已收口的 user 消息（乐观回显不重发；
   // 纯图消息 chip 剥离后 text 为空，没有可重发的文本，不出现按钮）。
@@ -943,7 +1024,10 @@ export function ChatPanel({
           <BrandMark size={84} />
           <div className="chat-hero-tag">锻造灵感 · 化为现实</div>
           <div className="chat-hero-cwd">{cwd}</div>
-          <div className="chat-hero-composer">{composer}</div>
+          <div className="chat-hero-composer">
+            {queueBlock}
+            {composer}
+          </div>
           {chat.notice && (
             <Alert type="warning" showIcon title={chat.notice} style={{ marginTop: 12 }} />
           )}
@@ -1063,7 +1147,10 @@ export function ChatPanel({
           </div>
 
           {/* composer */}
-          <div className="chat-composer">{composer}</div>
+          <div className="chat-composer">
+            {queueBlock}
+            {composer}
+          </div>
         </div>
       )}
     </div>

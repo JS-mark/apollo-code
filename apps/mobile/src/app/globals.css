@@ -261,6 +261,57 @@ body[data-theme='dark'] {
   border-color: rgba(255, 255, 255, 0.14);
 }
 
+/* 发送排队区（composer 上方）：触摸拖拽排序 + 移出。 */
+.send-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.send-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px; /* SEND_QUEUE_ROW_HEIGHT 依赖此值，改须同步 */
+  padding: 0 10px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border-radius: 10px;
+  background: var(--ant-color-bg-container, #fff);
+  font-size: 12px;
+}
+
+.send-queue-handle {
+  cursor: grab;
+  touch-action: none; /* 拖手柄时不滚动页面 */
+  color: var(--ant-color-text-quaternary, #999);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 2px;
+}
+
+.send-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ant-color-text, #333);
+}
+
+.send-queue-remove {
+  border: none;
+  background: none;
+  padding: 4px;
+  color: var(--ant-color-text-quaternary, #999);
+  cursor: pointer;
+}
+
+[data-theme='dark'] .send-queue-row {
+  border-color: var(--ant-color-border, #333);
+  background: var(--ant-color-bg-container, #1f1f1f);
+}
+
 .composer-wrap {
   background: rgba(255, 255, 255, 0.94);
   border-top: 1px solid rgba(5, 5, 5, 0.08);

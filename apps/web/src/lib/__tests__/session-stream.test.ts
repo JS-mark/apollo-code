@@ -31,6 +31,41 @@ function reduceMany(state: ChatState, actions: Parameters<typeof reduceChatState
   return actions.reduce(reduceChatState, state)
 }
 
+describe('发送排队（queue actions）', () => {
+  const base = initialChatState
+
+  it('queue-push 追加 / queue-remove 删除', () => {
+    let state = reduceChatState(base, { type: 'queue-push', id: 'a', text: 'first' })
+    state = reduceChatState(state, { type: 'queue-push', id: 'b', text: 'second' })
+    expect(state.sendQueue.map((item) => item.id)).toEqual(['a', 'b'])
+    state = reduceChatState(state, { type: 'queue-remove', id: 'a' })
+    expect(state.sendQueue.map((item) => item.id)).toEqual(['b'])
+  })
+
+  it('queue-reorder 按给定 id 顺序重排（拖拽排序的状态面）', () => {
+    let state = base
+    for (const id of ['a', 'b', 'c'])
+      state = reduceChatState(state, { type: 'queue-push', id, text: id })
+    state = reduceChatState(state, { type: 'queue-reorder', order: ['c', 'a', 'b'] })
+    expect(state.sendQueue.map((item) => item.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('session.attached 清空排队（切会话不串队列）', () => {
+    let state = reduceChatState(base, { type: 'queue-push', id: 'a', text: 'x' })
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: {
+        kind: 'view',
+        event: { type: 'session.attached', payload: {} },
+        sessionId: 's1',
+        streamVersion: 1,
+        cursor: '0',
+      },
+    })
+    expect(state.sendQueue).toEqual([])
+  })
+})
+
 describe('reduceChatState（SSE 与本地动作合流）', () => {
   it('流式 delta 追加到同一 assistant 消息，completed 后收口', () => {
     const state = reduceMany(initialChatState, [

@@ -1047,15 +1047,29 @@ describe('renderInteractiveApp', () => {
     stdin.write('\r')
     await vi.waitFor(() => expect(stdout.output).toContain('Show slash commands'))
 
-    // turn 收尾 → 排队文本自动发出
+    // 回合中途的 stream.completed 不算收尾——排队文本不得误发（旧实现会在这里
+    // 撞 session_turn_in_progress 且丢消息）。
     await events.emit({
       payload: { messageId: 'm-1' },
       sessionId: 'session-1234567890',
       type: 'stream.completed',
       version: 1,
     })
+    await app.waitUntilRenderFlush()
+    expect(submitted).toEqual([])
+
+    // turn 收尾（终态事件）→ 排队文本自动发出
+    await events.emit({
+      payload: {
+        turnId: 'turn-1',
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUSD: 0 },
+      },
+      sessionId: 'session-1234567890',
+      type: 'turn.completed',
+      version: 1,
+    })
     await vi.waitFor(() => expect(submitted).toEqual(['check the subagents result']))
-    expect(stdout.output).toContain('1 queued message(s)')
+    expect(stdout.output).toContain('queued — sent one per turn')
     app.unmount()
     await app.waitUntilExit()
   })

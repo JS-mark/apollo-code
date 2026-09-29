@@ -396,6 +396,10 @@ export function ChatView({
   gateway,
   onEcho,
   onSubmit,
+  onQueuePush,
+  onQueueRemove,
+  onQueueReorder,
+  onNotice,
   onStage,
   onInterrupt,
   onDecide,
@@ -414,6 +418,11 @@ export function ChatView({
   onEcho(text: string, images: readonly ChatMessageImage[]): void
   /** text 已是出站 prompt（无文本时以 chip 占位）；images 仅含已暂存完成的。 */
   onSubmit(text: string, images: readonly SubmitImage[]): void
+  /** 发送排队：回合进行中提交的消息进队列（自动补发/拖拽排序在页面层与队列 UI）。 */
+  onQueuePush(id: string, text: string): void
+  onQueueRemove(id: string): void
+  onQueueReorder(order: readonly string[]): void
+  onNotice(text: string): void
   /** 选图即上传暂存（经网关进本机 AttachmentStore）；失败抛错，chip 转 error 态。 */
   onStage(file: File): Promise<StagedAttachment>
   onInterrupt(): void
@@ -501,6 +510,17 @@ export function ChatView({
     if (!value && !ready.length) return
     // 上传在途时拦下发送，避免漏图（chip 上有转圈，等转完再发）。
     if (images.some((item) => item.status === 'uploading')) return
+    // 发送排队：回合进行中提交 → 进可见队列，回合终态后自动逐条补发。
+    // 带图片的消息不排队（staged handle 有时效），提示等空闲再发。
+    if (state.turn === 'running') {
+      if (ready.length > 0) {
+        onNotice('当前回合进行中：带图片的消息请等回合结束后再发送')
+        return
+      }
+      onQueuePush(`q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, value)
+      setText('')
+      return
+    }
     onEcho(
       value,
       ready.map((item) => ({
@@ -647,6 +667,13 @@ export function ChatView({
           />
         )}
       </div>
+      {state.sendQueue.length > 0 && (
+        <SendQueueList
+          queue={state.sendQueue}
+          onRemove={onQueueRemove}
+          onReorder={onQueueReorder}
+        />
+      )}
       <div className="composer-wrap">
         {images.length > 0 && (
           <div className="chips">
@@ -719,5 +746,69 @@ export function ChatView({
         </div>
       </div>
     </>
+  )
+}
+
+/** 触摸拖拽的行高（与 .send-queue-row 固定高度一致；改样式须同步）。 */
+const SEND_QUEUE_ROW_HEIGHT = 36
+
+/**
+ * 发送队列（mobile）：触摸拖拽排序 + 移出。拖拽手柄 `touch-action: none` 防
+ * 页面滚动，move 时按行高换算目标位、实时 dispatch 重排（web 侧为 HTML5 dnd）。
+ */
+function SendQueueList({
+  queue,
+  onRemove,
+  onReorder,
+}: {
+  queue: readonly { id: string; text: string }[]
+  onRemove(id: string): void
+  onReorder(order: readonly string[]): void
+}) {
+  const dragRef = useRef<{ id: string; startIndex: number; startY: number } | undefined>(undefined)
+  return (
+    <div className="send-queue" aria-label="发送队列">
+      {queue.map((item, index) => (
+        <div key={item.id} className="send-queue-row">
+          <span
+            className="send-queue-handle"
+            aria-label={`拖动排序：${item.text}`}
+            onTouchStart={(event) => {
+              const touch = event.touches[0]!
+              dragRef.current = { id: item.id, startIndex: index, startY: touch.clientY }
+            }}
+            onTouchMove={(event) => {
+              const drag = dragRef.current
+              if (!drag || drag.id !== item.id) return
+              const touch = event.touches[0]!
+              const delta = Math.round((touch.clientY - drag.startY) / SEND_QUEUE_ROW_HEIGHT)
+              const target = Math.max(0, Math.min(queue.length - 1, drag.startIndex + delta))
+              if (target === index) return
+              const order = queue.map((entry) => entry.id)
+              order.splice(target, 0, ...order.splice(index, 1))
+              onReorder(order)
+              drag.startIndex = target
+              event.preventDefault()
+            }}
+            onTouchEnd={() => {
+              dragRef.current = undefined
+            }}
+          >
+            ≡
+          </span>
+          <span className="send-queue-text">
+            {index + 1}. {item.text}
+          </span>
+          <button
+            type="button"
+            className="send-queue-remove"
+            aria-label="移出队列"
+            onClick={() => onRemove(item.id)}
+          >
+            <CloseOutlined style={{ fontSize: 10 }} />
+          </button>
+        </div>
+      ))}
+    </div>
   )
 }

@@ -16,7 +16,7 @@ import {
   type StagedAttachmentInfo,
   type SubmitAttachment,
 } from '@volund/shared'
-import { Box, Text, useApp, useStdout } from 'ink'
+import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -359,6 +359,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // （undo/compact/model/resume 除外），纯文本排队、turn 结束自动发出。
   // §7.5.2：排队条目随带各自的附件 chip——合并发送时附件一并归并。
   const [queuedInputs, setQueuedInputs] = useState<QueuedInput[]>([])
+  const queueSeq = useRef(0)
+  // 回合终态边沿计数（turn.completed/aborted/error.raised 各 +1）：排队补发的
+  // 唯一触发源——中途的 stream.completed/tool.completed/permission_asked 不算收尾。
+  const [turnSettledSeq, setTurnSettledSeq] = useState(0)
+  const [queueFlushError, setQueueFlushError] = useState<string>()
   const anyPanelOpen =
     statusPanelOpen ||
     memoryOpen ||
@@ -524,6 +529,12 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               : current
             return applyInteractiveEvent(flushPendingToTranscript(withFlushed, event.id), event)
           })
+          setTurnSettledSeq((n) => n + 1)
+          return
+        }
+        if (event.type === 'turn.completed') {
+          setState((current) => applyInteractiveEvent(current, event))
+          setTurnSettledSeq((n) => n + 1)
           return
         }
         if (event.type === 'message.appended') {
@@ -1115,7 +1126,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           if (outcome.kind === 'submit') {
             settleStatus('info')
             if (turnInFlight) {
-              setQueuedInputs((current) => [...current, { attachments: [], text: outcome.text }])
+              setQueuedInputs((current) => [
+                ...current,
+                { id: `q-${++queueSeq.current}`, attachments: [], text: outcome.text },
+              ])
               appendSystemMessage(
                 setState,
                 'queued — the skill will run when the current turn finishes',
@@ -1136,7 +1150,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           return
         }
         if (turnInFlight) {
-          setQueuedInputs((current) => [...current, { attachments, text: input }])
+          setQueuedInputs((current) => [
+            ...current,
+            { id: `q-${++queueSeq.current}`, attachments, text: input },
+          ])
           appendSystemMessage(
             setState,
             'queued — the message will be sent when the current turn finishes',
@@ -1187,24 +1204,39 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // or a pending question is open so esc unambiguously means "deny"/"skip" there.
   const turnInFlight =
     state.statusLevel === 'active' && permissionRequests.length === 0 && askRequests.length === 0
-  // 排队消息在 turn 收尾后自动发出（permission 弹窗期不算收尾，statusLevel 仍 active）
+  // 排队补发：只在回合终态边沿逐条发出队首（每条排队消息成为独立 turn，依序
+  // 清空）。旧实现以 statusLevel!=='active' 为触发——回合中途的 stream.completed/
+  // tool.completed/permission_asked 会误发并撞 session_turn_in_progress（未捕获
+  // rejection + 队列已清空 = 消息丢失），终态驱动后该窗口不复存在。
+  const flushedSeqRef = useRef(0)
   useEffect(() => {
-    if (state.statusLevel === 'active' || queuedInputs.length === 0) return
-    const next = queuedInputs.map((queued) => queued.text).join('\n\n')
-    // 各排队条目的 chip 一并归并；重复粘贴的同一附件（内容寻址 chip 相同）去重。
-    const seen = new Set<string>()
-    const attachments = queuedInputs
-      .flatMap((queued) => queued.attachments)
-      .filter((attachment) => {
-        const key = attachment.handle ?? attachment.path ?? attachment.chip
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
-    setQueuedInputs([])
-    rememberAttachmentChips(attachments)
-    void activeOnSubmit?.(next, submitOptions(modelOverride ?? '', attachments))
-  }, [state.statusLevel, queuedInputs, rememberAttachmentChips])
+    if (turnSettledSeq === 0 || flushedSeqRef.current === turnSettledSeq) return
+    flushedSeqRef.current = turnSettledSeq
+    const head = queuedInputs[0]
+    if (!head) return
+    setQueuedInputs((current) => current.filter((item) => item.id !== head.id))
+    setQueueFlushError(undefined)
+    rememberAttachmentChips(head.attachments)
+    void Promise.resolve(
+      activeOnSubmit?.(head.text, submitOptions(modelOverride ?? '', head.attachments)),
+    ).catch((cause: unknown) => {
+      // 补发失败（如 mutex 撞车）：插回队首等下一个终态边沿重试，错误就地提示。
+      setQueuedInputs((current) => [head, ...current.filter((item) => item.id !== head.id)])
+      setQueueFlushError(cause instanceof Error ? cause.message : String(cause))
+    })
+  }, [turnSettledSeq, queuedInputs, activeOnSubmit, modelOverride, rememberAttachmentChips])
+
+  // 队列删除：alt+<n> 移除第 n 条（TUI 无拖拽，键盘即排序/清理手段）。
+  useInput(
+    (input, key) => {
+      if (!key.meta) return
+      const index = Number.parseInt(input, 10)
+      if (!Number.isInteger(index) || index < 1 || index > queuedInputs.length) return
+      setQueuedInputs((current) => current.filter((_, position) => position !== index - 1))
+      setQueueFlushError(undefined)
+    },
+    { isActive: queuedInputs.length > 0 },
+  )
   const toolName = state.status.startsWith('running ')
     ? state.status.slice('running '.length)
     : undefined
@@ -1262,10 +1294,16 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       {options.asks ? <AskPromptStack controller={options.asks} asks={askRequests} /> : null}
       {turnStatus}
       {queuedInputs.length > 0 ? (
-        <Box paddingLeft={1}>
+        <Box paddingLeft={1} flexDirection="column">
+          {queuedInputs.map((queued, index) => (
+            <Text key={queued.id} color="gray" dimColor>
+              {index + 1}. {queued.text.length > 60 ? `${queued.text.slice(0, 59)}…` : queued.text}
+            </Text>
+          ))}
           <Text color="gray">
-            {queuedInputs.length} queued message(s) — sent when the turn finishes
+            queued — sent one per turn after the current one (alt+&lt;n&gt; removes)
           </Text>
+          {queueFlushError ? <Text color="red">queue send failed: {queueFlushError}</Text> : null}
         </Box>
       ) : null}
       {commandInput}
@@ -1539,6 +1577,7 @@ function firstAvailableModelId(models: readonly ModelPickerState['models'][numbe
 
 /** turn 运行期排队的输入：文本 + 各自的附件 chip（§7.5.2）。 */
 interface QueuedInput {
+  id: string
   attachments: readonly SubmitAttachment[]
   text: string
 }

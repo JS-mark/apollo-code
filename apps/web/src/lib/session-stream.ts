@@ -105,6 +105,11 @@ export interface AskCard {
   options: { label: string; description?: string }[]
 }
 
+export interface QueuedSend {
+  id: string
+  text: string
+}
+
 export interface ChatState {
   messages: ChatMessage[]
   tools: ToolCard[]
@@ -124,6 +129,8 @@ export interface ChatState {
   permission: PermissionCard | undefined
   /** 待决提问（AskUserQuestion）：ask.request/resolved 视图帧同写这里。 */
   ask: AskCard | undefined
+  /** 发送排队：回合进行中提交的消息，回合终态后由 ChatPanel 逐条自动补发。 */
+  sendQueue: QueuedSend[]
   /**
    * 本回合累计的正文流字符（stream.delta text 追加，turn.started 清零）——
    * 状态行的 ↑ tokens 估算数据源（≈ chars/4，与 TUI 同规则）。
@@ -146,6 +153,7 @@ export interface ChatState {
 
 export const initialChatState: ChatState = {
   messages: [],
+  sendQueue: [],
   tools: [],
   subagents: {},
   turn: 'idle',
@@ -201,6 +209,9 @@ export type StreamAction =
   | { type: 'hydrate'; transcript: readonly unknown[] }
   | { type: 'echo'; text: string; images: ChatImage[] }
   | { type: 'notice'; notice: string | undefined }
+  | { type: 'queue-push'; id: string; text: string }
+  | { type: 'queue-remove'; id: string }
+  | { type: 'queue-reorder'; order: readonly string[] }
   /** mode 原样传入（string）；非法值在 reducer 内忽略。 */
   | { type: 'permission-mode'; mode: string }
   | { type: 'reset' }
@@ -811,6 +822,22 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       }
     case 'notice':
       return { ...state, notice: action.notice }
+    // 发送排队（回合进行中提交的消息）：回合终态后由 ChatPanel 逐条自动补发。
+    case 'queue-push':
+      return { ...state, sendQueue: [...state.sendQueue, { id: action.id, text: action.text }] }
+    case 'queue-remove':
+      return {
+        ...state,
+        sendQueue: state.sendQueue.filter((item) => item.id !== action.id),
+      }
+    case 'queue-reorder': {
+      const rank = new Map(action.order.map((id, index) => [id, index]))
+      const ordered = state.sendQueue
+        .map((item, index) => [rank.get(item.id) ?? index, item] as const)
+        .sort((left, right) => left[0] - right[0])
+        .map(([, item]) => item)
+      return { ...state, sendQueue: ordered }
+    }
     case 'permission-mode': {
       const mode = action.mode
       if (mode !== 'ask' && mode !== 'auto' && mode !== 'full') return state
@@ -828,6 +855,9 @@ export interface SessionStream {
   setNotice(notice: string | undefined): void
   /** 写入权限档位（非法值忽略）；SSE permission.mode 帧同写这里。 */
   setPermissionMode(mode: string): void
+  queuePush(id: string, text: string): void
+  queueRemove(id: string): void
+  queueReorder(order: readonly string[]): void
   reset(): void
 }
 
@@ -878,6 +908,15 @@ export function useSessionStream(enabled: boolean, sessionId: string | undefined
     ),
     setPermissionMode: useCallback(
       (mode: string) => dispatch({ type: 'permission-mode', mode }),
+      [],
+    ),
+    queuePush: useCallback(
+      (id: string, text: string) => dispatch({ type: 'queue-push', id, text }),
+      [],
+    ),
+    queueRemove: useCallback((id: string) => dispatch({ type: 'queue-remove', id }), []),
+    queueReorder: useCallback(
+      (order: readonly string[]) => dispatch({ type: 'queue-reorder', order }),
       [],
     ),
     reset: useCallback(() => dispatch({ type: 'reset' }), []),

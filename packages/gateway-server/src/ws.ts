@@ -71,7 +71,11 @@ function holdQueueUntilTurnEnd(hub: GatewayHubLike, release: () => void, maxHold
     ) {
       clearTimeout(timer)
       detach()
-      release()
+      // 延后一个宏任务：release 若在 turn.completed 的 emit 级联里同步执行，
+      // 被唤醒的排队 submit 可能抢在 runTurnExclusive 的 finally 清锁之前
+      // 进 mutex（session_turn_in_progress）——客户端自动补发必然晚于网络
+      // 往返，这里只需保证同进程 FIFO 路径也安全。
+      setTimeout(release, 0)
     }
   })
   const timer = setTimeout(() => {

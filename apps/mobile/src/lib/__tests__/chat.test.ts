@@ -18,6 +18,32 @@ const envelope = (kind: string, event: EnvelopeEvent, sessionId = 's1') => ({
   event,
 })
 
+describe('发送排队（queue actions）', () => {
+  const base = initialChatState
+
+  it('queue-push 追加 / queue-remove 删除', () => {
+    let state = reduceChatState(base, { type: 'queue-push', id: 'a', text: 'first' })
+    state = reduceChatState(state, { type: 'queue-push', id: 'b', text: 'second' })
+    expect(state.sendQueue.map((item) => item.id)).toEqual(['a', 'b'])
+    state = reduceChatState(state, { type: 'queue-remove', id: 'a' })
+    expect(state.sendQueue.map((item) => item.id)).toEqual(['b'])
+  })
+
+  it('queue-reorder 按给定 id 顺序重排（触摸拖拽的状态面）', () => {
+    let state = base
+    for (const id of ['a', 'b', 'c'])
+      state = reduceChatState(state, { type: 'queue-push', id, text: id })
+    state = reduceChatState(state, { type: 'queue-reorder', order: ['c', 'a', 'b'] })
+    expect(state.sendQueue.map((item) => item.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('reset 清空排队（断线重连不串队列）', () => {
+    let state = reduceChatState(base, { type: 'queue-push', id: 'a', text: 'x' })
+    state = reduceChatState(state, { type: 'reset' })
+    expect(state.sendQueue).toEqual([])
+  })
+})
+
 describe('mobile chat reducer', () => {
   it('accumulates thinking deltas before text arrives', () => {
     let state = initialChatState

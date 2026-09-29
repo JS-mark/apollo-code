@@ -83,6 +83,11 @@ export interface PermissionCard {
   expiresAt?: number
 }
 
+export interface QueuedSend {
+  id: string
+  text: string
+}
+
 /** AskUserQuestion 的待决提问卡（hub ask.request 视图帧投影）。 */
 export interface AskCard {
   id: string
@@ -102,6 +107,8 @@ export interface ChatState {
   permissions: PermissionCard[]
   /** 待决提问队列（AskUserQuestion；hub 全量投影）：问答卡的数据源。 */
   asks: AskCard[]
+  /** 发送排队：回合进行中提交的消息，回合终态后自动逐条补发（支持拖拽排序）。 */
+  sendQueue: QueuedSend[]
   /**
    * 本回合累计的正文流字符（stream.delta text 追加，turn.started 清零）——
    * 状态提示的 ↑ tokens 估算数据源（≈ chars/4，与 TUI/web 同规则）。
@@ -129,6 +136,7 @@ export const initialChatState: ChatState = {
   turn: 'idle',
   permissions: [],
   asks: [],
+  sendQueue: [],
   streamedChars: 0,
   notice: undefined,
   interrupted: false,
@@ -356,6 +364,9 @@ export type StreamAction =
   | { type: 'turn-stalled' }
   | { type: 'echo'; text: string; images?: readonly ChatMessageImage[] }
   | { type: 'notice'; notice: string | undefined }
+  | { type: 'queue-push'; id: string; text: string }
+  | { type: 'queue-remove'; id: string }
+  | { type: 'queue-reorder'; order: readonly string[] }
   | { type: 'reset' }
 
 /** 只取 text part（thinking part 也有 text 字段，混进来会把思考内容粘进正文、破坏 markdown 结构）。 */
@@ -871,6 +882,22 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       }
     case 'notice':
       return { ...state, notice: action.notice }
+    // 发送排队（回合进行中提交的消息）：回合终态后由页面层逐条自动补发。
+    case 'queue-push':
+      return { ...state, sendQueue: [...state.sendQueue, { id: action.id, text: action.text }] }
+    case 'queue-remove':
+      return {
+        ...state,
+        sendQueue: state.sendQueue.filter((item) => item.id !== action.id),
+      }
+    case 'queue-reorder': {
+      const rank = new Map(action.order.map((id, index) => [id, index]))
+      const ordered = state.sendQueue
+        .map((item, index) => [rank.get(item.id) ?? index, item] as const)
+        .sort((left, right) => left[0] - right[0])
+        .map(([, item]) => item)
+      return { ...state, sendQueue: ordered }
+    }
     case 'reset':
       return initialChatState
   }
