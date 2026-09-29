@@ -116,6 +116,18 @@ describe('runCli', () => {
     expect(result.stdout).toContain('7x24 task scheduler')
   })
 
+  it('shows usage for `volund status help` and `volund doctor help` instead of running them', async () => {
+    const statusResult = await runCli(['status', 'help'], ports())
+    expect(statusResult.exitCode).toBe(0)
+    expect(statusResult.stdout).toContain('Usage:')
+    expect(statusResult.stdout).toContain('redacted runtime')
+
+    const doctorResult = await runCli(['doctor', 'help'], ports())
+    expect(doctorResult.exitCode).toBe(0)
+    expect(doctorResult.stdout).toContain('Usage:')
+    expect(doctorResult.stdout).toContain('remote link')
+  })
+
   it('answers a bare `volund hook` with usage instead of the port error', async () => {
     const result = await runCli(['hook'], ports())
     expect(result.exitCode).toBe(2)

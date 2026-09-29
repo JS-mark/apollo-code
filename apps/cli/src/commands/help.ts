@@ -363,15 +363,19 @@ export const commandUsage: Readonly<Record<string, string>> = {
 }
 
 /**
- * Commands whose first positional is an action, so `volund <cmd> help` reads as
- * a help request (today it only errors as an unknown action). Prompt-taking
- * commands (chat) and id/name-taking commands (resume/login/...) are excluded:
- * there a bare `help` token is data, not a help request.
+ * Commands that either dispatch on a first positional action or take no
+ * positional data at all, so `volund <cmd> help` reads as a help request rather
+ * than command input. Prompt-taking commands (chat) and id/name-taking commands
+ * (resume/login/...) are excluded: there a bare `help` token is data, not a
+ * help request.
  */
 export const actionStyleCommands: ReadonlySet<string> = new Set([
   'tasks',
   // daemon 不吃位置参数，`volund daemon help` 只能是求帮助——绝不能因此启动 daemon。
   'daemon',
+  // status/doctor 同样不吃位置参数：`volund status help` 是求帮助，不是执行诊断。
+  'status',
+  'doctor',
   'memory',
   'telemetry',
   'trust',
