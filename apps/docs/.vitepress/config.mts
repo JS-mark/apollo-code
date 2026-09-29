@@ -113,6 +113,7 @@ export default withMermaid(
                   { text: 'Agent loop', link: '/docs/concepts/agent-loop' },
                   { text: 'Security model', link: '/docs/concepts/security-model' },
                   { text: 'Skills and vision', link: '/docs/concepts/skills-and-vision' },
+                  { text: 'Web search', link: '/docs/concepts/web-search' },
                 ],
               },
               {
@@ -121,6 +122,8 @@ export default withMermaid(
                   { text: 'Managing skills', link: '/docs/guides/managing-skills' },
                   { text: 'MCP servers', link: '/docs/guides/mcp-servers' },
                   { text: 'Marketplaces', link: '/docs/guides/marketplace' },
+                  { text: 'Scheduled tasks', link: '/docs/guides/scheduled-tasks' },
+                  { text: 'Developing plugins', link: '/docs/guides/developing-plugins' },
                   { text: 'Remote gateway', link: '/docs/guides/remote-gateway' },
                   { text: 'Gateway integration', link: '/docs/guides/gateway-integration' },
                 ],
@@ -128,6 +131,12 @@ export default withMermaid(
               { text: 'API reference', link: '/api/README' },
               { text: 'CLI reference', link: '/docs/reference/cli' },
               { text: 'Error codes', link: '/docs/reference/error-codes' },
+              { text: 'JSON output', link: '/docs/reference/json-output' },
+              {
+                text: 'Plugin host capabilities',
+                link: '/docs/reference/plugin-host-capabilities',
+              },
+              { text: 'Themes and plugin UI', link: '/docs/reference/themes-and-plugin-ui' },
               {
                 text: 'Web Search custom backend',
                 link: '/docs/reference/web-search-custom-backend',
@@ -203,6 +212,7 @@ export default withMermaid(
                   { text: '智能体循环', link: '/zh/docs/concepts/agent-loop' },
                   { text: '安全模型', link: '/zh/docs/concepts/security-model' },
                   { text: 'Skill 与图像附件', link: '/zh/docs/concepts/skills-and-vision' },
+                  { text: 'Web 搜索', link: '/zh/docs/concepts/web-search' },
                 ],
               },
               {
@@ -211,6 +221,8 @@ export default withMermaid(
                   { text: '管理 Skill', link: '/zh/docs/guides/managing-skills' },
                   { text: '接入 MCP Server', link: '/zh/docs/guides/mcp-servers' },
                   { text: '市场与自建目录', link: '/zh/docs/guides/marketplace' },
+                  { text: '定时任务', link: '/zh/docs/guides/scheduled-tasks' },
+                  { text: '开发插件', link: '/zh/docs/guides/developing-plugins' },
                   { text: '远程网关', link: '/zh/docs/guides/remote-gateway' },
                   { text: '网关接入', link: '/zh/docs/guides/gateway-integration' },
                 ],
@@ -218,6 +230,9 @@ export default withMermaid(
               { text: 'API 参考', link: '/zh/api/README' },
               { text: 'CLI 参考', link: '/zh/docs/reference/cli' },
               { text: '错误码参考', link: '/zh/docs/reference/error-codes' },
+              { text: 'JSON 输出', link: '/zh/docs/reference/json-output' },
+              { text: '插件宿主能力', link: '/zh/docs/reference/plugin-host-capabilities' },
+              { text: '主题与插件 UI', link: '/zh/docs/reference/themes-and-plugin-ui' },
               { text: 'Web 搜索自定义后端', link: '/zh/docs/reference/web-search-custom-backend' },
               {
                 text: '故障排查',

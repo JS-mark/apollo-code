@@ -2,11 +2,11 @@
 
 ## 状态码 1
 
-命令或输入无效。运行 `volund help` 并修正请求。
+运行期或 provider 失败：请求本身被理解，但执行环节出错（provider 错误、存储 IO、daemon 故障）。运行 `volund doctor` 并检查已脱敏的诊断信息。
 
 ## 状态码 2
 
-系统依赖或 provider 失败。运行 `volund doctor` 并检查已脱敏的诊断信息。
+用法错误：非法旗标、缺参数、配置值不合法或缺确认。运行 `volund help` 并修正请求。
 
 ## 状态码 3
 

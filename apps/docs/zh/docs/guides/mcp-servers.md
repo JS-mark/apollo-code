@@ -2,7 +2,7 @@
 
 > `.volund` 配置路径是冻结的存储兼容标识；所有 CLI 命令统一使用 `volund`。
 
-Volund 是 MCP 客户端（stdio + HTTP，旧 SSE 自动回退）。配置对齐业界通用 `mcpServers` 键结构，与 Claude Code / Codex / Cursor 的配置互操作。
+Volund 是 MCP 客户端（stdio + Streamable HTTP，先于 Streamable HTTP 协议的旧 server 自动回退到旧 SSE）。配置对齐业界通用 `mcpServers` 键结构，与 Claude Code / Codex / Cursor 的配置互操作。
 
 ## 添加
 
@@ -54,6 +54,7 @@ volund mcp add -s project my-server -- npx -y my-mcp
 | 详情         | 面板里 Enter（元数据 + 工具清单） | `volund mcp inspect <name>`                   |
 | 启停（持久） | 面板里 Space                      | `volund mcp enable\|disable <name>`           |
 | 连通测试     | 面板里 `r`（全部重连）            | `volund mcp test <name>`                      |
+| OAuth 登录/登出 | —                              | `volund mcp login\|logout <name>`             |
 | 删除         | —                                 | `volund mcp remove <name>`                    |
 
 启停持久写在 `~/.volund/config.toml` 的 `[mcp] disabled` 名单。
@@ -62,4 +63,4 @@ volund mcp add -s project my-server -- npx -y my-mcp
 
 - `~/.volund/mcp.log`:JSONL 结构化日志（启动 / 连接 / 失败 / server stderr 逐行）。
 - `volund doctor`:`mcp servers` 行显示配置数、连接数、失败数。
-- 401/403 的 server 在面板里标为 `needs-auth`；OAuth 登录流程（`volund mcp login`）在 SM-07，当前可手动在配置里放 `Authorization` header 或 API key env。
+- 401/403 的 server 在面板里标为 `needs-auth`。运行 `volund mcp login <name>` 走 OAuth 流程（token 存进凭据存储；`volund mcp logout <name>` 清除），或手动在配置里放 `Authorization` header / API key env。

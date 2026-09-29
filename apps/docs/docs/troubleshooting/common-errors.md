@@ -2,11 +2,14 @@
 
 ## Exit code 1
 
-The command or input is invalid. Run `volund help` and correct the request.
+A runtime or provider failure: the request was understood but something failed
+while executing it (provider errors, store IO, daemon faults). Run `volund doctor`
+and inspect sanitized diagnostics.
 
 ## Exit code 2
 
-A system dependency or provider failed. Run `volund doctor` and inspect sanitized diagnostics.
+Usage error: invalid flags, missing arguments, bad config values, or a missing
+confirmation. Run `volund help` and correct the request.
 
 ## Exit code 3
 

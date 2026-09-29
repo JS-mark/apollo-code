@@ -1,6 +1,17 @@
 # CLI 参考
 
-`volund` 是标准命令。A 阶段兼容窗口期内，旧 `volund` 可执行命令仍作为别名保留；下文示例统一使用新名称。
+`volund` 是标准命令；下文示例统一使用该名称。
+
+## 目录信任
+
+```sh
+volund trust list [--json]
+volund trust revoke <path>
+volund trust revoke --all
+volund --cwd <path> --trust-workspace "prompt"
+```
+
+`--trust-workspace` 是非交互运行的可脚本化信任入口。它持久化一条精确的 canonical path 规则，不会授予父目录或子树范围。
 
 ## 自适应运行时调优（L2）
 
@@ -9,24 +20,28 @@
 | 命令                          | 用途                                                                       |
 | ----------------------------- | -------------------------------------------------------------------------- |
 | `volund [prompt]`             | 启动交互式或单次编程会话（`chat` 为等价别名）。                            |
-| `volund login <provider>`     | 验证并安全保存 provider 凭据。                                             |
+| `volund login <provider>`     | 验证并安全保存 provider 凭据（当前仅支持 `anthropic`）。                   |
 | `volund logout <provider>`    | 删除已保存的 provider 凭据。                                               |
 | `volund config <action>`      | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。               |
+| `volund status [--json]`      | 查看脱敏后的运行时与配置状态。                                             |
 | `volund history <action>`     | 查看与管理已保存会话（`list`/`show`/`search`/`export`/`import`/`clear`）。 |
+| `volund sessions <action>`    | 列出或删除已保存会话（`list`/`delete`）。                                  |
 | `volund resume <session-id>`  | 从最后一个持久化 turn 边界恢复。                                           |
 | `volund restore <session-id>` | 回滚该会话修改过的文件。                                                   |
-| `volund doctor [--strict]`    | 检查配置、凭据、原生包和沙箱状态。                                         |
+| `volund doctor [--strict]`    | 诊断配置、凭据、原生包、沙箱、skills、MCP server 与任务调度器。            |
 | `volund memory <action>`      | 管理长期记忆、pinned 上下文和本地搜索索引。                                |
 | `volund plugin <action>`      | 检查或清理本地插件；旧版安装与启用暂不可用。                               |
+| `volund plugins <action>`     | 插件创作工具链（`builtin`/`crate`/`dev`/`build`/`install`）。              |
 | `volund skill <action>`       | 安装、列出、查看、启停、卸载 prompt skill。                                |
-| `volund mcp <action>`         | 添加、列出、测试、启停、删除、查看 MCP server。                            |
+| `volund mcp <action>`         | 添加、列出、测试、查看、login/logout、启停、删除 MCP server。              |
+| `volund tasks <action>`       | 管理定时任务（`list`/`add`/`enable`/`disable`/`remove`/`runs`）。          |
+| `volund daemon`               | 前台运行 7x24 任务调度器。                                                 |
+| `volund context <action>`     | 查看与控制上下文压缩（`show`/`diff`/`keep`/`unkeep`/`compact`/`policy`）。 |
 | `volund hook list`            | 列出内置 hooks。                                                           |
+| `volund version`              | 输出版本。                                                                 |
+| `volund help`                 | 显示帮助。                                                                 |
 
-旧版 v1 插件的安装、启用和激活目前在生产环境中暂不可用，并以 `plugin_legacy_activation_unavailable` 失败；只有 Catalog v2、经验证的 capability ABI 和显式安全复审完成后才可重新开放。启动时会把可解析的旧 `enabled:true` 记录解释为 disabled，且不会加载插件。`plugin list [--json]`、`plugin doctor <name>`、`plugin disable <name>` 和 `plugin uninstall <name>` 仍可用于安全检查与清理。插件命令在 `--json` 失败时只向 stdout 依次写入 `error`、`final` 两条 NDJSON 事件，stderr 为空。
-| `volund version` | 输出版本。 |
-| `volund help` | 显示帮助。 |
-
-常用模式包括 `--no-tui`、`--json` 和 `--no-color`。非交互运行不会加载项目配置，除非显式传入 `--trust-project-config`。危险沙箱绕过参数会被审计，并要求显式确认。
+常用模式包括 `--no-tui`、`--json` 和 `--no-color`。会话读取用户级配置（`~/.volund/config.toml`）加 `[env]` 与旗标；项目文件（`<cwd>/.volund/config.toml`）只被 `volund config` 检视，从不合并进 CLI 会话。每次运行都要求工作区受信任——通过交互式信任提示、已持久化的信任规则或 `--trust-workspace`（见[目录信任](#目录信任)）。危险沙箱绕过参数会被审计，并要求显式确认。
 
 运行 `volund help <command>` 或 `volund <command> --help` 可查看具体命令的子命令与参数说明。
 
@@ -133,6 +148,20 @@ priority = 100
 `planner`、`coder`、`reviewer` hint 可来自显式输入、hook 元数据或内置 subagent 类型；显式 `provider/model` hint 对当前 turn 优先。一旦 provider 发出首个 tool-use chunk，该 provider 会保持 sticky 直到 turn 结束，重试不得跨 provider。
 
 Provider plugin 注册后不会自动进入 role/fallback 候选池。必须在 role/fallback 配置中点名 opt-in，或仅为当前 turn 显式选择。v1 禁止把 plugin provider 设为 default。
+
+## 定时任务
+
+`volund tasks` 管理持久化的定时 prompt，`volund daemon` 运行触发它们的 7x24 调度器。任务创建时冻结工作目录与配置 hash；每次运行都是一个全新的 headless 会话并记录进 run journal，执行前先过配置漂移与目录信任两道门。完整流程见[定时任务指南](../guides/scheduled-tasks.md)。
+
+```sh
+volund tasks list [--json]
+volund tasks add --name <name> --prompt <text> --schedule <spec> [flags]
+volund tasks enable|disable|remove <id>
+volund tasks runs <id> [--limit N] [--json]
+volund daemon    # 需要用户级配置中 [tasks].enabled = true
+```
+
+Schedule 写法：`interval:<n><ms|s|m|h>`（最小 60 秒）、`daily:HH:MM`、`weekly:<days>@HH:MM`（星期写 `mon,wed,fri` 或 `0-6`，0 = 周日）。
 
 ## 插件
 

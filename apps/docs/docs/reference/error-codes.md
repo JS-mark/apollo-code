@@ -180,6 +180,25 @@ The `volund plugins` / marketplace domain:
 | `plugin_registry_source_pollution`   | Registry source tampered                                                |
 | `plugin_signing_approval_required`   | The plugin signing operation requires approval                          |
 | `plugin_signing_credentials_missing` | Signing credentials are missing                                         |
+| `plugin_archive_invalid`             | Invalid `.volund` archive (missing EOCD / corrupt directory / no manifest) |
+| `plugin_archive_unsafe_entry`        | Archive entry name escapes the target directory (zip-slip)              |
+| `plugin_archive_unsupported_method`  | Archive uses a compression method other than store                      |
+| `plugin_target_exists`               | Scaffold target directory is not empty (`plugins crate`)                |
+
+## Scheduled tasks
+
+The `volund tasks` / `volund daemon` domain (see the [scheduled tasks guide](../guides/scheduled-tasks.md)):
+
+| code                     | description                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `tasks_disabled`         | The scheduler is disabled (`[tasks].enabled` is not `true`)                          |
+| `task_daemon_running`    | Another daemon (with a live pid) already holds the scheduling lock                   |
+| `task_definition_invalid` | Task definition rejected by validation (`TaskStore.upsertTask` arguments)          |
+| `task_io`                | Task store lock timeout / storage transaction IO error                              |
+| `task_run_failed`        | A task run failed (spawn failure / timeout kill / non-zero exit / daemon interrupt) |
+| `task_store_corrupt`     | Task store snapshot and recovery backup are both unreadable                         |
+| `task_config_drift`      | Run refused: merged config hash differs from the value frozen at creation (F1-03)   |
+| `task_trust_missing`     | Run refused: the task's frozen working directory is no longer trusted (F1-03)       |
 
 ## Evolution local storage
 
@@ -354,6 +373,16 @@ into a `VOLUND_<CATEGORY>` code while keeping the upstream message:
 | `VOLUND_CANCELLED`          | Operation cancelled                            |
 | `VOLUND_RESOURCE_EXHAUSTED` | Resource exhausted                             |
 | `VOLUND_UNKNOWN`            | Unclassified (fallback)                        |
+
+## Native workers (reserved)
+
+Registered for the native worker pools but not emitted yet — the pools currently
+degrade via restart counters instead of surfacing these codes:
+
+| code                  | description                              |
+| --------------------- | ---------------------------------------- |
+| `search_worker_crashed` | The search worker pool lost a worker (B.2 §5.6.1) |
+| `fs_worker_crashed`     | The fs worker pool lost a worker (B.2 §5.8)       |
 
 ## Test infrastructure
 

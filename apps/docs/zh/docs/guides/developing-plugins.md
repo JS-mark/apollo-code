@@ -68,7 +68,7 @@ export async function activate(volund) {
 | 注册调用                                     | 效果                                 | 权限                |
 | -------------------------------------------- | ------------------------------------ | ------------------- |
 | `volund.tools.register(spec)`                | 模型可调用工具                       | `tools.register`    |
-| `volund.hooks.on(event, handler)`            | 生命周期 hook（15 种事件）           | `hooks.on`          |
+| `volund.hooks.on(event, handler)`            | 生命周期 hook（18 种事件）           | `hooks.on`          |
 | `volund.prompt.contribute(fragment)`         | 静态 fragment 进每会话 system prompt | `prompt.contribute` |
 | `volund.session.on(event, handler)`          | `sessionStart` / `sessionEnd` 事件   | `session.read`      |
 | `volund.commands.register(spec)`             | 斜杠命令                             | `commands.register` |
@@ -85,7 +85,7 @@ await volund.hooks.on('preToolUse', (payload) => {
 })
 ```
 
-其余事件（`prePrompt`、`postPrompt`、`pluginEnabled`、`memory.*`…）是已声明面；当前实际广播的是 `sessionStart` / `sessionEnd`。
+其余事件（`prePrompt`、`postPrompt`、`pluginEnabled`、`memory.*`…）是已声明面；当前实际广播的是 `sessionStart` / `sessionEnd`，加上任务三兄弟 `task.started` / `task.completed` / `task.failed`。到不了会话载体的任务终态（daemon 侧超时击杀、config drift、信任丢失）不经 hook 广播——全覆盖通知走宿主的 `[tasks].webhook_url`。
 
 **Prompt fragment**——`{ id, content, priority? }`。`id` 自动加 `plugin:<名>:` 命名空间；priority 缺省 600（skills 是 800，内置 1000）。仅静态文本，每会话组装一次。
 
@@ -121,6 +121,7 @@ export async function activate(volund: VolundBridge): Promise<void> {
 | ---- | ----------------------------------------------- | --------------------------------------------- |
 | 内置 | 随产物分发（`apps/cli/plugins/`）               | 与产物同信任级，不可卸载                      |
 | Dev  | `~/.volund/plugins-dev/` + `VOLUND_DEV_PLUGINS` | 自动批准并启用；删目录即卸载                  |
+| 归档 | `volund plugins build` 产出的 `.volund` 文件    | `volund plugins install <file>` 解包进 `~/.volund/plugins-dev/` |
 | 市场 | `~/.volund/plugins/`，从配置的市场索引安装      | 安装 → inspect → approve → enable；支持热卸载 |
 
 市场在 `~/.volund/config.toml` 里配置：
@@ -130,22 +131,23 @@ export async function activate(volund: VolundBridge): Promise<void> {
 market = "https://your-registry.example/volund-plugins/index.json"
 ```
 
-市场插件的每个文件在下载时做 digest 校验、每次激活时复验；安装后不激活，需要用完整权限哈希显式 approve，再 enable：
+市场插件的每个文件在下载时做 digest 校验、每次激活时复验；安装后不激活，需要用完整权限哈希显式 approve，再 enable。市场生命周期在 REPL 的 `/plugins` 面板里走（浏览 builtin / dev / market，install、inspect、approve、enable、disable、uninstall）——legacy 的 `volund plugin install|enable` CLI 路径以 `plugin_legacy_activation_unavailable` fail closed。
+
+不走市场的本地分发用确定性归档：
 
 ```sh
-volund plugin install <name>
-volund plugin inspect <name>            # 显示权限哈希
-volund plugin approve <name> <hash>
-volund plugin enable <name>
+volund plugins build .                  # 打印 .volund 归档的 sha256
+volund plugins install ./my-plugin-0.1.0.volund
 ```
 
-同一套生命周期在 REPL 里经 `/plugins` 使用（浏览 builtin / dev / market，install、inspect、approve、enable、disable、uninstall）；第一方工具域也在面板里可见可切换。
+第一方工具域在 `/plugins` 里可见可切换，也可用 `volund plugins builtin --enable/--disable <id>`。
 
 ## 示例与参考
 
 - `examples/plugins/volund-plugin-demo/` — 一个插件覆盖全部贡献面（有测试保护）
 - `examples/plugins/volund-plugin-ts-demo/` — TS 入口示例
 - `examples/plugins/plugin-status-demo/` — `/status` 面板页签
-- `apps/cli/plugins/` — 内置插件（`/env`、`/plugins`），TS 源码
+- `examples/plugins/volund-plugin-task-notify/` — 任务终态 webhook 通知示例
+- `apps/cli/plugins/` — 内置插件（`volund-plugin-env`、`volund-plugin-manager`、`volund-plugin-web-search`、`volund-plugin-ask`），TS 源码
 - [插件宿主能力矩阵](/zh/docs/reference/plugin-host-capabilities) — 哪些桥方法当前已开通
 - [主题与插件 UI](/zh/docs/reference/themes-and-plugin-ui)

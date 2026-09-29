@@ -175,6 +175,25 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 | `plugin_registry_source_pollution`   | 注册表源被污染                                        |
 | `plugin_signing_approval_required`   | 插件签名操作需要审批                                  |
 | `plugin_signing_credentials_missing` | 签名凭据缺失                                          |
+| `plugin_archive_invalid`             | `.volund` 归档非法（缺 EOCD / 目录损坏 / 缺 manifest） |
+| `plugin_archive_unsafe_entry`        | 归档条目名逃逸目标目录（zip-slip）                     |
+| `plugin_archive_unsupported_method`  | 归档使用了 store 以外的压缩方法                        |
+| `plugin_target_exists`               | 脚手架目标目录非空（`plugins crate`）                  |
+
+## 定时任务
+
+`volund tasks` / `volund daemon` 域（见[定时任务指南](../guides/scheduled-tasks.md)）：
+
+| code                      | 说明                                                           |
+| ------------------------- | -------------------------------------------------------------- |
+| `tasks_disabled`          | 调度器未启用（`[tasks].enabled` 不是 `true`）                    |
+| `task_daemon_running`     | 另一个 daemon（pid 仍存活）已持有调度锁                          |
+| `task_definition_invalid` | 任务定义未通过校验（`TaskStore.upsertTask` 实参）                |
+| `task_io`                 | 任务存储锁超时 / 存储事务 IO 错误                                |
+| `task_run_failed`         | 任务运行失败（spawn 失败 / 超时击杀 / 非零退出 / daemon 中断）    |
+| `task_store_corrupt`      | 任务存储快照与恢复备份均不可读                                   |
+| `task_config_drift`       | 拒绝运行：合并配置 hash 与创建时冻结值不一致（F1-03）            |
+| `task_trust_missing`      | 拒绝运行：任务冻结的工作目录已不被信任（F1-03）                  |
 
 ## Evolution 本地存储
 
@@ -348,6 +367,15 @@ provider/工具/MCP/插件抛出的未知错误经 `normalizeError` 归一后，
 | `VOLUND_CANCELLED`          | 操作被取消                    |
 | `VOLUND_RESOURCE_EXHAUSTED` | 资源耗尽                      |
 | `VOLUND_UNKNOWN`            | 未分类（兜底）                |
+
+## 原生 worker（预留）
+
+为原生 worker 池登记但尚未 emit——worker 池目前以 restart 计数降级，不抛出这些码：
+
+| code                    | 说明                                     |
+| ----------------------- | ---------------------------------------- |
+| `search_worker_crashed` | 搜索 worker 池丢失一个 worker（B.2 §5.6.1） |
+| `fs_worker_crashed`     | fs worker 池丢失一个 worker（B.2 §5.8）     |
 
 ## 测试基建
 

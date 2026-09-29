@@ -44,7 +44,7 @@ npx skills add <query>          # skills.sh 装到 ~/.agents/skills
 | `/skill-name [任务]`     | 一次性调用：skill 指令 + 任务文本作为当轮用户消息进对话（不持久改 system prompt)            |
 | `/skill activate <name>` | 会话级常驻：skill 注入 system prompt 直到 `/skill deactivate`                               |
 | `/skills` 面板 `a` 键    | 同 `/skill activate`                                                                        |
-| 模型自动                 | 模型看到索引后调 `Skill.activate` 工具；frontmatter `disable-model-invocation: true` 时禁用 |
+| 模型自动                 | 模型看到索引后调用 `Skill` 工具（参数为 skill 名）；frontmatter `disable-model-invocation: true` 时禁用 |
 
 ## 管理
 

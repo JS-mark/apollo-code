@@ -72,8 +72,8 @@ Retry-After，按它退避。完整错误码表见 PROTOCOL.md。
    `instance{instanceId, workspaceCwd, hostname?, version?, channels[], active,
 pendingPermissions[]}`；收到 `uplink.registered` 后进入在线态。
    同 client 重连顶替旧连接——断线后指数退避重拨（参考实现：1s 起、×2、30s 封顶）。
-4. **承接 RPC**：实现全部 8 个 hub 方法（`hub.start/resume/submit/interrupt/
-closeActive/decide`、`sessions.list`、`session.transcript`），应答
+4. **承接 RPC**：实现全部 11 个 hub RPC（`hub.start/resume/submit/interrupt/
+closeActive/decide/answerAsk/stageAttachment/readAttachment`、`sessions.list`、`session.transcript`），应答
    `rpc.result{id, ok, result|error}`。
 5. **上行**：hub 事件透传 `event{envelope}`；活动会话/待审批变化时推
    `uplink.state{active, pendingPermissions}`（两字段同帧成对）。

@@ -47,11 +47,13 @@ bridge methods are live today:
 | `tools.register` / `tools.unregister`           | model-callable tools (auto-namespaced `plugin:<name>:`) into the kernel `tools` service; permissionSpec `{custom:{pluginTool}}` rides the unified permission chain; output is untrusted-wrapped  |
 | `hooks.on`                                      | lifecycle subscriptions; `preToolUse`/`postToolUse` run through the ToolExecutor dispatch hook (first HookResult wins, fail-open), `sessionStart`/`sessionEnd` are broadcast from session events |
 | `session.on`                                    | alias of `hooks.on` for session lifecycle events                                                                                                                                                 |
+| `http.fetch`                                    | HTTPS-only outbound request for the plugin; the host must appear in the manifest's `permissions.net` allowlist (plus host-approved extras)                                                       |
+| `webSearch.provide` / `webSearch.configStatus`  | contribute a search backend to the `[web_search]` provider bridge (used by `volund-plugin-web-search`); `configStatus` reports backend availability                                              |
 | `prompt.contribute` / `prompt.revoke`           | static fragments into the per-session composer (`plugin:<name>:` id namespace, priority default 600)                                                                                             |
 | `plugins.list` extension                        | `domains` group: first-party tool domains (visible + toggleable in /plugins and `volund plugins builtin`)                                                                                        |
 | `env.getEffective`, `session.getUsage`, `log.*` | host data/diagnostics as before                                                                                                                                                                  |
 
-Still denied in the local pipeline: `fs.*`, `exec`, `http.fetch`, `storage.*`, `memory.*`,
+Still denied in the local pipeline: `fs.*`, `exec`, `storage.*`, `memory.*`,
 `session.getMessages`, `session.on`-style push for non-session events, `call`, and
 `provider.register` / `auth.*` (declared surfaces; awaiting the provider-plugin host).
 See §19.0 of the design spec for the shipped/pending map and the TCB boundary

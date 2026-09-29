@@ -68,7 +68,7 @@ Tool names are written **bare** — the host converges them into the `plugin:<ma
 | Registration                                 | Effect                                           | Permission          |
 | -------------------------------------------- | ------------------------------------------------ | ------------------- |
 | `volund.tools.register(spec)`                | Model-callable tool                              | `tools.register`    |
-| `volund.hooks.on(event, handler)`            | Lifecycle hook (15 events)                       | `hooks.on`          |
+| `volund.hooks.on(event, handler)`            | Lifecycle hook (18 events)                       | `hooks.on`          |
 | `volund.prompt.contribute(fragment)`         | Static fragment into every session system prompt | `prompt.contribute` |
 | `volund.session.on(event, handler)`          | `sessionStart` / `sessionEnd` events             | `session.read`      |
 | `volund.commands.register(spec)`             | Slash command                                    | `commands.register` |
@@ -85,7 +85,7 @@ await volund.hooks.on('preToolUse', (payload) => {
 })
 ```
 
-Other events (`prePrompt`, `postPrompt`, `pluginEnabled`, `memory.*`, …) are declared surfaces; `sessionStart`/`sessionEnd` are the ones broadcast today.
+Other events (`prePrompt`, `postPrompt`, `pluginEnabled`, `memory.*`, …) are declared surfaces; `sessionStart`/`sessionEnd` and the task trio `task.started`/`task.completed`/`task.failed` are the ones broadcast today. Task terminal states that never reach a session (daemon-side timeout kills, config drift, trust loss) are not broadcast as hooks — full-coverage notification goes through the host's `[tasks].webhook_url` instead.
 
 **Prompt fragments** — `{ id, content, priority? }`. The `id` is auto-namespaced with `plugin:<name>:`; default priority is 600 (skills are 800, built-ins 1000). Static text only, evaluated once per session.
 
@@ -121,6 +121,7 @@ export async function activate(volund: VolundBridge): Promise<void> {
 | ------- | -------------------------------------------------------- | ------------------------------------------------------------- |
 | Builtin | Shipped with the artifact (`apps/cli/plugins/`)          | Always trusted, cannot be uninstalled                         |
 | Dev     | `~/.volund/plugins-dev/` + `VOLUND_DEV_PLUGINS`          | Auto-approved and enabled; managed by removing the directory  |
+| Archive | `.volund` file built with `volund plugins build`         | `volund plugins install <file>` unpacks into `~/.volund/plugins-dev/` |
 | Market  | `~/.volund/plugins/`, installed from a configured market | Install → inspect → approve → enable; hot-uninstall supported |
 
 Configure a market in `~/.volund/config.toml`:
@@ -130,22 +131,23 @@ Configure a market in `~/.volund/config.toml`:
 market = "https://your-registry.example/volund-plugins/index.json"
 ```
 
-Every market file is digest-verified on download and re-verified on each activation; installs land inactive and need an explicit approve (with the exact permission hash) plus enable:
+Every market file is digest-verified on download and re-verified on each activation; installs land inactive and need an explicit approve (with the exact permission hash) plus enable. The market lifecycle runs in the REPL's `/plugins` panel (browse builtin / dev / market, install, inspect, approve, enable, disable, uninstall) — the legacy `volund plugin install|enable` CLI path fails closed with `plugin_legacy_activation_unavailable`.
+
+For sharing without a market, package a deterministic archive and install it locally:
 
 ```sh
-volund plugin install <name>
-volund plugin inspect <name>            # shows the permission hash
-volund plugin approve <name> <hash>
-volund plugin enable <name>
+volund plugins build .                  # prints the sha256 of the .volund archive
+volund plugins install ./my-plugin-0.1.0.volund
 ```
 
-The same lifecycle is available in the REPL via `/plugins` (browse builtin / dev / market, install, inspect, approve, enable, disable, uninstall). First-party tool domains are visible and toggleable there too.
+First-party tool domains are visible and toggleable in `/plugins` and via `volund plugins builtin --enable/--disable <id>`.
 
 ## Examples and reference
 
 - `examples/plugins/volund-plugin-demo/` — every contribution surface in one plugin (protected by tests)
 - `examples/plugins/volund-plugin-ts-demo/` — TypeScript entry
 - `examples/plugins/plugin-status-demo/` — `/status` panel tabs
-- `apps/cli/plugins/` — built-in plugins (`/env`, `/plugins`), TS sources
+- `examples/plugins/volund-plugin-task-notify/` — task terminal-state webhook notifications
+- `apps/cli/plugins/` — built-in plugins (`volund-plugin-env`, `volund-plugin-manager`, `volund-plugin-web-search`, `volund-plugin-ask`), TS sources
 - [Plugin host capability matrix](/docs/reference/plugin-host-capabilities) — which bridge methods are live today
 - [Themes and plugin UI](/docs/reference/themes-and-plugin-ui)

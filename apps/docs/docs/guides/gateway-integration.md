@@ -80,8 +80,8 @@ clients — the dial-out side exposes no ports at all (NAT/firewall friendly):
 pendingPermissions[]}`; wait for `uplink.registered`. Reconnecting with the same
    client replaces the stale connection — redial with exponential backoff on drop
    (reference: 1s start, ×2, 30s cap).
-4. **Serve RPCs**: implement all 8 hub methods (`hub.start/resume/submit/interrupt/
-closeActive/decide`, `sessions.list`, `session.transcript`), answering with
+4. **Serve RPCs**: implement all 11 hub RPCs (`hub.start/resume/submit/interrupt/
+closeActive/decide/answerAsk/stageAttachment/readAttachment`, `sessions.list`, `session.transcript`), answering with
    `rpc.result{id, ok, result|error}`.
 5. **Uplink pushes**: forward hub events as `event{envelope}`; push
    `uplink.state{active, pendingPermissions}` whenever the active session or pending

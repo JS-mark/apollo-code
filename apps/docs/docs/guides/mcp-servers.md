@@ -3,7 +3,7 @@
 > `.volund` configuration paths are frozen storage compatibility identifiers. Use `volund` for all
 > CLI commands.
 
-Volund is an MCP client (stdio + HTTP, with automatic fallback to legacy SSE). Configuration follows the industry-standard `mcpServers` shape and interoperates with Claude Code, Codex, and Cursor.
+Volund is an MCP client (stdio + Streamable HTTP, with automatic fallback to legacy SSE for servers that predate the Streamable HTTP protocol). Configuration follows the industry-standard `mcpServers` shape and interoperates with Claude Code, Codex, and Cursor.
 
 ## Add
 
@@ -55,6 +55,7 @@ Untrusted directories are rejected at startup and their project-level servers ar
 | Detail                        | Enter in the panel (metadata + tool list) | `volund mcp inspect <name>`                                       |
 | Enable / disable (persistent) | Space in the panel                        | `volund mcp enable\|disable <name>`                               |
 | Connectivity test             | `r` in the panel (reconnect all)          | `volund mcp test <name>`                                          |
+| OAuth login / logout          | —                                         | `volund mcp login\|logout <name>`                                 |
 | Remove                        | —                                         | `volund mcp remove <name>`                                        |
 
 Enabled state persists in `~/.volund/config.toml` under `[mcp] disabled`.
@@ -63,4 +64,4 @@ Enabled state persists in `~/.volund/config.toml` under `[mcp] disabled`.
 
 - `~/.volund/mcp.log`: structured JSONL diagnostics (startup / connect / failure / per-line server stderr).
 - `volund doctor`: the `mcp servers` row reports configured / connected / failed counts.
-- A server returning 401/403 is marked `needs-auth` in the panel; the OAuth login flow (`volund mcp login`) is scheduled for SM-07. Until then, configure an `Authorization` header or an API-key env var manually.
+- A server returning 401/403 is marked `needs-auth` in the panel. Run `volund mcp login <name>` to start the OAuth flow (the token is stored in the credential store; `volund mcp logout <name>` clears it), or configure an `Authorization` header / API-key env var manually.
