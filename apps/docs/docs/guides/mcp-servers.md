@@ -58,10 +58,12 @@ Untrusted directories are rejected at startup and their project-level servers ar
 | OAuth login / logout          | —                                         | `volund mcp login\|logout <name>`                                 |
 | Remove                        | —                                         | `volund mcp remove <name>`                                        |
 
+The web console's Manage → MCP tab exposes the same flow as **Authenticate** / logout buttons on http/sse servers (embedded local console only). Login opens the browser on the host machine and blocks until the OAuth round-trip completes (up to 5 minutes); the needs-auth status flips to connected automatically afterwards.
+
 Enabled state persists in `~/.volund/config.toml` under `[mcp] disabled`.
 
 ## Troubleshooting
 
 - `~/.volund/mcp.log`: structured JSONL diagnostics (startup / connect / failure / per-line server stderr).
 - `volund doctor`: the `mcp servers` row reports configured / connected / failed counts.
-- A server returning 401/403 is marked `needs-auth` in the panel. Run `volund mcp login <name>` to start the OAuth flow (the token is stored in the credential store; `volund mcp logout <name>` clears it), or configure an `Authorization` header / API-key env var manually.
+- A server returning 401/403 is marked `needs-auth` in the panel. Run `volund mcp login <name>` to start the OAuth flow (the token is stored in the credential store; `volund mcp logout <name>` clears it), click the **Authenticate** button in the web console's MCP tab, or configure an `Authorization` header / API-key env var manually.

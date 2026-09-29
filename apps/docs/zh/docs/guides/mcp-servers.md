@@ -57,10 +57,12 @@ volund mcp add -s project my-server -- npx -y my-mcp
 | OAuth 登录/登出 | —                              | `volund mcp login\|logout <name>`             |
 | 删除         | —                                 | `volund mcp remove <name>`                    |
 
+Web 控制台「管理 → MCP」页签为 http/sse server 提供**认证 / 登出**按钮（仅本地嵌入式控制台）。登录会在宿主机上打开浏览器并阻塞到 OAuth 回程完成（最长 5 分钟）；完成后 needs-auth 自动翻转为已连接。
+
 启停持久写在 `~/.volund/config.toml` 的 `[mcp] disabled` 名单。
 
 ## 排障
 
 - `~/.volund/mcp.log`:JSONL 结构化日志（启动 / 连接 / 失败 / server stderr 逐行）。
 - `volund doctor`:`mcp servers` 行显示配置数、连接数、失败数。
-- 401/403 的 server 在面板里标为 `needs-auth`。运行 `volund mcp login <name>` 走 OAuth 流程（token 存进凭据存储；`volund mcp logout <name>` 清除），或手动在配置里放 `Authorization` header / API key env。
+- 401/403 的 server 在面板里标为 `needs-auth`。运行 `volund mcp login <name>` 走 OAuth 流程（token 存进凭据存储；`volund mcp logout <name>` 清除）、点 Web 控制台 MCP 页签的**认证**按钮，或手动在配置里放 `Authorization` header / API key env。

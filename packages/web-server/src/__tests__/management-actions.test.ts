@@ -310,4 +310,86 @@ describe('management actions e2e (WEB-EXT-MANAGE-MARKET-r1 §S3)', () => {
     expect(approved.status).toBe(200)
     expect(ports.spy.approved).toEqual([{ name: 'demo', hash: 'a'.repeat(64) }])
   })
+
+  it('mcp login/logout dispatch through the action table (SM 线收口)', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'web-mgmt-e2e-'))
+    dirs.push(home)
+    const logins: string[] = []
+    const logouts: string[] = []
+    handle = await createWebServer({
+      host: '127.0.0.1',
+      port: 0,
+      ports: {
+        identity: { version: '0.0.0-test' },
+        cwd: home,
+        session: { list: async () => [] },
+      },
+      management: {
+        mcp: {
+          list: async () => [],
+          inspect: async () => ({ entry: {}, tools: [] }),
+          setEnabled: async () => 'ok',
+          add: async () => ({ file: '/tmp/mcp.toml', items: [] }),
+          remove: async () => ({ file: '/tmp/mcp.toml', items: [] }),
+          reload: async () => [],
+          marketList: async () => undefined,
+          login: async (name: string) => {
+            if (name === 'ghost') throw new Error('Unknown MCP server: ghost')
+            logins.push(name)
+            return { server: name }
+          },
+          logout: async (name: string) => {
+            logouts.push(name)
+          },
+        },
+      },
+    })
+    const base = `http://127.0.0.1:${handle.port}/`
+    const { headers } = await authed(base)
+
+    const login = await post(base, headers, 'mcp', { action: 'login', name: 'remote' })
+    expect(login.status).toBe(200)
+    expect(login.body.data).toEqual({ server: 'remote' })
+    expect(logins).toEqual(['remote'])
+
+    const logout = await post(base, headers, 'mcp', { action: 'logout', name: 'remote' })
+    expect(logout.status).toBe(200)
+    expect(logout.body.data).toEqual({ ok: true })
+    expect(logouts).toEqual(['remote'])
+
+    const failed = await post(base, headers, 'mcp', { action: 'login', name: 'ghost' })
+    expect(failed.status).toBe(502)
+    expect(failed.body.error?.code).toBe('mcp_action_failed')
+  })
+
+  it('mcp login degrades to 503 when the assembly lacks the capability', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'web-mgmt-e2e-'))
+    dirs.push(home)
+    handle = await createWebServer({
+      host: '127.0.0.1',
+      port: 0,
+      ports: {
+        identity: { version: '0.0.0-test' },
+        cwd: home,
+        session: { list: async () => [] },
+      },
+      management: {
+        mcp: {
+          list: async () => [],
+          inspect: async () => ({ entry: {}, tools: [] }),
+          setEnabled: async () => 'ok',
+          add: async () => ({ file: '/tmp/mcp.toml', items: [] }),
+          remove: async () => ({ file: '/tmp/mcp.toml', items: [] }),
+          reload: async () => [],
+          marketList: async () => undefined,
+        },
+      },
+    })
+    const base = `http://127.0.0.1:${handle.port}/`
+    const { headers } = await authed(base)
+
+    const login = await post(base, headers, 'mcp', { action: 'login', name: 'remote' })
+    expect(login.status).toBe(503)
+    expect(login.body.error?.code).toBe('web_capability_unavailable')
+  })
 })

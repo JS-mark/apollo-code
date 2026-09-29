@@ -114,6 +114,12 @@ export interface McpManagementPort {
     scope?: 'user' | 'project',
   ): Promise<{ file: string; items: readonly McpPanelEntry[] }>
   reload(): Promise<readonly McpPanelEntry[]>
+  /**
+   * SM 线收口：浏览器 OAuth（阻塞至完成，最长 5min）；仅 http server。
+   * 成功后串联域级 reload——凭据在连接期才被消费，needs-auth 要靠重连翻转。
+   */
+  login(name: string): Promise<{ server: string }>
+  logout(name: string): Promise<void>
   marketList(): Promise<McpMarketView | { error: string } | undefined>
 }
 

@@ -341,6 +341,7 @@ const FAIL_STATUS: Record<string, number> = {
   web_capability_unavailable: 503,
   session_not_found: 404,
   web_session_group_not_found: 404,
+  mcp_action_failed: 502,
 }
 
 function failFrom(res: ServerResponse, cause: unknown): void {
@@ -1609,6 +1610,35 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
               body.scope === 'project' ? 'project' : body.scope === 'user' ? 'user' : undefined,
             ),
           reload: async () => ({ items: await mgmt.mcp!.reload() }),
+          // SM 线收口：浏览器 OAuth（阻塞至完成，最长 5min）。域错误统一挂
+          // mcp_action_failed（与 CLI 同码）；装配缺失时诚实降级 503。
+          login: async (body) => {
+            if (!mgmt.mcp!.login)
+              throw Object.assign(new Error('mcp login is not wired in this assembly'), {
+                code: 'web_capability_unavailable',
+              })
+            try {
+              return await mgmt.mcp!.login(String(body.name))
+            } catch (cause) {
+              throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), {
+                code: 'mcp_action_failed',
+              })
+            }
+          },
+          logout: async (body) => {
+            if (!mgmt.mcp!.logout)
+              throw Object.assign(new Error('mcp logout is not wired in this assembly'), {
+                code: 'web_capability_unavailable',
+              })
+            try {
+              await mgmt.mcp!.logout(String(body.name))
+              return { ok: true }
+            } catch (cause) {
+              throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), {
+                code: 'mcp_action_failed',
+              })
+            }
+          },
           marketList: async () => await mgmt.mcp!.marketList(),
         }
       }

@@ -107,6 +107,13 @@ login   { name }  /  logout { name }                                      // MG-
                                                                                         // 返回授权 URL 由 web 新标签打开，loopback 回程落 CLI 进程
 ```
 
+> **偏差记录（2026-09-30，MG-17 落地收口）**：login/logout 已实现，与上述草案有两处出入——
+> ① 授权页由服务端直接 spawn 系统浏览器（`McpOAuthClient.#openBrowser`），不做「返回 URL 由
+> web 新标签打开」（同机 loopback 成立；headless 宿主会失败并报 `mcp_action_failed`）；
+> ② 动作请求**阻塞至 OAuth 回调完成**（客户端 5 分钟超时），响应即终态，不做轮询。
+> 成功后在管理端口内串联域级 reload，needs-auth 无需手动刷新即翻转为 connected。
+> UI 落点：web 管理页 MCP 页签的「认证 / 登出」按钮（仅 http/sse server）。
+
 - `add` 主体逻辑直接调 `McpPort.add`（`${VAR}` 展开 / keyref 语义由 domain 层既有实现承载，表单只做结构校验）。
 - **reload = 端口新增方法（域级重建，MG-04）**：重置 manager 单例 → 重新 ensure（`ensureMcpManager` 内重跑 `loadMcpServerConfigs`，项目>用户合并、`.mcp.json` 只读导入维持）→ 重挂已 attach 的会话 registry；`McpManager.reload`（`:373`）保留「断开重连」原语义不动。TUI `/mcp` reload 同步受益。
 - **前置存量修复（MG-04 内，可先行单独落地）**：`McpPort.test/inspect` 改用一次性 manager（不复用共享单例），消除 web 常驻进程内调用即拆活会话连接的缺陷。

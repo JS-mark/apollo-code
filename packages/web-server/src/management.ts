@@ -46,6 +46,9 @@ export interface McpPortLike {
     scope?: 'user' | 'project',
   ): Promise<{ file: string; items: readonly unknown[] }>
   reload(): Promise<readonly unknown[]>
+  /** SM 线收口：浏览器 OAuth（阻塞至完成，最长 5min）；未装配时动作兜底 503。 */
+  login?(name: string): Promise<{ server: string }>
+  logout?(name: string): Promise<void>
   marketList(): Promise<
     | { source: string; entries: readonly McpMarketEntry[]; isDefault: boolean }
     | { error: string }

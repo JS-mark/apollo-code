@@ -512,7 +512,7 @@ export class McpManager {
       // HTTP 401/403 → needs-auth（OAuth 流程在 SM-07；当前可引导手动 header 配置）。
       if (/\bHTTP 40[13]\b/.test(message)) {
         state.status = 'needs-auth'
-        state.detail = `authentication required (configure an Authorization header with keyref://, or run ${productIdentity.commandName} mcp login ${state.config.name})`
+        state.detail = `authentication required (configure an Authorization header with keyref://, run ${productIdentity.commandName} mcp login ${state.config.name}, or use the Authenticate button in the web console)`
         state.reconnectAttempt = 0
         this.#log('connect.needs-auth', { server: state.config.name, error: message })
         this.#options.onWarning?.(`mcp: server '${state.config.name}' failed: ${message}`)
@@ -1090,6 +1090,18 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
     async reload() {
       await ensureMcpManager(options.getDefaultCwd())
       return await reloadDomainManager()
+    },
+    async login(name) {
+      const result = await mcpPort.login(name)
+      // 凭据在连接期才被消费：串联域级 reload，让 needs-auth → connected 立即翻转。
+      await ensureMcpManager(options.getDefaultCwd())
+      await reloadDomainManager()
+      return result
+    },
+    async logout(name) {
+      await mcpPort.logout(name)
+      await ensureMcpManager(options.getDefaultCwd())
+      await reloadDomainManager()
     },
     async add(input) {
       const result = await mcpPort.add(input)

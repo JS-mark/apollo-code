@@ -982,9 +982,12 @@ export function McpServerFormModal({
 
 function McpPanel({ api }: { api: WebApi }) {
   const { data, error, reload } = useInventory<{ items: McpEntry[] }>(api, 'mcp')
-  const { notice, run } = useAction(api, 'mcp')
+  const { notice, setNotice, run } = useAction(api, 'mcp')
   const [formOpen, setFormOpen] = useState(false)
   const [editEntry, setEditEntry] = useState<McpEntry>()
+  // OAuth 认证是长pending请求（阻塞到浏览器回调完成，最长 5min）：按 server 名
+  // 记 loading 态，其余按钮照常可用。
+  const [authing, setAuthing] = useState<string>()
   const [inspect, setInspect] = useState<{
     entry: McpEntry
     tools: { name: string; description?: string }[]
@@ -1069,6 +1072,34 @@ function McpPanel({ api }: { api: WebApi }) {
                 <Button type="text" size="small" onClick={() => setEditEntry(entry)}>
                   编辑
                 </Button>
+                {!entry.transport.startsWith('stdio') && (
+                  <>
+                    <Button
+                      type="text"
+                      size="small"
+                      loading={authing === entry.name}
+                      onClick={() => {
+                        setAuthing(entry.name)
+                        setNotice('已打开浏览器授权页，完成后状态自动刷新（最长等待 5 分钟）')
+                        void run({ action: 'login', name: entry.name }, () => reload()).finally(
+                          () => setAuthing(undefined),
+                        )
+                      }}
+                    >
+                      认证
+                    </Button>
+                    <Popconfirm
+                      title={`清除 ${entry.name} 已保存的 OAuth 凭据？`}
+                      onConfirm={() =>
+                        void run({ action: 'logout', name: entry.name }, () => reload())
+                      }
+                    >
+                      <Button type="text" size="small">
+                        登出
+                      </Button>
+                    </Popconfirm>
+                  </>
+                )}
                 <Button
                   type="text"
                   size="small"
