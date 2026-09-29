@@ -22,6 +22,8 @@ enabled = true
 volund daemon    # 前台运行；Ctrl+C 停止
 ```
 
+保活资产随仓库分发在 `deploy/daemon/`：launchd 代理（`cc.nexo.volund.daemon.plist`——拷到 `~/Library/LaunchAgents/` 后 `launchctl load`）和 systemd user unit（`volund-daemon.service`——拷到 `~/.config/systemd/user/` 后 `systemctl --user enable --now volund-daemon`）。两者都只在异常退出时重拉，其依赖的退出契约由 CI 锁定（`daemon-keepalive.test.ts`）。
+
 - 只有 daemon 会触发定时任务。已有一个 daemon 持有调度锁时，第二个 daemon 会以 `task_daemon_running` 退出。
 - 把 `[tasks].enabled` 翻回 `false` 后，运行中的 daemon 会在下一个 tick 干净退出。配合 launchd（`SuccessfulExit=false`）或 systemd（`Restart=on-failure`），禁用状态不会陷入重启循环。
 - `volund doctor` 会报告调度器健康状态；任务已启用但没有 daemon 在场时会给出警告。

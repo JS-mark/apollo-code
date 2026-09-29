@@ -22,6 +22,8 @@ Start the daemon and keep it alive with your init system:
 volund daemon    # foreground; Ctrl+C stops it
 ```
 
+Keep-alive assets ship with the repo under `deploy/daemon/`: a launchd agent (`cc.nexo.volund.daemon.plist` — copy to `~/Library/LaunchAgents/` and `launchctl load` it) and a systemd user unit (`volund-daemon.service` — copy to `~/.config/systemd/user/` and `systemctl --user enable --now volund-daemon`). Both restart the daemon only on abnormal exit, and the exit-code contract they rely on is locked in CI (`daemon-keepalive.test.ts`).
+
 - Only the daemon fires scheduled tasks. A second daemon exits with `task_daemon_running` while one holds the scheduling lock.
 - Flipping `[tasks].enabled` back to `false` makes a running daemon exit cleanly on its next tick. Under launchd (`SuccessfulExit=false`) or systemd (`Restart=on-failure`) this means the disabled state does not respawn-loop.
 - `volund doctor` reports scheduler health and warns when tasks are enabled but no daemon is running.

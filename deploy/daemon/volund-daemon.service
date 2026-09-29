@@ -1,0 +1,11 @@
+[Unit]
+Description=volund task daemon
+
+[Service]
+ExecStart=/usr/local/bin/volund daemon
+# on-failure：开关关闭的 exit 0 不重启；崩溃才拉起
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
