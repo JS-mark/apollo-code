@@ -131,6 +131,29 @@ describe('runCli', () => {
     expect(result.stderr).toBe('mcp integration port is not connected')
   })
 
+  it('treats -v after a space-assigned value flag as a version request', async () => {
+    // --cwd 的值不算位置参数：-v 仍处于「首个位置参数之前」的版本区。
+    const result = await runCli(['--cwd', '/tmp', '-v'], ports())
+    expect(result).toEqual({ exitCode: 0, stdout: '0.0.0-test\n', stderr: '' })
+  })
+
+  it('answers `volund help --help` with the global usage instead of an unknown command', async () => {
+    const result = await runCli(['help', '--help'], ports())
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('USAGE')
+  })
+
+  it('fails fast on an invalid --permission-mode before the trust gate', async () => {
+    const trustCheck = vi.fn(async (path: string) => ({ canonicalPath: path, trusted: true }))
+    const result = await runCli(
+      ['--permission-mode', 'bogus'],
+      ports({ trust: { check: trustCheck } as never }),
+    )
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain("invalid --permission-mode 'bogus'")
+    expect(trustCheck).not.toHaveBeenCalled()
+  })
+
   it('renders status as stable JSON without ANSI or secrets', async () => {
     const result = await runCli(
       ['status', '--json'],

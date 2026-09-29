@@ -24,7 +24,8 @@ Commands:
   list                 List memories
   get <id>             Get one memory
   add [content]        Add a memory
-  update <id> [content] Update a memory
+  update <id> [content]
+                       Update a memory
   delete <id>          Delete a memory (requires confirmation)
   pin <id>             Pin a memory for prompt injection
   unpin <id>           Stop injecting a pinned memory
@@ -39,6 +40,7 @@ Options:
   --session-id <id>               Session id for a session-scoped search
   --tag <tag[,tag...]>            Filter or replace tags
   --source user|agent|evolution|import
+                                  Filter (list/search) or set origin (add/import)
   --pinned                         Filter or set pinned state
   --limit <1..500>                 Page size
   --cursor <cursor>                Continue a stable listing

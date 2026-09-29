@@ -181,6 +181,23 @@ describe('volund memory', () => {
     expect((await runCli(['memory', 'get', 'doomed'], ports, nonInteractive)).exitCode).toBe(3)
   })
 
+  it('treats --no-tui as non-interactive even on an interactive terminal', async () => {
+    // citty 把 --no-tui 归一成 tui:false；runCli 归一回 noTui 后，交互终端上
+    // 带 --no-tui 的 delete 也必须走「非交互必须 --yes」契约，而不是弹确认。
+    const { ports } = await fixture()
+    await runCli(['memory', 'add', '--id', 'doomed', 'temporary'], ports, nonInteractive)
+    const confirm = vi.fn(async () => true)
+    const interactiveIo: CliIo = {
+      ...nonInteractive,
+      isInteractiveTerminal: () => true,
+      confirm,
+    }
+    const denied = await runCli(['memory', 'delete', 'doomed', '--no-tui'], ports, interactiveIo)
+    expect(denied.exitCode).toBe(2)
+    expect(denied.stderr).toContain('memory delete requires --yes outside an interactive terminal')
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
   it('maps validation and authorization failures and supports stdin without TUI or ANSI', async () => {
     const { memory, ports } = await fixture()
     const stdin = { ...nonInteractive, readStdin: async () => 'stdin body' }

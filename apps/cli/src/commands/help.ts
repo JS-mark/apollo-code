@@ -247,7 +247,7 @@ Enroll machines onto a remote gateway (multi-machine self-service):
 Options:
   --gateway <url>    Gateway base URL (connect)
   --code <code>      Enrollment code (connect)
-  --json             Emit machine-readable output
+  --json             Emit one JSON document
 `
 
 const mcpUsage = `Usage: ${commandName} mcp <command> [options]
@@ -312,10 +312,10 @@ Commands:
   rollback    Roll parameters back to a previous point
 
 Options:
-  --namespace context|router|retry|tool-timeout    Filter one namespace
-  --since <date>        Adjustments after this date (show)
-  --to <timestamp>      Restore values at this time (rollback)
-  --json                Emit one JSON document (show)
+  --namespace <namespace>    Filter one namespace (context|router|retry|tool-timeout)
+  --since <date>             Adjustments after this date (show)
+  --to <timestamp>           Restore values at this time (rollback)
+  --json                     Emit one JSON document (show)
 `
 
 const hookUsage = `Usage: ${commandName} hook list

@@ -139,7 +139,7 @@ export async function runCli(
   const wantsHelp = scannable.includes('--help') || scannable.includes('-h')
   if (rawArgs[0] === 'help') {
     const topic = rawArgs[1]
-    if (topic === undefined)
+    if (topic === undefined || topic.startsWith('-'))
       return { exitCode: 0, stdout: await renderGlobalUsage(command), stderr: '' }
     const usage = commandUsage[topic]
     return usage === undefined
@@ -159,7 +159,9 @@ export async function runCli(
   if (wantsHelp) return { exitCode: 0, stdout: await renderGlobalUsage(command), stderr: '' }
   // -v/--version 只在首个位置参数之前生效：`volund tasks list -v` 这类子命令
   // 尾部的版本旗标不再抢跑成版本输出（此前任何位置的 -v 都会短路整个派发）。
-  const firstPositionalIndex = scannable.findIndex((token) => !token.startsWith('-'))
+  // 首个位置参数用与 firstUnsupportedGlobalFlag 同口径的扫描（value flag 的值
+  // 不算位置参数），否则 `volund --cwd /x -v` 会得出两个互相矛盾的「第一个位置」。
+  const firstPositionalIndex = firstNonFlagTokenIndex(scannable)
   const versionFlagIndex = scannable.findIndex((token) => token === '--version' || token === '-v')
   if (
     rawArgs[0] === 'version' ||
@@ -168,7 +170,13 @@ export async function runCli(
   )
     return { exitCode: 0, stdout: `${ports.identity.version}\n`, stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition) as ParsedCliArgs
-  const firstPositional = args._[0]
+  // citty 把 --no-<flag> 归一成 <flag>:false（--no-tui → tui:false），下游直接读
+  // args.noTui 永远 undefined——归一回布尔口径，memory/history/sessions 的
+  // 「非交互必须 --yes」确认契约才能真正吃到它。
+  if ((args as { tui?: boolean }).tui === false) args.noTui = true
+  // `--` 之后的 token 属于子进程（mcp add 透传），不参与子命令派发：
+  // `volund -- help` 是把 "help" 交给会话，不是查帮助。
+  const firstPositional = firstPositionalIndex === -1 ? undefined : scannable[firstPositionalIndex]
   // Only these names dispatch as subcommands; any other first positional is
   // the prompt of the default session (`volund "summarize this repo"`).
   const subcommand =
@@ -208,6 +216,18 @@ export async function runCli(
           .map((name) => name.trim())
           .filter(Boolean)
       : undefined
+  // §4.4 fail-fast：--permission-mode 形状错误与 --budget 同期报 usage 错——
+  // 未信任目录下不该先吃 directory_untrusted 再轮到用法错。
+  const flagMode =
+    args.permissionMode === 'ask' ||
+    args.permissionMode === 'auto' ||
+    args.permissionMode === 'full'
+      ? args.permissionMode
+      : undefined
+  if (args.permissionMode !== undefined && flagMode === undefined) {
+    const message = `invalid --permission-mode '${String(args.permissionMode)}' (ask | auto | full)`
+    return jsonMode ? jsonFailure(message, 2, 'usage') : { exitCode: 2, stdout, stderr: message }
+  }
   // W-17：daemon spawn 时注入 VOLUND_TASK_RUN → 本会话流发射 task.* 生命周期
   // 事件。读后即删：防 Bash 工具再 spawn 的 volund 误认自己是任务运行。
   let taskRun: { taskId: string; runId: string; scheduledFor: number } | undefined
@@ -985,6 +1005,7 @@ export async function runCli(
     skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
   })
   // §4.4 三档模式：--yolo 等价 full；--permission-mode <ask|auto|full> 配置新会话默认档。
+  // 形状校验已前移到 --budget 旁做 fail-fast（信任门/沙箱确认之前）；这里只做覆盖。
   {
     const flagMode =
       args.permissionMode === 'ask' ||
@@ -992,10 +1013,6 @@ export async function runCli(
       args.permissionMode === 'full'
         ? args.permissionMode
         : undefined
-    if (args.permissionMode !== undefined && flagMode === undefined) {
-      const message = `invalid --permission-mode '${String(args.permissionMode)}' (ask | auto | full)`
-      return jsonMode ? jsonFailure(message, 2, 'usage') : { exitCode: 2, stdout, stderr: message }
-    }
     // 显式 flag 才覆盖；否则落到 [permissions] mode 用户级 config 或默认 ask
     if (args.yolo || args.dangerouslySkipPermissions) ports.permissionMode?.set('full')
     else if (flagMode) ports.permissionMode?.set(flagMode)
@@ -1679,6 +1696,17 @@ const valueFlags = new Set([
   '--budget',
   '--allowed-tools',
 ])
+
+/** value flag（空格赋值形态）的值不算位置参数——与 firstUnsupportedGlobalFlag 同口径。 */
+function firstNonFlagTokenIndex(tokens: string[]): number {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (!token?.startsWith('-')) return i
+    const flag = token.split('=')[0]!
+    if (valueFlags.has(flag) && !token.includes('=')) i++
+  }
+  return -1
+}
 
 function firstUnsupportedGlobalFlag(rawArgs: string[]): string | undefined {
   for (let i = 0; i < rawArgs.length; i++) {
