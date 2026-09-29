@@ -80,9 +80,15 @@ clients — the dial-out side exposes no ports at all (NAT/firewall friendly):
 pendingPermissions[]}`; wait for `uplink.registered`. Reconnecting with the same
    client replaces the stale connection — redial with exponential backoff on drop
    (reference: 1s start, ×2, 30s cap).
-4. **Serve RPCs**: implement all 11 hub RPCs (`hub.start/resume/submit/interrupt/
-closeActive/decide/answerAsk/stageAttachment/readAttachment`, `sessions.list`, `session.transcript`), answering with
-   `rpc.result{id, ok, result|error}`.
+4. **Serve RPCs**: implement all 20 hub RPCs — `hub.start/resume/submit/interrupt/
+closeActive/decide/answerAsk/stageAttachment/readAttachment`, `sessions.list/delete`,
+`session.transcript`, `models.list`, `tasks.status/list/runs`, and
+   `changes.list/diff/undoPreview/undo` — answering with
+   `rpc.result{id, ok, result|error}`. The session surface is the first nine plus
+   `sessions.list` and `session.transcript`; without the `tasks.*`/`models.list`/
+   `changes.*` legs the web console's tasks panel, model list, and changes card
+   fail over the relay (the gateway degrades unimplemented `changes.list` to
+   `{paths: []}`).
 5. **Uplink pushes**: forward hub events as `event{envelope}`; push
    `uplink.state{active, pendingPermissions}` whenever the active session or pending
    approvals change (both fields always travel together).

@@ -21,7 +21,7 @@ Standalone relay entry (`volund-gateway` bin), without the volund CLI:
 node packages/gateway-server/dist/bin.js [--port 8788] [--json]
 ```
 
-Configuration is entirely via `GATEWAY_*` environment variables; client secret hashes, signing keys, and the paired-device registry live under `VOLUND_HOME/gateway/`. Docker deployment is covered in [deploy/gateway/README.md](../../deploy/gateway/README.md).
+Configuration comes from `GATEWAY_*` environment variables plus `VOLUND_HOME` (data root) and `VOLUND_MOBILE_ASSET_DIR` (mobile static override); client secret hashes, signing keys, and the paired-device registry live under `VOLUND_HOME/gateway/`. Docker deployment is covered in [deploy/gateway/README.md](../../deploy/gateway/README.md).
 
 ## Documentation
 

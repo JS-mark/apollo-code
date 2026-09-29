@@ -37,7 +37,7 @@ volund tasks remove <id>
 volund tasks runs <id> [--limit N] [--json]
 ```
 
-`add` freezes the working directory and the merged configuration hash into the task definition (see [run semantics](#what-a-run-looks-like)).
+`add` freezes the working directory and a hash of the **user-level** `config.toml` into the task definition (see [run semantics](#what-a-run-looks-like)).
 
 ### Schedule specs
 
@@ -63,11 +63,11 @@ volund tasks runs <id> [--limit N] [--json]
 
 ## What a run looks like
 
-Each run spawns a fresh headless Volund child (`<prompt> --json`) in the task's frozen working directory. The prompt runs unattended — permission interaction is disabled — so author task prompts accordingly. Frozen constraints are injected as flags: the pinned model, a budget object (`costUSDMax` / `tokenMax` / `timeMsMax`), and a comma-separated tool allowlist. A run that exceeds `--timeout-ms` is killed and recorded as failed.
+Each run spawns a fresh headless Volund child (`<prompt> --json`) in the task's frozen working directory. The prompt runs unattended — permission interaction is disabled — so author task prompts accordingly. Frozen constraints are injected as flags: the pinned model, a budget object (`costUSDMax` / `tokenMax` / `timeMsMax`), and a comma-separated tool allowlist — the latter two are contract-reserved for now (the schema and runner support them, but no CLI or tool flag sets them yet). A run that exceeds `--timeout-ms` is killed and recorded as failed.
 
 Before executing, the daemon re-checks two safety gates and refuses the run when they fail:
 
-- **Config drift** (`task_config_drift`) — the merged configuration hash differs from the value frozen at creation time.
+- **Config drift** (`task_config_drift`) — the hash of the user-level `config.toml` (with the `[tasks]` section excluded) differs from the value frozen at creation time.
 - **Trust** (`task_trust_missing`) — the frozen working directory is no longer a trusted directory.
 
 Terminal states (`completed` / `failed`) are posted to `[tasks].webhook_url` when configured. The URL is re-read on every delivery, so editing the config takes effect without restarting the daemon.
@@ -76,7 +76,7 @@ Terminal states (`completed` / `failed`) are posted to `[tasks].webhook_url` whe
 
 The model manages the same task store in-session through the `schedule_task` tool — `volund tasks` and the tool share one store, one lock, and one validation path. Mutations (create / enable / disable / remove) go through the normal permission decision chain: an approval card in interactive mode, automatic denial in unattended (`none`) mode. `list` and `runs` are read-only. Creation reports trigger readiness — whether `[tasks].enabled` is set and a daemon is running — so a task that would never fire is surfaced instead of silently queued.
 
-The web console's Scheduled tasks panel manages the same store over the gateway RPC bridge.
+The web console's Scheduled tasks panel manages the same store through the embedded web API (enable / disable / remove); task creation stays with `volund tasks add` and the `schedule_task` tool. When the console is reached through the remote gateway, the panel is read-only (`tasks.status/list/runs`).
 
 ## Reference
 

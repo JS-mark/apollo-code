@@ -12,9 +12,8 @@ volund skill install ./my-skill
 volund skill install github:anthropics/skills
 volund skill install anthropics/skills          # 同义简写
 volund skill install https://github.com/you/skills-repo.git
-volund skill install file:///path/to/local-repo
+volund skill install file:///path/to/local-repo   # 本地 git 仓库
 # 嵌套仓库也支持(如 anthropics/claude-plugins-official 的 plugins/<name>/skills/…):任意深度扫描,单个失败跳过其余
- # 本地 git 仓库
 
 # 装到项目级(随仓库分发,团队共用)
 volund skill install anthropics/skills --scope project   # → <cwd>/.volund/skills/
@@ -31,9 +30,11 @@ npx skills add <query>          # skills.sh 装到 ~/.agents/skills
 按优先级从高到低发现（同名覆盖）:
 
 1. 项目级 `<cwd>/.volund/skills/`
-2. 项目级 `<cwd>/.agents/skills/`（业界互操作路径，只读）
-3. 用户级 `~/.volund/skills/`
-4. 用户级 `~/.agents/skills/`（互操作路径，只读）
+2. 项目级 `<cwd>/.claude/skills/`（业界互操作路径，只读）
+3. 项目级 `<cwd>/.agents/skills/`（业界互操作路径，只读）
+4. 用户级 `~/.volund/skills/`
+5. 用户级 `~/.claude/skills/`（互操作路径，只读）
+6. 用户级 `~/.agents/skills/`（互操作路径，只读）
 
 同名 skill 在高优先级层存在时，低优先级层的同名条目标记为 `shadowed`（面板里可见原因），不报错。
 

@@ -92,7 +92,7 @@ node apps/cli/dist/volund.js --help
 
 The source bundle keeps the legacy `dist/volund.js` filename during the compatibility window. The canonical npm package is `@volund/cli`, with platform packages under `@volund/*`; it exposes `volund` as the canonical command. The legacy `volund-code` package is generated only as a compatibility meta package.
 
-Workspace packages are versioned independently (currently `0.1.x`–`0.2.0`); none of them is a published release. Follow the [installation guide](apps/docs/docs/getting-started/install.md) for release and native-binary details.
+Workspace packages are versioned independently (the publishable runtime packages are currently `0.1.x`–`0.2.0`, aside from internal tooling packages); none of them is a published release. Follow the [installation guide](apps/docs/docs/getting-started/install.md) for release and native-binary details.
 
 ### Start your first session
 
@@ -180,7 +180,7 @@ Security-relevant behavior:
 - directory trust does not grant write, command, or network permission;
 - headless runs fail on untrusted directories unless `--trust-workspace` is supplied explicitly;
 - credentials are stored in the OS keychain or encrypted fallback store, not project files;
-- `--dangerously-no-sandbox` requires explicit risk confirmation and is unsuitable for release acceptance;
+- `--dangerous-no-sandbox` requires explicit risk confirmation and is unsuitable for release acceptance;
 - telemetry stays local unless an exporter is explicitly configured.
 
 For details, see [directory trust and first run](apps/docs/docs/getting-started/first-run.md), the [security model](apps/docs/docs/concepts/security-model.md), and [sandbox troubleshooting](apps/docs/docs/troubleshooting/sandbox.md).
@@ -251,7 +251,7 @@ Current planning and evidence are maintained in:
 - [release readiness evidence](docs/releases/);
 - the [capability traceability document](docs/superpowers/specs/2026-07-31-volund-code-design/16-capability-traceability.md).
 
-Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. Tested example plugins live under [examples/plugins/](examples/plugins/): a JS plugin covering every contribution surface ([volund-plugin-demo](examples/plugins/volund-plugin-demo/)), a TypeScript-entry plugin ([volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)), a status-panel plugin registering `/status` tabs ([plugin-status-demo](examples/plugins/plugin-status-demo/)), and a scheduled-task webhook notifier ([volund-plugin-task-notify](examples/plugins/volund-plugin-task-notify/)). Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
+Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. Tested example plugins live under [examples/plugins/](examples/plugins/): a JS plugin covering the tool, command, hook, and prompt surfaces ([volund-plugin-demo](examples/plugins/volund-plugin-demo/)), a TypeScript-entry plugin ([volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)), a status-panel plugin registering `/status` tabs ([plugin-status-demo](examples/plugins/plugin-status-demo/)), and a scheduled-task webhook notifier ([volund-plugin-task-notify](examples/plugins/volund-plugin-task-notify/)). Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
 
 ## Contributing and support
 

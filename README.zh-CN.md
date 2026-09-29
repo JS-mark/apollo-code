@@ -94,7 +94,7 @@ node apps/cli/dist/volund.js --help
 
 兼容窗口期内，源码构建仍保留 `dist/volund.js` 这个内部文件名。标准 npm 包为 `@volund/cli`，平台包使用 `@volund/*` scope；安装后以 `volund` 为标准命令。旧 `volund-code` 仅作为兼容 meta 包生成。
 
-各 workspace 包独立维护版本号（当前为 `0.1.x`–`0.2.0`），均未发布到 npm。发布状态和原生二进制说明请查看[中文安装指南](apps/docs/zh/docs/getting-started/install.md)。
+各 workspace 包独立维护版本号（可发布的运行时包当前为 `0.1.x`–`0.2.0`，另有若干内部工具包），均未发布到 npm。发布状态和原生二进制说明请查看[中文安装指南](apps/docs/zh/docs/getting-started/install.md)。
 
 ### 开始第一次会话
 
@@ -152,7 +152,7 @@ node apps/cli/dist/volund.js memory list --scope project --pinned --json
 
 Pinned memory 受固定预算限制，并以不可信建议数据注入；当前用户和 system 指令始终优先。执行 `memory unpin` 或 `memory delete --yes` 后，后续提示词不再注入该内容。
 
-全部命令请运行 `volund help` 或查看[中文 CLI 参考](apps/docs/zh/docs/reference/cli.md)。自动化输出协议见英文版 [JSON 输出参考](apps/docs/docs/reference/json-output.md)；该页面目前尚无对应中文版本。
+全部命令请运行 `volund help` 或查看[中文 CLI 参考](apps/docs/zh/docs/reference/cli.md)。自动化输出协议见 [JSON 输出参考](apps/docs/zh/docs/reference/json-output.md)。
 
 ## 配置与安全
 
@@ -182,7 +182,7 @@ priority = 100
 - 信任目录不等于授权写文件、执行命令或访问网络；
 - 无头运行遇到未信任目录会直接失败，除非显式使用 `--trust-workspace`；
 - 凭据存放在操作系统钥匙串或加密降级存储中，不写入项目文件；
-- `--dangerously-no-sandbox` 需要明确确认风险，不应作为发布验收方式；
+- `--dangerous-no-sandbox` 需要明确确认风险，不应作为发布验收方式；
 - 遥测默认只保留在本地，只有显式配置后才会启用导出端。
 
 更多说明请阅读[目录信任与首次运行](apps/docs/zh/docs/getting-started/first-run.md)、[安全模型](apps/docs/zh/docs/concepts/security-model.md)和[沙箱故障排查](apps/docs/zh/docs/troubleshooting/sandbox.md)。
@@ -253,7 +253,7 @@ Volund CLI 正按仓库定义的能力等级逐步推进。公开包尚未发布
 - [发布就绪证据](docs/releases/)；
 - [能力追踪文档](docs/superpowers/specs/2026-07-31-volund-code-design/16-capability-traceability.md)。
 
-插件是一等运行时扩展：沙箱插件把工具、钩子、提示词片段和会话事件订阅注册进内核服务树；内置工具集以三个第一方域（`volund.core-tools`、`volund.exec`、`volund.orchestration`）交付，可通过 `/plugins` 或 `volund plugins builtin --enable/--disable <id>` 查看与开关。经过测试的示例插件位于 [examples/plugins/](examples/plugins/)：覆盖全部五种贡献面的 JS 插件（[volund-plugin-demo](examples/plugins/volund-plugin-demo/)）、TypeScript 入口插件（[volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)）、向 `/status` 面板注册页签的状态栏插件（[plugin-status-demo](examples/plugins/plugin-status-demo/)），以及定时任务终态 webhook 通知插件（[volund-plugin-task-notify](examples/plugins/volund-plugin-task-notify/)）。目前，直接从 registry/GitHub 安装插件、插件升级以及 L4 开发热重载命令尚未实现。
+插件是一等运行时扩展：沙箱插件把工具、钩子、提示词片段和会话事件订阅注册进内核服务树；内置工具集以三个第一方域（`volund.core-tools`、`volund.exec`、`volund.orchestration`）交付，可通过 `/plugins` 或 `volund plugins builtin --enable/--disable <id>` 查看与开关。经过测试的示例插件位于 [examples/plugins/](examples/plugins/)：覆盖工具/命令/钩子/提示词四类贡献面的 JS 插件（[volund-plugin-demo](examples/plugins/volund-plugin-demo/)）、TypeScript 入口插件（[volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)）、向 `/status` 面板注册页签的状态栏插件（[plugin-status-demo](examples/plugins/plugin-status-demo/)），以及定时任务终态 webhook 通知插件（[volund-plugin-task-notify](examples/plugins/volund-plugin-task-notify/)）。目前，直接从 registry/GitHub 安装插件、插件升级以及 L4 开发热重载命令尚未实现。
 
 ## 贡献与支持
 

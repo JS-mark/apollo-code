@@ -22,4 +22,4 @@
   ```
 
 服务 API、客户端接入、信任模型、数据备份等完整文档见 `apps/market/README.md`；
-文档站指南 `docs/guides/marketplace.md`。
+文档站指南 `apps/docs/docs/guides/marketplace.md`。

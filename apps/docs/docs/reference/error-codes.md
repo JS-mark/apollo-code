@@ -197,7 +197,7 @@ The `volund tasks` / `volund daemon` domain (see the [scheduled tasks guide](../
 | `task_io`                | Task store lock timeout / storage transaction IO error                              |
 | `task_run_failed`        | A task run failed (spawn failure / timeout kill / non-zero exit / daemon interrupt) |
 | `task_store_corrupt`     | Task store snapshot and recovery backup are both unreadable                         |
-| `task_config_drift`      | Run refused: merged config hash differs from the value frozen at creation (F1-03)   |
+| `task_config_drift`      | Run refused: the user-level config.toml hash (`[tasks]` excluded) differs from the frozen value (F1-03) |
 | `task_trust_missing`     | Run refused: the task's frozen working directory is no longer trusted (F1-03)       |
 
 ## Evolution local storage

@@ -9,7 +9,7 @@ The local side of Volund remote control: an outbound "uplink" client that dials 
 - bridging: gateway hub RPC → local `SessionHub`, and local events/state changes → gateway; the cwd gate is re-checked locally (`workspaceCwd`, with `realpath` against symlink escape);
 - pairing: `pairing.create` / `devices.list` / `device.revoke` forwarded to the gateway.
 
-`start()` is idempotent and configuration is re-read before every dial (`config()`), so `[remote]` changes take effect immediately. State is exposed as `off` / `connecting` / `online` with attempt and last-error details.
+`start()` is idempotent and configuration is re-read before every dial (`config()`); applying a `[remote]` config change while the link is online is the CLI assembly layer's job (stop → re-dial with debounce). State is exposed as `off` / `connecting` / `online` with attempt and last-error details.
 
 ## Usage
 
@@ -23,7 +23,7 @@ const link = createRemoteLink({
   hub, // local GatewayHubLike (SessionHub + model aliases)
   workspaceCwd,
 })
-await link.start()
+link.start()
 ```
 
 ## Documentation

@@ -6,10 +6,10 @@ The tool name is namespaced as `plugin:volund-plugin-community-example:community
 
 ## Install through the `volund plugins` channel
 
-Legacy `volund plugin install` temporarily fails closed (pending Catalog v2), so use the authoring toolchain instead. Both `volund plugins dev` and `volund plugins install` verify `engines.volund` in `manifest.json` against your CLI version and reject mismatches — the pinned `^0.0.0` will not match a current `0.x` CLI, so update it first (for example `"^0.2.0"`).
+Legacy `volund plugin install` temporarily fails closed (pending Catalog v2), so use the authoring toolchain instead. Both `volund plugins dev` and `volund plugins install` verify `engines.volund` in `manifest.json` against your CLI version and reject mismatches — this example pins `^0.2.0`, which matches a current 0.2.x CLI (bump the pin only when your CLI outgrows it).
 
 ```sh
-npm pack --dry-run
+npm pack --dry-run   # optional preview of what ships
 volund plugins build .
 # -> ./volund-plugin-community-example-0.0.1.volund (sha256 printed)
 volund plugins install ./volund-plugin-community-example-0.0.1.volund

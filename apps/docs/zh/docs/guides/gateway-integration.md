@@ -72,9 +72,14 @@ Retry-After，按它退避。完整错误码表见 PROTOCOL.md。
    `instance{instanceId, workspaceCwd, hostname?, version?, channels[], active,
 pendingPermissions[]}`；收到 `uplink.registered` 后进入在线态。
    同 client 重连顶替旧连接——断线后指数退避重拨（参考实现：1s 起、×2、30s 封顶）。
-4. **承接 RPC**：实现全部 11 个 hub RPC（`hub.start/resume/submit/interrupt/
-closeActive/decide/answerAsk/stageAttachment/readAttachment`、`sessions.list`、`session.transcript`），应答
-   `rpc.result{id, ok, result|error}`。
+4. **承接 RPC**：实现全部 20 个 hub RPC——`hub.start/resume/submit/interrupt/
+closeActive/decide/answerAsk/stageAttachment/readAttachment`、`sessions.list/delete`、
+`session.transcript`、`models.list`、`tasks.status/list/runs`、
+   `changes.list/diff/undoPreview/undo`，应答
+   `rpc.result{id, ok, result|error}`。会话面是前九个加 `sessions.list`、
+   `session.transcript`；缺 `tasks.*`/`models.list`/`changes.*` 腿时，远程侧的
+   定时任务面板、模型清单、变更卡片都会失效（网关对未实现的 `changes.list`
+   降级回 `{paths: []}`）。
 5. **上行**：hub 事件透传 `event{envelope}`；活动会话/待审批变化时推
    `uplink.state{active, pendingPermissions}`（两字段同帧成对）。
 6. **配对/设备管理**（可选）：经 `req{ref, method, params}` 调

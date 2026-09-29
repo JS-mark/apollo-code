@@ -36,7 +36,7 @@ MOBILE_IMAGE=registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-mobi
   docker compose -f deploy/mobile/docker-compose.yml up -d         # 用仓库镜像
 ```
 
-宿主端口默认 8080，`MOBILE_PORT=…` 可改。
+宿主端口默认 8800（compose 映射 `'${MOBILE_PORT:-8800}:8800'`），`MOBILE_PORT=…` 可改。
 
 镜像推送到镜像仓库：`sh deploy/image-push.sh mobile [TAG]`（三个镜像统一入口，
 默认推 `registry.cn-hangzhou.aliyuncs.com/future-coding-backend`，先 `docker login`）。

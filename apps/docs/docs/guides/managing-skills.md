@@ -12,9 +12,8 @@ volund skill install ./my-skill
 volund skill install github:anthropics/skills
 volund skill install anthropics/skills          # shorthand
 volund skill install https://github.com/you/skills-repo.git
-volund skill install file:///path/to/local-repo
+volund skill install file:///path/to/local-repo   # local git repo
 # Nested repos are also supported (e.g. anthropics/claude-plugins-official's plugins/<name>/skills/…): arbitrary-depth scan, per-skill failures skipped with a warning
- # local git repo
 
 # Project scope (shipped with the repo, shared with the team)
 volund skill install anthropics/skills --scope project   # → <cwd>/.volund/skills/
@@ -31,9 +30,11 @@ npx skills add <query>          # skills.sh installs to ~/.agents/skills
 Discovered in priority order (highest wins for a same-name skill):
 
 1. Project `<cwd>/.volund/skills/`
-2. Project `<cwd>/.agents/skills/` (interop path, read-only)
-3. User `~/.volund/skills/`
-4. User `~/.agents/skills/` (interop path, read-only)
+2. Project `<cwd>/.claude/skills/` (interop path, read-only)
+3. Project `<cwd>/.agents/skills/` (interop path, read-only)
+4. User `~/.volund/skills/`
+5. User `~/.claude/skills/` (interop path, read-only)
+6. User `~/.agents/skills/` (interop path, read-only)
 
 A same-name skill in a higher-priority layer marks the lower-priority copy `shadowed` (visible in the panel with the reason); it is never an error.
 

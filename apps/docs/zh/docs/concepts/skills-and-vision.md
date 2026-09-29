@@ -2,7 +2,7 @@
 
 > `.volund` 路径和 `volundVersion` frontmatter 字段是冻结的兼容标识；新命令和面向用户的品牌文案统一使用 Volund。
 
-Volund 按分层作用域发现 skill（项目级 `.volund/skills/` 与 `.agents/skills/`，用户级 `~/.volund/skills/` 与 `~/.agents/skills/`)，每个可被用户调用的 skill 都会注册为同名 slash 命令。启动时只读 YAML frontmatter 并向 system prompt 注入一份紧凑索引。一次性调用 `/skill-name [任务]` 会把 skill 正文与任务文本作为当轮用户消息提交（不持久改 prompt);`/skill activate <name>`（或 `/skills` 面板 `a` 键）把 skill 常驻进会话 prompt 直到关闭。Skill 只注入提示内容：不执行代码，也不授予权限。启停状态持久写在 `~/.volund/config.toml` 的 `[skills] disabled` 名单。`/skills` 面板列出全部已发现 skill 的作用域与状态（active / available / disabled / shadowed / broken / incompatible),shadowed 与 broken 附带原因。
+Volund 按分层作用域发现 skill（项目级 `.volund/skills/` 加 `.claude/skills/`、`.agents/skills/` 两个互操作路径，用户级 `~/.volund/skills/` 加 `~/.claude/skills/`、`~/.agents/skills/`），每个可被用户调用的 skill 都会注册为同名 slash 命令。启动时只读 YAML frontmatter 并向 system prompt 注入一份紧凑索引。一次性调用 `/skill-name [任务]` 会把 skill 正文与任务文本作为当轮用户消息提交（不持久改 prompt);`/skill activate <name>`（或 `/skills` 面板 `a` 键）把 skill 常驻进会话 prompt 直到关闭。Skill 只注入提示内容：不执行代码，也不授予权限。启停状态持久写在 `~/.volund/config.toml` 的 `[skills] disabled` 名单。`/skills` 面板列出全部已发现 skill 的作用域与状态（active / available / disabled / shadowed / broken / incompatible),shadowed 与 broken 附带原因。
 
 同名 skill 在高优先级层存在时，低优先级层的同名条目标记为 shadowed（面板里可见），不报错。
 

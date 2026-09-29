@@ -192,7 +192,7 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 | `task_io`                 | 任务存储锁超时 / 存储事务 IO 错误                                |
 | `task_run_failed`         | 任务运行失败（spawn 失败 / 超时击杀 / 非零退出 / daemon 中断）    |
 | `task_store_corrupt`      | 任务存储快照与恢复备份均不可读                                   |
-| `task_config_drift`       | 拒绝运行：合并配置 hash 与创建时冻结值不一致（F1-03）            |
+| `task_config_drift`       | 拒绝运行：用户级 config.toml 内容 hash（不含 [tasks] 段）与冻结值不一致（F1-03） |
 | `task_trust_missing`      | 拒绝运行：任务冻结的工作目录已不被信任（F1-03）                  |
 
 ## Evolution 本地存储
