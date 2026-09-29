@@ -109,6 +109,28 @@ describe('runCli', () => {
     ])
   })
 
+  it('shows daemon usage for `volund daemon help` instead of starting the daemon', async () => {
+    const result = await runCli(['daemon', 'help'], ports())
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('Usage:')
+    expect(result.stdout).toContain('7x24 task scheduler')
+  })
+
+  it('answers a bare `volund hook` with usage instead of the port error', async () => {
+    const result = await runCli(['hook'], ports())
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('Usage:')
+    expect(result.stderr).toContain('hook list')
+  })
+
+  it('does not let a trailing -v hijack a subcommand into the version output', async () => {
+    const result = await runCli(['mcp', 'list', '-v'], ports())
+    // 未接 mcp 端口 → 走 mcp 分支的端口错误；绝不是版本输出。
+    expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('mcp integration port is not connected')
+  })
+
   it('renders status as stable JSON without ANSI or secrets', async () => {
     const result = await runCli(
       ['status', '--json'],

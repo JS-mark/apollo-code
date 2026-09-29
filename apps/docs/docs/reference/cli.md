@@ -28,7 +28,7 @@ volund --cwd <path> --trust-workspace "prompt"
 | `volund sessions <action>`     | List or delete saved sessions (`list`/`delete`).                                               |
 | `volund resume <session-id>`   | Resume at the last durable turn boundary.                                                      |
 | `volund restore <session-id>`  | Restore files changed during a session.                                                        |
-| `volund doctor [--strict]`     | Diagnose config, credentials, native packages, sandbox, skills, MCP servers, and the scheduler. |
+| `volund doctor [--strict]`     | Diagnose config, credentials, native packages, sandbox, skills, MCP servers, the scheduler, and the remote link. |
 | `volund memory <action>`       | Manage durable memories, pinned context, and the local search index.                           |
 | `volund plugin <action>`       | Inspect or remove contained local plugins; legacy install/enable are temporarily unavailable.  |
 | `volund plugins <action>`      | Plugin authoring toolchain (`builtin`/`crate`/`dev`/`build`/`install`).                        |

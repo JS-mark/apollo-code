@@ -157,7 +157,15 @@ export async function runCli(
   )
     return { exitCode: 0, stdout: topicUsage, stderr: '' }
   if (wantsHelp) return { exitCode: 0, stdout: await renderGlobalUsage(command), stderr: '' }
-  if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
+  // -v/--version 只在首个位置参数之前生效：`volund tasks list -v` 这类子命令
+  // 尾部的版本旗标不再抢跑成版本输出（此前任何位置的 -v 都会短路整个派发）。
+  const firstPositionalIndex = scannable.findIndex((token) => !token.startsWith('-'))
+  const versionFlagIndex = scannable.findIndex((token) => token === '--version' || token === '-v')
+  if (
+    rawArgs[0] === 'version' ||
+    (versionFlagIndex !== -1 &&
+      (firstPositionalIndex === -1 || versionFlagIndex < firstPositionalIndex))
+  )
     return { exitCode: 0, stdout: `${ports.identity.version}\n`, stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition) as ParsedCliArgs
   const firstPositional = args._[0]
@@ -268,6 +276,11 @@ export async function runCli(
     return { exitCode: 0, stdout: `${stdout}${await renderGlobalUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
+  if (subcommand === 'hook') {
+    // 裸 `volund hook` / 未知动作此前会落到 "integration port is not connected"
+    // 的误导性错误行——hook 是已知保留命令，给用法提示而不是端口错误。
+    return { exitCode: 2, stdout, stderr: commandUsage['hook']! }
+  }
   if (subcommand === 'plugin') {
     if (!ports.plugin) {
       const message = 'plugin integration port is not connected'

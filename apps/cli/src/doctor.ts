@@ -15,6 +15,7 @@ const execFileAsync = promisify(execFile)
 const GH_VERSION_TIMEOUT_MS = 5 * 1e3
 /** r13-G6: hint mirrors CONTRIBUTING "Recommended" deps — gh only powers the PR workflow. */
 export const GH_CLI_MISSING_HINT = 'PR 工作流需要 gh（CONTRIBUTING 推荐依赖）'
+const REMOTE_HEALTH_TIMEOUT_MS = 3 * 1e3
 
 export interface GhCliHealth {
   installed: boolean
@@ -67,6 +68,23 @@ async function resolveExecutablePath(
     }
   }
   return undefined
+}
+
+/**
+ * REM-r1 doctor 健康面：enabled 且凭证齐时探测网关 /healthz。返回 undefined =
+ * 可达；否则返回失败原因（HTTP 状态或异常消息）——网关不在场是部署态，不是本机
+ * 配置坏，所以该检查永远 warn-only，不进 --strict 失败面。
+ */
+async function probeRemoteGateway(gatewayUrl: string): Promise<string | undefined> {
+  try {
+    const base = gatewayUrl.replace(/\/+$/, '')
+    const response = await fetch(`${base}/healthz`, {
+      signal: AbortSignal.timeout(REMOTE_HEALTH_TIMEOUT_MS),
+    })
+    return response.ok ? undefined : `HTTP ${response.status}`
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
 }
 interface SkillsHealth {
   total: number
@@ -166,6 +184,55 @@ export async function runDoctor(
       detail: `scheduler health check failed: ${error instanceof Error ? error.message : String(error)}`,
     }
   }
+  // REM-r1 远程链路健康面：默认关闭=正常（对齐 [tasks] 的口径）；enabled 但凭证
+  // 不全=⚠️（下次启动拨不出）；enabled 且凭证齐=探测 /healthz（warn-only）。
+  let remoteCheck: DoctorCheck
+  try {
+    const merged = await ports.config.listMerged?.({ cwd }).catch(() => undefined)
+    const remote = (merged?.config?.['remote'] ?? {}) as {
+      enabled?: unknown
+      gateway_url?: unknown
+      client_id?: unknown
+      client_secret?: unknown
+    }
+    if (remote.enabled !== true) {
+      remoteCheck = { name: 'remote link', ok: true, detail: 'disabled ([remote].enabled)' }
+    } else {
+      const gatewayUrl = typeof remote.gateway_url === 'string' ? remote.gateway_url : ''
+      const hasCredentials =
+        gatewayUrl !== '' &&
+        typeof remote.client_id === 'string' &&
+        remote.client_id !== '' &&
+        typeof remote.client_secret === 'string' &&
+        remote.client_secret !== ''
+      if (!hasCredentials) {
+        remoteCheck = {
+          name: 'remote link',
+          ok: true,
+          warn: true,
+          detail:
+            'enabled but [remote] credentials are incomplete (gateway_url/client_id/client_secret)',
+        }
+      } else {
+        const failure = await probeRemoteGateway(gatewayUrl)
+        remoteCheck =
+          failure === undefined
+            ? { name: 'remote link', ok: true, detail: `gateway reachable (${gatewayUrl})` }
+            : {
+                name: 'remote link',
+                ok: true,
+                warn: true,
+                detail: `gateway unreachable (${gatewayUrl}): ${failure}`,
+              }
+      }
+    }
+  } catch (error) {
+    remoteCheck = {
+      name: 'remote link',
+      ok: false,
+      detail: `remote link health check failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
   return [
     {
       name: 'node version',
@@ -240,5 +307,6 @@ export async function runDoctor(
       detail: telemetry.detail,
     },
     schedulerCheck,
+    remoteCheck,
   ]
 }

@@ -128,7 +128,7 @@ Options:
 const doctorUsage = `Usage: ${commandName} doctor [--json] [--strict]
 
 Diagnose configuration, credentials, native packages, sandbox readiness,
-skills, MCP servers, and the task scheduler.
+skills, MCP servers, the task scheduler, and the remote link.
 
 Options:
   --json      Emit checks as one JSON document
@@ -370,6 +370,8 @@ export const commandUsage: Readonly<Record<string, string>> = {
  */
 export const actionStyleCommands: ReadonlySet<string> = new Set([
   'tasks',
+  // daemon 不吃位置参数，`volund daemon help` 只能是求帮助——绝不能因此启动 daemon。
+  'daemon',
   'memory',
   'telemetry',
   'trust',

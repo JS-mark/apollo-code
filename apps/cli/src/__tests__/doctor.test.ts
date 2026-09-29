@@ -1,7 +1,9 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { JsonValue } from '@volund/shared'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { runDoctor } from '../doctor'
@@ -87,5 +89,94 @@ describe('doctor task scheduler check', () => {
     expect(check.ok).toBe(true)
     expect(check.warn).toBeUndefined()
     expect(check.detail).toContain(`pid ${process.pid}`)
+  })
+})
+
+/** 在 portsStub 上覆写 listMerged，注入 [remote] 段（scheduler 用例不读该键）。 */
+function remotePortsStub(cwd: string, remote: Record<string, JsonValue>): VolundPorts {
+  const stub = portsStub(cwd) as VolundPorts & {
+    config: {
+      listMerged: (input: { cwd: string }) => Promise<{
+        config: Record<string, JsonValue>
+        warnings: string[]
+      }>
+    }
+  }
+  stub.config.listMerged = async () => ({ config: { remote }, warnings: [] })
+  return stub
+}
+
+function remoteCheck(checks: Awaited<ReturnType<typeof runDoctor>>) {
+  const check = checks.find((entry) => entry.name === 'remote link')
+  expect(check, 'doctor must report a remote link check').toBeDefined()
+  return check!
+}
+
+describe('doctor remote link check', () => {
+  it('reports disabled state as healthy when [remote].enabled is unset', async () => {
+    const check = remoteCheck(await runDoctor('/tmp', remotePortsStub('/tmp', {}), process.env))
+    expect(check.ok).toBe(true)
+    expect(check.warn).toBeUndefined()
+    expect(check.detail).toContain('disabled')
+  })
+
+  it('warns when enabled but the credential triple is incomplete', async () => {
+    const check = remoteCheck(
+      await runDoctor(
+        '/tmp',
+        remotePortsStub('/tmp', { enabled: true, gateway_url: 'https://gw.example' }),
+        process.env,
+      ),
+    )
+    expect(check.ok).toBe(true)
+    expect(check.warn).toBe(true)
+    expect(check.detail).toContain('incomplete')
+  })
+
+  it('reports a reachable gateway without warning', async () => {
+    const server = createServer((_request, response) => {
+      response.statusCode = 200
+      response.end('ok')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      const check = remoteCheck(
+        await runDoctor(
+          '/tmp',
+          remotePortsStub('/tmp', {
+            enabled: true,
+            gateway_url: `http://127.0.0.1:${port}`,
+            client_id: 'client',
+            client_secret: 's'.repeat(16),
+          }),
+          process.env,
+        ),
+      )
+      expect(check.ok).toBe(true)
+      expect(check.warn).toBeUndefined()
+      expect(check.detail).toContain('gateway reachable')
+    } finally {
+      server.close()
+    }
+  })
+
+  it('warns without failing doctor when the gateway is unreachable', async () => {
+    const check = remoteCheck(
+      await runDoctor(
+        '/tmp',
+        remotePortsStub('/tmp', {
+          enabled: true,
+          gateway_url: 'http://127.0.0.1:1',
+          client_id: 'client',
+          client_secret: 's'.repeat(16),
+        }),
+        process.env,
+      ),
+    )
+    expect(check.ok).toBe(true)
+    expect(check.warn).toBe(true)
+    expect(check.detail).toContain('gateway unreachable')
   })
 })

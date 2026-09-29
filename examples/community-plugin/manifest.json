@@ -3,6 +3,6 @@
   "version": "0.0.1",
   "type": "module",
   "main": "index.mjs",
-  "engines": { "volund": "^0.0.0" },
+  "engines": { "volund": "^0.2.0" },
   "permissions": { "volund": ["tools.register"] }
 }
