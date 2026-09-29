@@ -1,0 +1,589 @@
+import { join } from 'node:path'
+
+import { describe, expect, it, vi } from 'vitest'
+
+import {
+  generalizePermissionSpec,
+  matchPath,
+  PermissionManager,
+  permissionKey,
+  permissionRuleMatches,
+  type PermissionRequest,
+} from '../index'
+import { toPosixSeparators as toPosix } from '../path-pattern'
+const req = (toolName = 'Write') => ({
+  toolName,
+  spec: { fs: { write: ['x'] } },
+  input: {},
+  session: { id: 's', cwd: process.cwd() },
+  attempt: 1,
+})
+const bashReq = (command: string) => ({
+  toolName: 'Bash',
+  spec: { bash: { command } },
+  input: {},
+  session: { id: 's', cwd: process.cwd() },
+  attempt: 1,
+})
+const grantKey = (request: PermissionRequest) => JSON.stringify([request.toolName, request.spec])
+
+const FORMERLY_SILENT_BASH_COMMANDS = [
+  'pwd',
+  'ls',
+  'git status',
+  'git diff',
+  'git log',
+  'node --version',
+  'pnpm test',
+  'pnpm typecheck',
+]
+
+const BASH_CONTROL_CORPUS = [
+  'git status; unknown-command',
+  'git status && unknown-command',
+  'git status || unknown-command',
+  'git status | unknown-command',
+  'git status & unknown-command',
+  'git status < input.txt',
+  'git status > output.txt',
+  'git status >> output.txt',
+  "cat <<'EOF'\ngit status\nEOF",
+  'cat <<< "git status"',
+  'cat <(git status)',
+  'git status `unknown-command`',
+  'git status $(unknown-command)',
+  'git status \\\nunknown-command',
+  'git\tstatus',
+  'git status\nunknown-command',
+  'git status\runknown-command',
+  'git status\r\nunknown-command',
+  'git status\u0085unknown-command',
+  'git\u00a0status',
+  'git status\u2028unknown-command',
+  'git status\u2029unknown-command',
+  'git status\u202eunknown-command',
+  'git\u200bstatus',
+  'git status "&&" unknown-command',
+  'unknown-command --flag',
+  'gh pr create',
+  'gh pr view 123',
+  'gh pr checks 123',
+]
+
+const RAW_BASH_CORPUS = [...FORMERLY_SILENT_BASH_COMMANDS, ...BASH_CONTROL_CORPUS]
+
+describe('PermissionManager', () => {
+  it('puts project and global deny rules above session cache and explicit allows', async () => {
+    let projectDeny = false
+    let projectAllow = false
+    let globalAllow = false
+    const configuration = { dangerouslySkip: false }
+    const cachedPrompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const cached = new PermissionManager(
+      {
+        projectDeny: () => projectDeny,
+        projectAllow: () => projectAllow,
+        globalAllow: () => globalAllow,
+      },
+      configuration,
+    )
+    cached.setPromptHandler(cachedPrompt)
+
+    // Seed an exact session grant without conflicting rules, then turn every lower step on.
+    expect(await cached.request(bashReq('git status'))).toEqual({ kind: 'allow-session' })
+    projectDeny = true
+    projectAllow = true
+    globalAllow = true
+    configuration.dangerouslySkip = true
+
+    expect(await cached.request(bashReq('git status'))).toEqual({ kind: 'deny' })
+    expect(cachedPrompt).toHaveBeenCalledOnce()
+
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const globalDenied = new PermissionManager(
+      {
+        globalDeny: () => true,
+        projectAllow: () => true,
+        globalAllow: () => true,
+      },
+      { dangerouslySkip: true },
+    )
+    globalDenied.setPromptHandler(prompt)
+
+    expect(await globalDenied.request(bashReq('pnpm test'))).toEqual({ kind: 'deny' })
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('covers the cache, project, global, dangerous, and prompt conflict matrix', async () => {
+    const command = bashReq('git status')
+
+    let lowerRulesEnabled = false
+    const cachedPrompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const cachedConfiguration = { dangerouslySkip: false }
+    const cached = new PermissionManager(
+      {
+        projectAllow: () => lowerRulesEnabled,
+        globalAllow: () => lowerRulesEnabled,
+      },
+      cachedConfiguration,
+    )
+    cached.setPromptHandler(cachedPrompt)
+    expect(await cached.request(command)).toEqual({ kind: 'allow-session' })
+    lowerRulesEnabled = true
+    cachedConfiguration.dangerouslySkip = true
+    expect(await cached.request(command)).toEqual({ kind: 'allow-session' })
+    expect(cachedPrompt).toHaveBeenCalledOnce()
+
+    const projectPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const project = new PermissionManager(
+      { projectAllow: () => true, globalAllow: () => true },
+      { dangerouslySkip: true },
+    )
+    project.setPromptHandler(projectPrompt)
+    expect(await project.request(command)).toEqual({ kind: 'allow-project' })
+    expect(projectPrompt).not.toHaveBeenCalled()
+
+    const globalPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const global = new PermissionManager({ globalAllow: () => true }, { dangerouslySkip: true })
+    global.setPromptHandler(globalPrompt)
+    expect(await global.request(command)).toEqual({ kind: 'allow-forever' })
+    expect(globalPrompt).not.toHaveBeenCalled()
+
+    const bypassPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const bypass = new PermissionManager({}, { dangerouslySkip: true })
+    bypass.setPromptHandler(bypassPrompt)
+    expect(await bypass.request(command)).toEqual({ kind: 'allow-once' })
+    expect(bypassPrompt).not.toHaveBeenCalled()
+
+    const finalPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const prompted = new PermissionManager()
+    prompted.setPromptHandler(finalPrompt)
+    expect(await prompted.request(command)).toEqual({ kind: 'deny' })
+    expect(finalPrompt).toHaveBeenCalledOnce()
+  })
+  it('serializes prompts and caches session grants', async () => {
+    let active = 0,
+      max = 0
+    const manager = new PermissionManager()
+    manager.setPromptHandler(async () => {
+      active++
+      max = Math.max(max, active)
+      await Promise.resolve()
+      active--
+      return { kind: 'allow-session' }
+    })
+    await Promise.all([manager.request(req()), manager.request(req('Edit'))])
+    expect(max).toBe(1)
+    expect((await manager.request(req())).kind).toBe('allow-session')
+  })
+  it('conservatively auto-allows cwd reads', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const manager = new PermissionManager({}, { dangerouslySkip: true, logger })
+    manager.setPromptHandler(prompt)
+    expect(
+      (
+        await manager.request({
+          toolName: 'Read',
+          spec: { fs: { read: ['package.json'] } },
+          input: {},
+          session: { id: 's', cwd: process.cwd() },
+          attempt: 1,
+        })
+      ).kind,
+    ).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+  it('prompts for every raw Bash command, including shell-control edge cases', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+
+    for (const [index, command] of RAW_BASH_CORPUS.entries()) {
+      const decision = await manager.request(bashReq(command))
+      expect(decision).toEqual({ kind: 'deny' })
+      expect(decision.kind).not.toBe('allow-once')
+      expect(prompt).toHaveBeenCalledTimes(index + 1)
+      expect(prompt).toHaveBeenLastCalledWith(bashReq(command))
+    }
+  })
+
+  it('denies every ungranted raw Bash command when no prompt is available', async () => {
+    const manager = new PermissionManager()
+
+    for (const command of RAW_BASH_CORPUS) {
+      expect(await manager.request(bashReq(command))).toEqual({ kind: 'deny' })
+    }
+  })
+
+  it('honors explicit project and global Bash grants without prompting', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const project = new PermissionManager({ projectAllow: () => true })
+    const global = new PermissionManager({ globalAllow: () => true })
+    project.setPromptHandler(prompt)
+    global.setPromptHandler(prompt)
+
+    expect(await project.request(bashReq('git status'))).toEqual({ kind: 'allow-project' })
+    expect(await global.request(bashReq('pnpm test'))).toEqual({ kind: 'allow-forever' })
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('records prompted grants; every scope grant and deny-forever suppresses repeat prompts', async () => {
+    const persist = vi.fn(async () => undefined)
+    const project = new PermissionManager({}, { persist })
+    const projectPrompt = vi.fn(async () => ({ kind: 'allow-project' as const }))
+    project.setPromptHandler(projectPrompt)
+    const projectRequest = bashReq('git status')
+
+    expect(await project.request(projectRequest)).toEqual({ kind: 'allow-project' })
+    expect(persist).toHaveBeenCalledWith('project', projectRequest, true)
+    // Persistence for project scope is not wired in production yet; the grant
+    // still holds as a session cache entry, replaying its true decision kind.
+    expect(await project.request(bashReq('git status'))).toEqual({ kind: 'allow-project' })
+    expect(projectPrompt).toHaveBeenCalledTimes(1)
+
+    const global = new PermissionManager({}, { persist })
+    global.setPromptHandler(async () => ({ kind: 'allow-forever' }))
+    const globalRequest = bashReq('pnpm test')
+
+    expect(await global.request(globalRequest)).toEqual({ kind: 'allow-forever' })
+    expect(persist).toHaveBeenCalledWith('global', globalRequest, true)
+
+    const prompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const session = new PermissionManager()
+    session.setPromptHandler(prompt)
+    const sessionRequest = bashReq('pwd')
+
+    expect(await session.request(sessionRequest)).toEqual({ kind: 'allow-session' })
+    expect(await session.request(sessionRequest)).toEqual({ kind: 'allow-session' })
+    expect(prompt).toHaveBeenCalledTimes(1)
+
+    const denying = new PermissionManager({}, { persist })
+    const denyPrompt = vi.fn(async () => ({ kind: 'deny-forever' as const }))
+    denying.setPromptHandler(denyPrompt)
+
+    expect(await denying.request(bashReq('rm -rf /')).then((d) => d.kind)).toBe('deny-forever')
+    // A cached denial must replay the denial, never surface as a grant.
+    expect(await denying.request(bashReq('rm -rf /')).then((d) => d.kind)).toBe('deny-forever')
+    expect(denyPrompt).toHaveBeenCalledTimes(1)
+  })
+
+  it('keys Bash session grants by the exact command and prompts again for variants', async () => {
+    const prompt = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'allow-session' as const })
+      .mockResolvedValue({ kind: 'deny' as const })
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+
+    expect(await manager.request(bashReq('git status'))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq('git status'))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq('git status '))).toEqual({ kind: 'deny' })
+    expect(await manager.request(bashReq('git  status'))).toEqual({ kind: 'deny' })
+    expect(prompt).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps a raw bidi command grant isolated from its literal visible escape text', async () => {
+    const prompt = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'allow-session' as const })
+      .mockResolvedValue({ kind: 'deny' as const })
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    const rawBidi = 'printf "\u202E"'
+    const literalEscape = 'printf "\\u{202E}"'
+
+    expect(await manager.request(bashReq(rawBidi))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq(rawBidi))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq(literalEscape))).toEqual({ kind: 'deny' })
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { decision: 'allow-project' as const, scope: 'project' as const },
+    { decision: 'allow-forever' as const, scope: 'global' as const },
+  ])(
+    'reloads an exact $scope Bash grant without widening to variants',
+    async ({ decision, scope }) => {
+      const persisted = new Set<string>()
+      const first = new PermissionManager(
+        {},
+        {
+          persist: async (savedScope, request, allow) => {
+            if (allow && savedScope === scope) persisted.add(grantKey(request))
+          },
+        },
+      )
+      first.setPromptHandler(async () => ({ kind: decision }))
+      expect(await first.request(bashReq('pnpm test'))).toEqual({ kind: decision })
+
+      const reloadPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+      const reloaded = new PermissionManager(
+        scope === 'project'
+          ? { projectAllow: (request) => persisted.has(grantKey(request)) }
+          : { globalAllow: (request) => persisted.has(grantKey(request)) },
+      )
+      reloaded.setPromptHandler(reloadPrompt)
+
+      expect(await reloaded.request(bashReq('pnpm test'))).toEqual({
+        kind: scope === 'project' ? 'allow-project' : 'allow-forever',
+      })
+      expect(await reloaded.request(bashReq('pnpm test -- --runInBand'))).toEqual({ kind: 'deny' })
+      expect(reloadPrompt).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('keeps the explicit dangerous bypass after deny rules and logs its use', async () => {
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const bypass = new PermissionManager({}, { dangerouslySkip: true, logger })
+    const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    bypass.setPromptHandler(prompt)
+
+    expect(await bypass.request(bashReq('git status'))).toEqual({ kind: 'allow-once' })
+    expect(logger.warn).toHaveBeenCalledWith('permissions bypassed', { toolName: 'Bash' })
+    expect(prompt).not.toHaveBeenCalled()
+
+    const denied = new PermissionManager(
+      { globalDeny: () => true },
+      { dangerouslySkip: true, logger },
+    )
+    expect(await denied.request(bashReq('git status'))).toEqual({ kind: 'deny' })
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+  })
+  it('caches network grants by canonical origin, not secret-bearing paths', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    const network = (url: string) => ({
+      toolName: 'WebFetch',
+      spec: { net: { url, method: 'GET' as const } },
+      input: { url: `${url}/path?token=secret` },
+      session: { id: 's', cwd: process.cwd() },
+      attempt: 1,
+    })
+    expect((await manager.request(network('https://example.com'))).kind).toBe('allow-session')
+    expect((await manager.request(network('https://example.com/other'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect((await manager.request(network('https://other.example'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+  it('shares session grants across explicit default ports and non-special schemes', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    const network = (url: string) => ({
+      toolName: 'WebFetch',
+      spec: { net: { url, method: 'GET' as const } },
+      input: {},
+      session: { id: 's', cwd: process.cwd() },
+      attempt: 1,
+    })
+    expect((await manager.request(network('https://example.com:443/a'))).kind).toBe('allow-session')
+    // same origin modulo the default port → cache hit, no second prompt
+    expect((await manager.request(network('https://example.com/b'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // non-special scheme keeps its port in the origin key (URL.origin would be "null")
+    expect((await manager.request(network('git://example.com:9418/x'))).kind).toBe('allow-session')
+    expect((await manager.request(network('git://example.com:9418/y'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+})
+describe('permissionKey', () => {
+  it('is the shared grant-key unit: net collapses to origin, spec differences split keys', () => {
+    expect(
+      permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'GET' } }),
+    ).toBe(permissionKey('WebFetch', { net: { url: 'https://example.com/b', method: 'GET' } }))
+    expect(
+      permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'GET' } }),
+    ).not.toBe(permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'POST' } }))
+    expect(permissionKey('Bash', { bash: { command: 'git status' } })).not.toBe(
+      permissionKey('Bash', { bash: { command: 'git log' } }),
+    )
+    expect(permissionKey('Bash', { bash: { command: 'git status' } })).toBe(
+      permissionKey('Bash', { bash: { command: 'git status' } }),
+    )
+  })
+})
+describe('session full access', () => {
+  it('stops prompting for the rest of the session after allow-all-session, deny rules still win', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-all-session' as const }))
+    const manager = new PermissionManager({
+      globalDeny: (request) => request.spec.bash?.command === 'rm -rf /',
+    })
+    manager.setPromptHandler(prompt)
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-all-session')
+    expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-session')
+    expect((await manager.request(bashReq('anything at all'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // 黑名单仍然优先于完全访问
+    expect((await manager.request(bashReq('rm -rf /'))).kind).toBe('deny')
+    manager.clearSession()
+    // 清会话后完全访问失效，重新进入弹窗
+    expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-all-session')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+  it('fires onFullAccessGranted exactly once per allow-all-session decision', async () => {
+    const granted = vi.fn()
+    const prompt = vi.fn(async () => ({ kind: 'allow-all-session' as const }))
+    const manager = new PermissionManager({}, { onFullAccessGranted: granted })
+    manager.setPromptHandler(prompt)
+    await manager.request(bashReq('git status'))
+    // full 短路后不再有弹窗决策，回调不会重复触发
+    await manager.request(bashReq('pnpm build'))
+    expect(granted).toHaveBeenCalledTimes(1)
+    expect(manager.mode).toBe('full')
+  })
+})
+describe('session permission modes', () => {
+  const writeReq = (path: string) => ({
+    toolName: 'Write',
+    spec: { fs: { write: [path] } },
+    input: {},
+    session: { id: 's', cwd: process.cwd() },
+    attempt: 1,
+  })
+  it('auto mode approves in-project file edits but still asks for bash and out-of-cwd writes', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const manager = new PermissionManager({}, { mode: 'auto' })
+    manager.setPromptHandler(prompt)
+    expect((await manager.request(writeReq('in-project.md'))).kind).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    expect((await manager.request(writeReq('/etc/outside.md'))).kind).toBe('allow-once')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // Bash 自带 fs.write ['.'] 也绝不能被 auto 档静默放行
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+  it('full mode short-circuits every prompt until reset', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    manager.setMode('full')
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-session')
+    expect((await manager.request(writeReq('anything.md'))).kind).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    manager.clearSession()
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
+  })
+})
+describe('generalizePermissionSpec', () => {
+  const cwd = process.cwd()
+  it('collapses in-cwd concrete paths to one <cwd>/** subtree pattern', () => {
+    const spec = generalizePermissionSpec(
+      { fs: { write: [join(cwd, 'a.md'), join(cwd, 'src', 'b.ts')] } },
+      cwd,
+    )
+    expect(spec.fs?.write).toEqual([toPosix(`${cwd}/**`)])
+  })
+  it('keeps existing globs and out-of-cwd paths as-is', () => {
+    const spec = generalizePermissionSpec(
+      { fs: { read: ['docs/**/*.md'], write: ['/etc/hosts', join(cwd, 'in.md')] } },
+      cwd,
+    )
+    expect(spec.fs?.read).toEqual(['docs/**/*.md'])
+    expect(spec.fs?.write).toEqual(['/etc/hosts', toPosix(`${cwd}/**`)])
+  })
+  it('returns bash / net specs untouched (identity is command / origin)', () => {
+    const bashSpec = { bash: { command: 'git status' }, fs: { read: ['.'], write: ['.'] } }
+    expect(generalizePermissionSpec(bashSpec, cwd)).toBe(bashSpec)
+    const netSpec = { net: { url: 'https://example.dev/a', method: 'GET' as const } }
+    expect(generalizePermissionSpec(netSpec, cwd)).toBe(netSpec)
+  })
+})
+describe('permissionRuleMatches', () => {
+  const cwd = process.cwd()
+  const writeReq = (path: string, spec: PermissionRequest['spec'] = { fs: { write: [path] } }) =>
+    ({
+      toolName: 'Write',
+      spec,
+      input: {},
+      session: { id: 's', cwd },
+      attempt: 1,
+    }) as PermissionRequest
+  const bashReqFor = (command: string): PermissionRequest => ({
+    toolName: 'Bash',
+    spec: { bash: { command } },
+    input: { command },
+    session: { id: 's', cwd },
+    attempt: 1,
+  })
+  it('a <cwd>/** allow rule covers sibling files but not other trees', () => {
+    const rule = { tool: 'Write', spec: { fs: { write: [`${cwd}/**`] } } }
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'src', 'new.ts')))).toBe(true)
+    expect(permissionRuleMatches(rule, writeReq('/etc/hosts'))).toBe(false)
+  })
+  it('every requested path must be covered — request ⊆ rule, otherwise fail closed', () => {
+    const rule = { tool: 'Write', spec: { fs: { write: [`${cwd}/**`] } } }
+    expect(
+      permissionRuleMatches(
+        rule,
+        writeReq(join(cwd, 'ok.md'), { fs: { write: [join(cwd, 'ok.md'), '/etc/hosts'] } }),
+      ),
+    ).toBe(false)
+  })
+  it('a rule granting more surfaces than the request touches still matches', () => {
+    const rule = { tool: 'Write', spec: { fs: { write: [`${cwd}/**`], read: [`${cwd}/**`] } } }
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'x.md')))).toBe(true)
+  })
+  it('bash rules match commands exactly unless the stored command carries a glob', () => {
+    const exact = { tool: 'Bash', spec: { bash: { command: 'git status' } } }
+    expect(permissionRuleMatches(exact, bashReqFor('git status'))).toBe(true)
+    expect(permissionRuleMatches(exact, bashReqFor('git status --short'))).toBe(false)
+    const prefix = { tool: 'Bash', spec: { bash: { command: 'git *' } } }
+    expect(permissionRuleMatches(prefix, bashReqFor('git log --oneline'))).toBe(true)
+    expect(permissionRuleMatches(prefix, bashReqFor('gitk'))).toBe(false)
+  })
+  it('net rules still match by origin and split on method; tool name gates everything', () => {
+    const rule = {
+      tool: 'WebFetch',
+      spec: { net: { url: 'https://example.com/a', method: 'GET' as const } },
+    }
+    const netReq = (url: string, method: 'GET' | 'POST' = 'GET'): PermissionRequest => ({
+      toolName: 'WebFetch',
+      spec: { net: { url, method } },
+      input: {},
+      session: { id: 's', cwd },
+      attempt: 1,
+    })
+    expect(permissionRuleMatches(rule, netReq('https://example.com/other'))).toBe(true)
+    expect(permissionRuleMatches(rule, netReq('https://example.com/x', 'POST'))).toBe(false)
+    expect(permissionRuleMatches(rule, netReq('https://other.com/a'))).toBe(false)
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'x.md')))).toBe(false)
+  })
+  it('an invalid stored pattern fails closed instead of throwing', () => {
+    // 裸名 glob 不被方言支持：matchPath 会抛，规则匹配必须吞掉按不命中处理
+    expect(() => matchPath('bare-*.toml', join(cwd, 'bare-x.toml'))).toThrow()
+    const rule = { tool: 'Write', spec: { fs: { write: ['bare-*.toml'] } } }
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'bare-x.toml')))).toBe(false)
+  })
+})
+
+describe('PermissionManager grantEphemeral (skill allowed-tools)', () => {
+  const manager = (rules: ConstructorParameters<typeof PermissionManager>[0] = {}) => {
+    const instance = new PermissionManager(rules)
+    instance.setPromptHandler(async () => ({ kind: 'deny' }))
+    return instance
+  }
+  it('allows matching requests until cleared, without writing the session cache', async () => {
+    const permissions = manager()
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+    permissions.grantEphemeral([{ tool: 'Bash', spec: { bash: { command: 'git *' } } }])
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({
+      kind: 'allow-session',
+    })
+    await expect(permissions.request(bashReq('pnpm test'))).resolves.toEqual({ kind: 'deny' })
+    permissions.clearEphemeral()
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+  })
+  it('never overrides persisted deny rules', async () => {
+    const permissions = manager({ projectDeny: () => true })
+    permissions.grantEphemeral([{ tool: 'Bash', spec: {} }])
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+  })
+})

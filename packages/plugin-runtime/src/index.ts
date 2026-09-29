@@ -593,70 +593,70 @@ export const VOLUND_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
   ].map((method) => ({
     method,
     status: 'supported' as const,
-    test: 'packages/plugin-runtime/src/index.test.ts#VolundBridge capability matrix',
+    test: 'packages/plugin-runtime/src/__tests__/index.test.ts#VolundBridge capability matrix',
   })),
   {
     method: 'env.getEffective',
     status: 'supported' as const,
     reason: 'Local (dev/builtin) channel only; the frozen legacy Catalog path never exposes it.',
-    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+    test: 'packages/plugin-runtime/src/__tests__/local-plugin.test.ts#createLocalPluginDispatch',
   },
   {
     method: 'plugins.list',
     status: 'supported' as const,
     reason: 'Local (builtin/dev/market) channel only; host-side inventory data.',
-    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+    test: 'packages/plugin-runtime/src/__tests__/local-plugin.test.ts#createLocalPluginDispatch',
   },
   {
     method: 'plugins.install',
     status: 'supported' as const,
     reason: 'Local (builtin/dev/market) channel only; host performs fetch + digest verify.',
-    test: 'apps/cli/src/plugin-market.test.ts#installFromMarket',
+    test: 'apps/cli/src/__tests__/plugin-market.test.ts#installFromMarket',
   },
   ...['plugins.inspect', 'plugins.approve', 'plugins.enable', 'plugins.disable'].map((method) => ({
     method,
     status: 'supported' as const,
     reason: 'Local v2 lifecycle only; approval and enablement are explicit host-side actions.',
-    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+    test: 'packages/plugin-runtime/src/__tests__/local-plugin.test.ts#createLocalPluginDispatch',
   })),
   {
     method: 'plugins.uninstall',
     status: 'supported' as const,
     reason: 'Local (builtin/dev/market) channel only; host deactivates and removes the dir.',
-    test: 'apps/cli/src/builtin-plugins.test.ts#volund-plugin-manager',
+    test: 'apps/cli/src/__tests__/builtin-plugins.test.ts#volund-plugin-manager',
   },
   {
     method: 'webSearch.provide',
     status: 'supported' as const,
     reason:
       'Local (builtin/dev/market) channel only; the host adapts the contribution into the builtin WebSearch tool.',
-    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+    test: 'packages/plugin-runtime/src/__tests__/local-plugin.test.ts#createLocalPluginDispatch',
   },
   {
     method: 'webSearch.configStatus',
     status: 'supported' as const,
     reason:
       'Local (builtin/dev/market) channel only; [web_search] presence for the /web-search panel.',
-    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+    test: 'packages/plugin-runtime/src/__tests__/local-plugin.test.ts#createLocalPluginDispatch',
   },
   {
     method: 'http.fetch (local channel)',
     status: 'supported' as const,
     reason:
       'Local (builtin/dev/market) channel only; HTTPS + permissions.net allowlist enforced by the dispatcher before the host service runs.',
-    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+    test: 'packages/plugin-runtime/src/__tests__/local-plugin.test.ts#createLocalPluginDispatch',
   },
   {
     method: 'call',
     status: 'unsupported' as const,
     reason: 'Low-level calls are transport-only; there is no direct in-process handler.',
-    test: 'packages/plugin-runtime/src/index.test.ts#VolundBridge capability matrix',
+    test: 'packages/plugin-runtime/src/__tests__/index.test.ts#VolundBridge capability matrix',
   },
   ...['provider.register', 'auth.getAuthHeaders', 'auth.getSigningEnvKeys'].map((method) => ({
     method,
     status: 'unsupported' as const,
     reason: 'Declared by the provider-plugin design but not exposed by VolundBridge yet.',
-    test: 'packages/plugin-runtime/src/provider.test.ts#provider plugin policy',
+    test: 'packages/plugin-runtime/src/__tests__/provider.test.ts#provider plugin policy',
   })),
 ])
 

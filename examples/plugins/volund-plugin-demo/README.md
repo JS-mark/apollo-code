@@ -1,7 +1,7 @@
 # volund-plugin-demo
 
 示例插件：演示插件一等公民的**全部五种贡献面**。本目录同时是文档和被测试保护的
-可运行代码（`apps/cli/src/example-plugins.test.ts` 经真实沙箱链路加载并验证它）。
+可运行代码（`apps/cli/src/__tests__/example-plugins.test.ts` 经真实沙箱链路加载并验证它）。
 
 ## 插件的形态
 

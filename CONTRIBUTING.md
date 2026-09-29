@@ -164,7 +164,7 @@ sign-offs; use `git rebase --signoff HEAD~N` to fix.
 
 ## Tests
 
-- **Unit**: colocated `*.test.ts` next to source in each package.
+- **Unit**: `*.test.ts` in a sibling `__tests__/` directory next to the source, in each package.
 - **Integration**: `packages/*/test/integration/` or `apps/cli/test/`.
 - **E2E**: `apps/cli/test/e2e/` — real subprocess + real filesystem in tmp.
 - **Rust**: `cargo test` per crate.
