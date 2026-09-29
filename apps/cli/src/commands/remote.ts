@@ -179,7 +179,7 @@ export function createRemoteCommand(): CommandDefinition {
       return {
         exitCode: 2,
         stdout: '',
-        stderr: `unknown remote action: ${action ?? '<none>'}. Use 'volund remote enroll' or 'volund remote connect'.`,
+        stderr: `unknown remote action: ${action ?? '<none>'}. Use '${productIdentity.commandName} remote enroll' or '${productIdentity.commandName} remote connect'.`,
       }
     },
   }

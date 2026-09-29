@@ -101,8 +101,6 @@ const argsDefinition = {
   expectedUpdatedAt: { type: 'string' as const },
   strategy: { type: 'string' as const },
   yes: { type: 'boolean' as const },
-  port: { type: 'string' as const },
-  open: { type: 'boolean' as const },
   gateway: { type: 'string' as const },
   code: { type: 'string' as const },
 }
@@ -981,10 +979,10 @@ export async function runCli(
       args.permissionMode === 'full'
         ? args.permissionMode
         : undefined
-    if (args.permissionMode !== undefined && flagMode === undefined)
-      throw new Error(
-        `invalid --permission-mode '${String(args.permissionMode)}' (ask | auto | full)`,
-      )
+    if (args.permissionMode !== undefined && flagMode === undefined) {
+      const message = `invalid --permission-mode '${String(args.permissionMode)}' (ask | auto | full)`
+      return jsonMode ? jsonFailure(message, 2, 'usage') : { exitCode: 2, stdout, stderr: message }
+    }
     // 显式 flag 才覆盖；否则落到 [permissions] mode 用户级 config 或默认 ask
     if (args.yolo || args.dangerouslySkipPermissions) ports.permissionMode?.set('full')
     else if (flagMode) ports.permissionMode?.set(flagMode)
@@ -1654,11 +1652,11 @@ const chatGlobalFlags = new Set([
   '--strict-sandbox',
   '--dangerous-no-sandbox',
   '--dangerously-skip-permissions',
+  '--permission-mode',
   '--trust-workspace',
   '--yolo',
 ])
-/** `plugins` is the pre-rename alias kept out of the help-topic table. */
-const reservedCommandNames: ReadonlySet<string> = new Set([...Object.keys(commandUsage), 'plugins'])
+const reservedCommandNames: ReadonlySet<string> = new Set(Object.keys(commandUsage))
 const valueFlags = new Set([
   '--cwd',
   '--namespace',

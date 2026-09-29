@@ -19,6 +19,13 @@ Options:
   --dangerous-no-sandbox             Run without a sandbox (typed confirmation required)
   --dangerously-skip-permissions     Skip tool permission prompts (audited)
   --yolo                             Alias for --dangerously-skip-permissions
+  --permission-mode <ask|auto|full>  Permission mode for this session
+                                     (default: [permissions] mode or ask)
+  --model <id>                       Model override for this session
+  --budget <json>                    Budget caps, e.g. '{"timeMsMax":600000}'
+                                     (costUSDMax / tokenMax / timeMsMax)
+  --allowed-tools <names>            Comma-separated tool allowlist for this
+                                     session, e.g. Read,Grep
 `
 
 const resumeUsage = `Usage: ${commandName} resume [session-id]
@@ -43,6 +50,7 @@ Options:
 const loginUsage = `Usage: ${commandName} login [provider] [options]
 
 Verify, then securely store a provider credential (default provider: anthropic).
+Currently only \`anthropic\` is accepted.
 
 Options:
   --api-key-stdin    Read the credential from stdin (avoids shell history)
@@ -119,7 +127,8 @@ Options:
 
 const doctorUsage = `Usage: ${commandName} doctor [--json] [--strict]
 
-Diagnose configuration, credentials, native packages, and sandbox readiness.
+Diagnose configuration, credentials, native packages, sandbox readiness,
+skills, MCP servers, and the task scheduler.
 
 Options:
   --json      Emit checks as one JSON document
@@ -173,6 +182,9 @@ const daemonUsage = `Usage: ${commandName} daemon
 Run the 7x24 task scheduler in the foreground. Only the daemon fires scheduled
 tasks (F1-01 single ownership); requires [tasks].enabled = true in user-level
 config. A second daemon exits with task_daemon_running while one is alive.
+
+Options:
+  --json    Emit one JSON document for lifecycle output
 `
 
 const trustUsage = `Usage: ${commandName} trust <command> [options]
@@ -247,6 +259,8 @@ Commands:
   remove <name>                        Remove a server
   test <name>                          Run a connectivity test
   inspect <name>                       List the tools a server exposes
+  login <name>                         Authorize a server that requires OAuth
+  logout <name>                        Clear a server's stored credentials
   enable <name>                        Enable a server
   disable <name>                       Disable a server
 
