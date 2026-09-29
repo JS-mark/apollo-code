@@ -1,6 +1,7 @@
 {
   "name": "@volund/cli",
   "version": "0.2.0",
+  "description": "CLI entry for Volund — command surface, daemon, and TUI bootstrap",
   "private": true,
   "bin": {
     "volund": "dist/volund.js"

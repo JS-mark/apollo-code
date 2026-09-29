@@ -67,9 +67,9 @@ standalone 产物 + node:22-bookworm-slim 运行时（非 root、自带
 一条命令完成「容器内构建 → 推送」（默认 buildx 多架构 `linux/amd64,linux/arm64`）：
 
 ```bash
-REGISTRY=registry.example.com/volund sh deploy/market/image-push.sh
-# REGISTRY=… sh deploy/market/image-push.sh v1.2.0   # 指定 tag（默认取 package.json 版本）
-# PLATFORMS=host REGISTRY=… sh deploy/market/image-push.sh   # 只构本机架构
+REGISTRY=registry.example.com/volund sh deploy/image-push.sh market
+# REGISTRY=… sh deploy/image-push.sh market v1.2.0   # 指定 tag（默认取 git 短 SHA）
+# PLATFORMS=host REGISTRY=… sh deploy/image-push.sh market   # 只构本机架构
 ```
 
 三镜像（gateway / mobile / market）统一入口：`sh deploy/image-push.sh market`
@@ -165,4 +165,4 @@ manifest 要求（与 `@volund/plugin-runtime` validateManifest 同规则，服�
 ## 契约权威
 
 `src/lib/validate.ts` 的校验规则镜像客户端解析器；客户端是权威，改
-`apollo-code/packages/app-runtime/src/{plugin,skill,mcp}-market.ts` 时须同步本仓库。
+`volund-code/packages/app-runtime/src/{plugin,skill,mcp}-market.ts` 时须同步本仓库。

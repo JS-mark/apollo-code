@@ -1,6 +1,7 @@
 {
   "name": "@volund/web",
   "version": "0.1.0",
+  "description": "Volund web console — chat, approvals, terminal, workbench, and market UI",
   "private": true,
   "type": "module",
   "scripts": {

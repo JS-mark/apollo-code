@@ -1,6 +1,7 @@
 {
   "name": "@volund/kernel",
   "version": "0.1.1",
+  "description": "Volund kernel — Cordis context tree and service runtime spine",
   "files": [
     "dist"
   ],

@@ -8,12 +8,12 @@
   ```bash
   docker build -f deploy/market/Dockerfile -t volund-market .
   ```
-- `image-push.sh` — 构建并推送 `:TAG` 与 `:latest`（默认 buildx 多架构
-  `linux/amd64,linux/arm64`，`PLATFORMS=host` 只构本机架构）：
+- 镜像推送统一入口在仓库根 `deploy/image-push.sh`（三个镜像 gateway / mobile /
+  market 共用，本目录不再单独保存推送脚本）——构建并推送 `:TAG` 与 `:latest`
+  （默认 buildx 多架构 `linux/amd64,linux/arm64`，`PLATFORMS=host` 只构本机架构）：
   ```bash
-  REGISTRY=registry.cn-hangzhou.aliyuncs.com/future-coding-backend sh deploy/market/image-push.sh
+  REGISTRY=registry.cn-hangzhou.aliyuncs.com/future-coding-backend sh deploy/image-push.sh market
   ```
-  三镜像（gateway / mobile / market）统一入口：`sh deploy/image-push.sh market`。
 - `docker-compose.yml` — 使用方编排（直接拉镜像仓库里的镜像）：
   ```bash
   MARKET_IMAGE=registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-market:1.0.0 \

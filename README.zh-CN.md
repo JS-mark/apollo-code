@@ -60,9 +60,16 @@ Volund CLI 把智能体式编程循环带到命令行，同时让目录信任、
 - 模型供应商凭据的登录、退出和安全存储；
 - 权限检查、原生沙箱集成和运行环境诊断；
 - 会话历史、续接与带保护的恢复流程；
-- 本地插件的安装、启用、禁用、诊断、查看与卸载；
+- 受控的插件管理：list、诊断、disable、uninstall 仍然可用；legacy 的
+  install/enable/激活暂时 fail closed，等待 Catalog v2 与已验证 ABI；
 - 本地遥测数据的查看、脱敏导出与清理；
-- 可配置的供应商/模型路由，包括按角色选择候选模型。
+- 可配置的供应商/模型路由，包括按角色选择候选模型；
+- 定时任务（`volund tasks`）与 7x24 的 `volund daemon` 调度器；
+- 经公网网关的远程控制（`volund remote enroll` / `volund remote connect`），
+  配套 Web 控制台（随 TUI 自启）、移动站与自建市场；
+- 本地 `.volund` 插件通道：`volund plugins crate/dev/build/install`，以及通过
+  `volund plugins builtin` 开关第一方工具域；
+- MCP 服务器管理（`volund mcp add`/`remove` 等）与技能安装（`volund skill install`）。
 
 完整命令以[中文 CLI 参考](apps/docs/zh/docs/reference/cli.md)为准。在敏感仓库中使用前，请先阅读[安全模型](apps/docs/zh/docs/concepts/security-model.md)。
 
@@ -85,9 +92,9 @@ pnpm build
 node apps/cli/dist/volund.js --help
 ```
 
-兼容窗口期内，源码构建仍保留 `dist/volund.js` 这个内部文件名。标准 npm 包为 `@volund/cli`，平台包使用 `@volund/*` scope；安装后以 `volund` 为标准命令，并保留 `volund` 别名。旧 `volund-code` 仅作为兼容 meta 包生成。
+兼容窗口期内，源码构建仍保留 `dist/volund.js` 这个内部文件名。标准 npm 包为 `@volund/cli`，平台包使用 `@volund/*` scope；安装后以 `volund` 为标准命令。旧 `volund-code` 仅作为兼容 meta 包生成。
 
-当前 workspace 中的 `0.0.0` 只是开发版本号，并不是已经发布的 npm 版本。发布状态和原生二进制说明请查看[中文安装指南](apps/docs/zh/docs/getting-started/install.md)。
+各 workspace 包独立维护版本号（当前为 `0.1.x`–`0.2.0`），均未发布到 npm。发布状态和原生二进制说明请查看[中文安装指南](apps/docs/zh/docs/getting-started/install.md)。
 
 ### 开始第一次会话
 
@@ -189,17 +196,25 @@ priority = 100
   apps/cli ──────── 交互界面、命令、JSON 输出
         │
         ▼
- packages/core ──── 会话与智能体循环
+ packages/kernel ── Cordis Context 树：模型/工具/总线/会话/沙箱/UI 服务
    │      │      │
    │      │      └── 工具、权限、上下文、存储
    │      └───────── 模型路由与供应商适配器
-   └──────────────── 插件、技能与 MCP 运行时
+   └──────────────── 插件、技能与 MCP 运行时（插件贡献的工具、钩子、提示词
+                     注册进同一内核服务树）
         │
         ▼
  crates/* ───────── 原生沙箱、搜索和文件系统辅助程序
+
+同一运行时之上的配套界面：
+
+  apps/web + packages/web-server ──── 本机 Web 控制台（随 TUI 自启）
+  apps/mobile + packages/gateway-server + packages/remote-link ──── 经公网
+                                       网关的远程控制
+  apps/market ──────────────────────── 自建插件 / Skill / MCP 市场服务端
 ```
 
-TypeScript workspace 将智能体循环、供应商、工具、权限、存储、UI、插件和原生桥接拆分为独立包；Rust workspace 包含 `volund-sandbox`、`volund-search` 与 `volund-fs`。完整设计见[架构规格](docs/superpowers/specs/2026-07-31-volund-code-design/README.md)。
+TypeScript workspace 将智能体循环、供应商、工具、权限、存储、UI、插件和原生桥接拆分为独立包；`packages/kernel` 是运行时主干——第一方子系统与第三方插件贡献在同一个服务树下会合（插件始终在 Rust 沙箱内执行，绝不在进程内）。Rust workspace 包含 `volund-sandbox`、`volund-search` 与 `volund-fs`。完整设计见[架构规格](docs/superpowers/specs/2026-07-31-volund-code-design/README.md)。
 
 ## 参与开发
 
@@ -238,7 +253,7 @@ Volund CLI 正按仓库定义的能力等级逐步推进。公开包尚未发布
 - [发布就绪证据](docs/releases/)；
 - [能力追踪文档](docs/superpowers/specs/2026-07-31-volund-code-design/16-capability-traceability.md)。
 
-目前，直接从 registry/GitHub 安装插件、插件升级以及 L4 开发热重载命令尚未实现。
+插件是一等运行时扩展：沙箱插件把工具、钩子、提示词片段和会话事件订阅注册进内核服务树；内置工具集以三个第一方域（`volund.core-tools`、`volund.exec`、`volund.orchestration`）交付，可通过 `/plugins` 或 `volund plugins builtin --enable/--disable <id>` 查看与开关。经过测试的示例插件位于 [examples/plugins/](examples/plugins/)：覆盖全部五种贡献面的 JS 插件（[volund-plugin-demo](examples/plugins/volund-plugin-demo/)）、TypeScript 入口插件（[volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)）、向 `/status` 面板注册页签的状态栏插件（[plugin-status-demo](examples/plugins/plugin-status-demo/)），以及定时任务终态 webhook 通知插件（[volund-plugin-task-notify](examples/plugins/volund-plugin-task-notify/)）。目前，直接从 registry/GitHub 安装插件、插件升级以及 L4 开发热重载命令尚未实现。
 
 ## 贡献与支持
 

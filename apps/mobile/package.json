@@ -1,6 +1,7 @@
 {
   "name": "@volund/mobile",
   "version": "0.1.0",
+  "description": "Volund mobile web station served through the remote gateway",
   "private": true,
   "type": "module",
   "scripts": {

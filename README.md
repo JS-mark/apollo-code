@@ -63,7 +63,11 @@ The current CLI includes:
 - contained plugin management: list, diagnose, disable, and uninstall remain available, while
   legacy install/enable/activation temporarily fail closed pending Catalog v2 and the verified ABI;
 - local telemetry inspection, redacted export, and clearing;
-- configurable provider/model routing, including role-based candidates.
+- configurable provider/model routing, including role-based candidates;
+- scheduled tasks (`volund tasks`) with the 7x24 `volund daemon` scheduler;
+- remote control through the public gateway (`volund remote enroll` / `volund remote connect`), with the web console (auto-starts alongside the TUI), the mobile station, and the self-hosted market;
+- the local `.volund` plugin channel: `volund plugins crate/dev/build/install` plus first-party tool domain toggling via `volund plugins builtin`;
+- MCP server management (`volund mcp add`/`remove`/...) and skill installation (`volund skill install`).
 
 See the [CLI reference](apps/docs/docs/reference/cli.md) for the authoritative command surface and the [security model](apps/docs/docs/concepts/security-model.md) before using Volund on sensitive repositories.
 
@@ -86,9 +90,9 @@ pnpm build
 node apps/cli/dist/volund.js --help
 ```
 
-The source bundle keeps the legacy `dist/volund.js` filename during the compatibility window. The canonical npm package is `@volund/cli`, with platform packages under `@volund/*`; it exposes `volund` as the canonical command and retains `volund` as an alias. The legacy `volund-code` package is generated only as a compatibility meta package.
+The source bundle keeps the legacy `dist/volund.js` filename during the compatibility window. The canonical npm package is `@volund/cli`, with platform packages under `@volund/*`; it exposes `volund` as the canonical command. The legacy `volund-code` package is generated only as a compatibility meta package.
 
-The workspace package version is currently `0.0.0`; it is not a published release. Follow the [installation guide](apps/docs/docs/getting-started/install.md) for release and native-binary details.
+Workspace packages are versioned independently (currently `0.1.x`–`0.2.0`); none of them is a published release. Follow the [installation guide](apps/docs/docs/getting-started/install.md) for release and native-binary details.
 
 ### Start your first session
 
@@ -199,6 +203,13 @@ Terminal / automation
         │
         ▼
  crates/* ───────── native sandbox, search, and filesystem helpers
+
+Companion surfaces served from the same runtime:
+
+  apps/web + packages/web-server ──── loopback web console (auto-starts with the TUI)
+  apps/mobile + packages/gateway-server + packages/remote-link ──── remote control
+                                       through the public gateway
+  apps/market ──────────────────────── self-hosted plugin/skill/MCP market server
 ```
 
 The TypeScript packages keep the agent loop, providers, tools, permissions, storage, UI, plugins, and native bridge separated; `packages/kernel` is the runtime spine where first-party subsystems and third-party plugin contributions meet under one service tree (plugins always execute inside the Rust sandbox, never in-process). The Rust workspace contains `volund-sandbox`, `volund-search`, and `volund-fs`. For the detailed design, read the [architecture specification](docs/superpowers/specs/2026-07-31-volund-code-design/README.md).
@@ -240,7 +251,7 @@ Current planning and evidence are maintained in:
 - [release readiness evidence](docs/releases/);
 - the [capability traceability document](docs/superpowers/specs/2026-07-31-volund-code-design/16-capability-traceability.md).
 
-Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. Tested example plugins live under [examples/plugins/](examples/plugins/): a JS plugin covering every contribution surface ([volund-plugin-demo](examples/plugins/volund-plugin-demo/)) and a TypeScript-entry plugin ([volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)). Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
+Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. Tested example plugins live under [examples/plugins/](examples/plugins/): a JS plugin covering every contribution surface ([volund-plugin-demo](examples/plugins/volund-plugin-demo/)), a TypeScript-entry plugin ([volund-plugin-ts-demo](examples/plugins/volund-plugin-ts-demo/)), a status-panel plugin registering `/status` tabs ([plugin-status-demo](examples/plugins/plugin-status-demo/)), and a scheduled-task webhook notifier ([volund-plugin-task-notify](examples/plugins/volund-plugin-task-notify/)). Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
 
 ## Contributing and support
 
