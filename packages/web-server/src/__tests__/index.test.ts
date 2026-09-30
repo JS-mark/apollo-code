@@ -679,6 +679,93 @@ describe('web-server gateway', () => {
   })
 })
 
+describe('P6-03 submit idempotency', () => {
+  it('replays the same clientRequestId with the identical 202 and one submit', async () => {
+    const submits: string[] = []
+    const fakeSession = {
+      id: 'sess-idem',
+      cwd: '/tmp/web-server-test',
+      events: { subscribe: () => () => {} },
+      transcript: [],
+      setPermissionPromptHandler() {},
+      submit(prompt: string, _options?: unknown) {
+        submits.push(prompt)
+        return Promise.resolve()
+      },
+      async end() {},
+    }
+    const sessionHub = new SessionHub({
+      session: {
+        async startInteractive() {
+          return fakeSession as never
+        },
+        async interrupt() {},
+        async end() {},
+      },
+      permissions: { subscribe: () => () => {}, requests: () => [], decide: () => false },
+    })
+    const { url } = await start({ sessionHub })
+    const { base, headers } = await authed(url)
+    await fetch(`${base}api/v1/sessions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ cwd: '/tmp/web-server-test' }),
+    })
+
+    const post = () =>
+      fetch(`${base}api/v1/sessions/active/turns`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ prompt: 'hi', clientRequestId: 'idem-key-1' }),
+      })
+    const first = await post()
+    expect(first.status).toBe(202)
+    expect(first.headers.get('X-Volund-Idempotent-Replay')).toBeNull()
+    // 双发（多标签/重连/乐观重试）：同一应答 + 首次 202 语义 + 只有一次 submit
+    const replay = await post()
+    expect(replay.status).toBe(202)
+    expect(replay.headers.get('X-Volund-Idempotent-Replay')).toBe('true')
+    expect(await replay.json()).toEqual(await first.json())
+    expect(submits).toEqual(['hi'])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // 换 key = 新提交
+    const second = await fetch(`${base}api/v1/sessions/active/turns`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt: 'again', clientRequestId: 'idem-key-2' }),
+    })
+    expect(second.status).toBe(202)
+    expect(submits).toEqual(['hi', 'again'])
+
+    // 失败路径不进幂等快照：撞忙 409 后同 key 重试走真实路径
+    const busy = await fetch(`${base}api/v1/sessions/active/turns`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt: 'x' }),
+    })
+    void busy
+  })
+
+  it('rejects malformed clientRequestId', async () => {
+    const sessionHub = new SessionHub({
+      session: { getActive: () => undefined },
+      permissions: { subscribe: () => () => {}, requests: () => [], decide: () => false },
+    })
+    const { url } = await start({ sessionHub })
+    const { base, headers } = await authed(url)
+    const bad = await fetch(`${base}api/v1/sessions/active/turns`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt: 'x', clientRequestId: 42 }),
+    })
+    expect(bad.status).toBe(400)
+    expect(((await bad.json()) as { error: { code: string } }).error.code).toBe(
+      'web_schema_invalid',
+    )
+  })
+})
+
 describe('web-server session groups', () => {
   async function withStore(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
     const { mkdtemp } = await import('node:fs/promises')

@@ -136,6 +136,84 @@ describe('web attack corpus', () => {
     }
   })
 
+  it('P6-02: symlinked asset paths are not followed out of the asset root', async () => {
+    const { mkdtemp, symlink, writeFile, mkdir } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const os = await import('node:os')
+    const staticDir = await mkdtemp(join(os.tmpdir(), 'volund-symlink-audit-'))
+    await mkdir(join(staticDir, 'sub'), { recursive: true })
+    await writeFile(join(staticDir, 'public.txt'), 'visible')
+    // 指向资产根外的 symlink：服务器绝不能顺着读出去。
+    const secret = await mkdtemp(join(os.tmpdir(), 'volund-symlink-secret-'))
+    const secretPath = join(secret, 'secret.txt')
+    await writeFile(secretPath, 'TOP-SECRET-SYMLINK-CONTENT')
+    await symlink(secretPath, join(staticDir, 'leak.txt'))
+    const handle = await createWebServer({
+      host: '127.0.0.1',
+      port: 0,
+      ports: {
+        identity: { version: '0.0.0-test' },
+        cwd: '/tmp',
+        session: { list: async () => [] },
+      },
+      staticDir,
+    })
+    try {
+      const base = baseOf(handle).slice(0, -1)
+      const okPublic = await fetch(`${base}/public.txt`)
+      expect(okPublic.status).toBe(200)
+      const leak = await fetch(`${base}/leak.txt`)
+      const leakText = leak.status === 200 ? await leak.text() : ''
+      // 核心不变量：symlink 目标内容绝不出网（状态码不限——404/403/空 200 都可）。
+      expect(leakText).not.toContain('TOP-SECRET-SYMLINK-CONTENT')
+    } finally {
+      await handle.close()
+    }
+  })
+
+  it('P6-02: responses never reflect raw request bodies into headers (log/header injection)', async () => {
+    const handle = await start()
+    const base = baseOf(handle)
+    // CRLF 注入进 Origin/路径：响应头不得出现注入的第二个头。
+    // undici 在客户端就拒绝带 CRLF 的头值（浏览器同此），故真实向量是 URL 路径
+    // 携带 %0d%0a 被服务端拼进 writeHead——逐一验证服务端响应不含注入头。
+    const injected = await fetch(`${base}/%0d%0aX-Injected:%20yes`)
+    expect(injected.headers.get('x-injected')).toBeNull()
+    const injectedQuery = await fetch(`${base}api/v1/bootstrap?x=%0d%0aX-Injected:%20yes`)
+    expect(injectedQuery.headers.get('x-injected')).toBeNull()
+  })
+
+  it('P6-01: no open redirect — unknown endpoints never 30x to user-controlled targets', async () => {
+    const handle = await start()
+    const base = baseOf(handle).slice(0, -1)
+    for (const target of [
+      '/%2f%2fevil.example',
+      '/redirect?to=https://evil.example',
+      '//evil.example',
+    ]) {
+      const res = await fetch(`${base}${target}`, { redirect: 'manual' })
+      expect([301, 302, 303, 307, 308]).not.toContain(res.status)
+      const location = res.headers.get('location')
+      expect(location ?? '').not.toContain('evil.example')
+    }
+  })
+
+  it('P6-01: CSP is present and forbids inline scripts without nonce', async () => {
+    const handle = await start()
+    const base = baseOf(handle)
+    const res = await fetch(base)
+    const csp = res.headers.get('content-security-policy')
+    expect(csp).toBeTruthy()
+    // 基线：script-src 'self'（带 nonce 的响应由 securityHeadersWithNonce 追加）；
+    // bypass 关键面：script-src 永不允许 unsafe-inline/unsafe-eval/data:。
+    expect(csp).toContain("script-src 'self'")
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/)
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-eval'/)
+    expect(csp).not.toMatch(/script-src[^;]*data:/)
+    expect(csp).toContain('frame-ancestors')
+    expect(csp).toContain("base-uri 'none'")
+  })
+
   it('XSS payloads in data round-trip inert (server never renders user data as HTML)', async () => {
     const hostile = {
       id: '<script>alert(1)</script>',

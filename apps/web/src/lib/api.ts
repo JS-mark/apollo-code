@@ -352,13 +352,21 @@ export class WebApi {
   }
   async submitTurn(
     prompt: string,
-    options: { model?: string; attachments?: readonly TurnAttachment[] } = {},
+    options: {
+      model?: string
+      attachments?: readonly TurnAttachment[]
+      /** P6-03 幂等键；缺省自动生成（重试想命中同一提交时显式复用）。 */
+      clientRequestId?: string
+    } = {},
   ): Promise<void> {
     const res = await fetch('/api/v1/sessions/active/turns', {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({
         prompt,
+        // P6-03：幂等键——重连/多标签/乐观重试的双发不会产生重复 turn。
+        clientRequestId:
+          options.clientRequestId ?? `t-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         ...(options.model ? { model: options.model } : {}),
         ...(options.attachments?.length ? { attachments: options.attachments } : {}),
       }),

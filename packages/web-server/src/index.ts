@@ -11,7 +11,7 @@
  * - 错误恒为 { error: { code, message } }；敏感值（credential/token）永不进 payload。
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, lstatSync, realpathSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import type { Server, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
@@ -465,6 +465,25 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   const bootId = randomBytes(12).toString('base64url')
   const rawPreviewSecret = randomBytes(32)
   const sessions = new Map<string, BrowserSession>()
+  // P6-03 幂等键：客户端生成的 clientRequestId → 首次应答快照（TTL + 容量淘汰）。
+  // 多标签/重连/乐观重试的双发提交返回同一应答，不再产生重复 turn。
+  const idempotencySeen = new Map<
+    string,
+    { expiresAt: number; reply: { status: number; body: string } }
+  >()
+  const IDEMPOTENCY_TTL_MS = 10 * 60_000
+  const IDEMPOTENCY_MAX = 512
+  function rememberIdempotent(key: string, reply: { status: number; body: string }): boolean {
+    const now = Date.now()
+    for (const [k, entry] of idempotencySeen) if (entry.expiresAt < now) idempotencySeen.delete(k)
+    if (idempotencySeen.size >= IDEMPOTENCY_MAX) {
+      const oldest = idempotencySeen.keys().next().value
+      if (oldest !== undefined) idempotencySeen.delete(oldest)
+    }
+    if (idempotencySeen.has(key)) return false
+    idempotencySeen.set(key, { expiresAt: now + IDEMPOTENCY_TTL_MS, reply })
+    return true
+  }
   const sessionTtl = options.sessionTtlMs ?? 12 * 60 * 60_000
   const startedAt = Date.now()
 
@@ -1258,6 +1277,19 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       const prompt = (body as { prompt?: unknown })?.prompt
       const model = (body as { model?: unknown })?.model
       const attachments = parseSubmitAttachments((body as { attachments?: unknown })?.attachments)
+      // P6-03：客户端幂等键（UUID；可选）。多标签/重连/重试的双发提交返回与
+      // 首次完全相同的应答，不再产生重复 turn。
+      const clientRequestId = (body as { clientRequestId?: unknown })?.clientRequestId
+      if (clientRequestId !== undefined && typeof clientRequestId !== 'string') {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'clientRequestId must be a string' })
+        return
+      }
+      const idempotent =
+        typeof clientRequestId === 'string' &&
+        clientRequestId.length >= 8 &&
+        clientRequestId.length <= 128
+          ? clientRequestId
+          : undefined
       if (typeof prompt !== 'string' || !prompt.trim()) {
         fail(res, 400, { code: 'web_schema_invalid', message: 'prompt is required' })
         return
@@ -1266,20 +1298,43 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         fail(res, 400, { code: 'web_schema_invalid', message: 'attachments are malformed' })
         return
       }
+      const reply = { status: 202, body: JSON.stringify({ data: { accepted: true } }) }
+      if (idempotent !== undefined && !rememberIdempotent(`${idempotent}`, reply)) {
+        const seen = idempotencySeen.get(idempotent)!
+        res.writeHead(seen.reply.status, {
+          ...SECURITY_HEADERS,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Content-Length': Buffer.byteLength(seen.reply.body),
+          'X-Volund-Idempotent-Replay': 'true',
+        })
+        res.end(seen.reply.body)
+        return
+      }
       try {
         const accepted = await hub.submit({
           prompt,
           ...(typeof model === 'string' && model ? { model } : {}),
           ...(attachments.length ? { attachments } : {}),
         })
+        const payload = JSON.stringify({ data: { accepted } })
+        // submit 是 202 语义（结果走事件流）；成功应答纳入幂等快照，失败路径
+        // （409/5xx）不记——客户端换 key 重试才合理。
+        if (idempotent !== undefined) {
+          const entry = idempotencySeen.get(idempotent)
+          if (entry) {
+            entry.reply = { status: 202, body: payload }
+          }
+        }
         res.writeHead(202, {
           ...SECURITY_HEADERS,
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-store',
-          'Content-Length': Buffer.byteLength(JSON.stringify({ data: { accepted } })),
+          'Content-Length': Buffer.byteLength(payload),
         })
-        res.end(JSON.stringify({ data: { accepted } }))
+        res.end(payload)
       } catch (cause) {
+        if (idempotent !== undefined) idempotencySeen.delete(idempotent)
         failFrom(res, cause)
       }
       return
@@ -1774,6 +1829,16 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     const file = join(staticDir, rel)
     // 路径逃逸门：归一化后必须仍在 staticDir 内。
     if (!file.startsWith(normalize(staticDir))) {
+      fail(res, 403, { code: 'web_origin_rejected', message: 'path escapes the asset root' })
+      return
+    }
+    // P6-02 symlink 门：资产树内的符号链接不跟随（realpath 夹逼）——攻击者往
+    // 静态目录塞一个指向任意文件的 symlink 即可读出资产根外内容。产物树由构建
+    // 生成、不含 symlink，此门不损失合法面。
+    if (
+      lstatSync(file).isSymbolicLink() ||
+      !realpathSync(file).startsWith(realpathSync(staticDir))
+    ) {
       fail(res, 403, { code: 'web_origin_rejected', message: 'path escapes the asset root' })
       return
     }
