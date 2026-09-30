@@ -116,6 +116,14 @@ export async function buildStandalone({ root, target, assetDirectory, outDirecto
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
+  // Web 控制台静态产物（Next 静态导出）随 standalone 分发到 <out>/web-assets/：
+  // 运行时 webAssetDir() 的第二候选即产物旁 web-assets。源（apps/web/out）缺失
+  // 时跳过（本地最小构建可不含 console），发布管线另行断言其存在。
+  try {
+    await cp(resolve(root, 'apps/web/out'), join(out, 'web-assets'), { recursive: true })
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
   const executable = join(out, `volund${target.startsWith('win32-') ? '.exe' : ''}`)
   const result = spawnSync(
     'bun',

@@ -279,6 +279,7 @@ function validateStandaloneEntries(entries, target, additionalRequiredTopLevelFi
     executableName,
     'native',
     'plugins',
+    'web-assets',
     'checksums.sha256',
     ...metadataFiles,
   ])
@@ -335,6 +336,19 @@ function validateStandaloneEntries(entries, target, additionalRequiredTopLevelFi
   )
   if (pluginFiles.length === 0)
     throw new Error('standalone archive plugins/ must contain at least one regular file')
+
+  // web-assets（Web 控制台静态产物）：存在时必须非空且带 index.html——空壳会让
+  // 运行时把占位页误当真控制台。目录整体缺省合法（本地最小构建可不含 console）。
+  const webAssetFiles = [...entries.values()].filter(
+    (entry) => entry.path.startsWith('web-assets/') && entry.type === 'file',
+  )
+  if (webAssetFiles.length > 0) {
+    requireEntry(entries, 'web-assets/index.html', 'file')
+  } else {
+    const webAssetDirEntry = entries.get('web-assets')
+    if (webAssetDirEntry && webAssetDirEntry.type === 'directory')
+      throw new Error('standalone archive web-assets/ must not be empty when present')
+  }
 
   const checksumLine = checksumEntry.body.toString('utf8')
   const expectedChecksum = `${sha256(executable.body)}  ${executableName}\n`
