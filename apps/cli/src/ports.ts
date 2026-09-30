@@ -227,6 +227,16 @@ export interface VolundPorts {
     /** W-08+：单文件会话净效果 diff（Web 变更面板与 TUI /changes 共用）。 */
     fileDiff(sessionId: string, path: string): Promise<SessionFileDiff>
   }
+  /**
+   * W-08 SAG 条款：BackupStore 直达引用（web 工作台写路径的 pre-write 钩子用）。
+   * 与 changes 口同源实例；缺省 = 工作台保存不进备份（裸装 web-server 测试面）。
+   */
+  backups?: {
+    prepare(
+      sessionId: string,
+      paths: readonly string[],
+    ): Promise<{ commit(): Promise<void>; rollback(): Promise<void> }>
+  }
   /** §22 W-01：Web 控制台随 TUI 静默自启（无独立 web 子命令）。 */
   web?: {
     /**

@@ -174,7 +174,10 @@ export function AppShell() {
       try {
         // 进入即用（无 token 门）：bootstrap 自动签发 browser session，
         // 刷新/重开/多窗口同一条路径。
-        const { session, bootstrap } = await openBrowserSession()
+        const { session, bootstrap, restarted } = await openBrowserSession()
+        // P6-09 版本比对门：服务器重启过 → 旧内存态（会话编号/队列）全 stale。
+        // 现有 409/404 语义已兜底 stale 请求，这里只补显式提示。
+        if (restarted) console.info('[volund] server restarted; stale client state cleared')
         const api = new WebApi(session)
         const sessions = await api.sessions().catch(() => [] as const)
         // 分组能力未接线（旧 server）时端点 503 → 空视图平铺展示。

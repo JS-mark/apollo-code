@@ -208,7 +208,17 @@ function buildServerOptions(
       // 侧栏会话分组：与端口记忆同目录（<home>/web/），跨重启保留。
       sessionGroups: createSessionGroupStore(join(input.home, 'web', 'session-groups.json')),
       // 工作台（右侧栏）：文件树/搜索/git 锚定本工作区 cwd；终端是交互式 shell（WS）。
-      workbench: createWorkbenchPort(cwd),
+      // W-08 SAG 条款：编辑器保存先经活动会话 BackupStore 备份（before 快照 +
+      // SessionChanges 归因），保存不再绕过 undo 管线；无活动会话/文件不在会话
+      // 备份面时跳过，备份失败只警告不阻塞用户保存。
+      workbench: createWorkbenchPort(cwd, {
+        onWrite: async (absolutePath) => {
+          const sessionId = sessionHub.getActiveSessionId?.()
+          if (!sessionId || !ports.backups) return
+          const pending = await ports.backups.prepare(sessionId, [absolutePath])
+          await pending.commit()
+        },
+      }),
       terminal: createTerminalPort(cwd, {
         ...(input.terminal?.shell ? { shell: input.terminal.shell } : {}),
         ...(typeof input.terminal?.font_size === 'number'

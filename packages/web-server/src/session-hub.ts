@@ -386,6 +386,11 @@ export class SessionHub {
     return true
   }
 
+  /** 活动会话 id（W-08 工作台 pre-write 备份的归因锚点）；无活动会话 = undefined。 */
+  getActiveSessionId(): string | undefined {
+    return this.interactive?.id
+  }
+
   pendingPermissionIds(): string[] {
     return this.ports.permissions.requests().map((request) => request.id)
   }

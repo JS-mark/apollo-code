@@ -980,12 +980,15 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   appKernel.ui.registerPanel('subagents', subagentsPanelController)
 
   let interactivePermissionPrompt:
-    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | ((
+        request: InteractivePermissionRequest,
+        signal?: AbortSignal,
+      ) => Promise<InteractivePermissionDecision>)
     | undefined
   // §22 W-07 多路审批：进程级共享队列是权限链的唯一 prompt 源——TUI 与 Web
   // 都订阅它，任一端决策全端清卡（不再经 setPermissionPromptHandler 抢单槽）。
   const permissionPrompts = new PermissionPromptController()
-  interactivePermissionPrompt = (request) => permissionPrompts.request(request)
+  interactivePermissionPrompt = (request, signal) => permissionPrompts.request(request, signal)
   // AskUserQuestion 的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
   // 问答卡都订阅它，任一端作答全端清卡。
   const askPrompts = new AskPromptController()
@@ -1679,7 +1682,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
     onPermissionPromptHandler: () => {
       // 共享队列是唯一 prompt 源：set/clear 都重断言，端侧互不覆盖（W-07 多路）。
-      interactivePermissionPrompt = (request) => permissionPrompts.request(request)
+      interactivePermissionPrompt = (request, signal) => permissionPrompts.request(request, signal)
     },
     statusSnapshot: createStatusSnapshotAdapter({
       version: options.identity.version,
@@ -1790,6 +1793,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       renderSessionPicker,
     },
     trust,
+    // W-08 SAG 条款：工作台写路径的 pre-write 备份源（web.ts 经 ports 消费）。
+    backups,
     // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
     // §22 W-07：进程级共享审批队列（TUI/Web 多路订阅；权限链 prompt 源）。
     permissionPrompts,

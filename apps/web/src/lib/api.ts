@@ -23,7 +23,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
 }
 
 export interface Bootstrap {
-  server: { serverId: string; version: string; startedAt: number }
+  server: { serverId: string; bootId: string; version: string; startedAt: number }
   workspace: { cwd: string }
   capabilities: {
     embedded?: boolean
@@ -55,9 +55,28 @@ export interface ConfigView {
  * 进入即建会话：GET bootstrap——无有效 cookie 时服务端自动签发 browser session
  * （Set-Cookie），payload 带回本会话 CSRF token；刷新/重开同一入口。
  */
+/**
+ * P6-09 版本比对门：serverId:bootId 与上次记录不一致 = 服务器重启过，内存里的
+ * 会话编号/待审批队列全成 stale。storage 里记的是无凭据的 boot 标识（仅防呆）。
+ */
+export function checkServerRestart(serverId: string, bootId: string): { restarted: boolean } {
+  try {
+    const key = 'volund-boot'
+    const previous = window.localStorage.getItem(key)
+    const current = `${serverId}:${bootId}`
+    const restarted = previous !== null && previous !== current
+    window.localStorage.setItem(key, current)
+    return { restarted }
+  } catch {
+    return { restarted: false }
+  }
+}
+
 export async function openBrowserSession(): Promise<{
   session: BrowserSession
   bootstrap: Bootstrap
+  /** P6-09：与上次记录比对，服务器重启过（调用方应清 stale 的会话/队列状态）。 */
+  restarted: boolean
 }> {
   const res = await fetch('/api/v1/bootstrap')
   const bootstrap = await parseResponse<
@@ -70,6 +89,7 @@ export async function openBrowserSession(): Promise<{
       expiresAt: bootstrap.session.expiresAt,
     },
     bootstrap,
+    restarted: checkServerRestart(bootstrap.server.serverId, bootstrap.server.bootId).restarted,
   }
 }
 

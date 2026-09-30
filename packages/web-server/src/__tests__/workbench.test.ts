@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { readFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -71,6 +71,31 @@ describe('workbench port', () => {
       code: 'web_schema_invalid',
     })
     await expect(port.listDir('..')).rejects.toMatchObject({ code: 'web_schema_invalid' })
+  })
+
+  it('W-08 SAG 条款：writeText/writeBytes 走 pre-write 备份钩子；新建文件跳过；钩子失败不阻塞', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'volund-workbench-w08-'))
+    await writeFile(join(dir, 'a.txt'), 'before', 'utf8')
+    const seen: string[] = []
+    let failOnce = true
+    const port = createWorkbenchPort(dir, {
+      onWrite: async (path) => {
+        if (failOnce) {
+          failOnce = false
+          throw new Error('backup store down')
+        }
+        seen.push(path)
+      },
+    })
+    // 已存在文件：钩子被调（失败只警告，写入照常完成）
+    await port.writeText('a.txt', 'after')
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('after')
+    // 第二次写入：钩子成功并收到绝对路径
+    await port.writeText('a.txt', 'after2')
+    expect(seen).toEqual([join(dir, 'a.txt')])
+    // 新建文件：不触发钩子（无 before 快照可备份）
+    await port.writeBytes('new.bin', Buffer.from('x').toString('base64'))
+    expect(seen).toEqual([join(dir, 'a.txt')])
   })
 
   it('finds files by name and skips node_modules', async () => {

@@ -103,15 +103,23 @@ describe('web-server gateway', () => {
     const setCookie = first.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('HttpOnly')
     expect(setCookie).toContain('SameSite=Strict')
-    const body = (await first.json()) as { data: { session: { csrfToken: string } } }
+    const body = (await first.json()) as {
+      data: { session: { csrfToken: string }; server: { bootId: string; serverId: string } }
+    }
     expect(body.data.session.csrfToken.length).toBeGreaterThan(16)
+    // P6-09：bootId 随进程唯一——同进程内两次 bootstrap 必须一致（客户端重启
+    // 比对门的数据源），且与 serverId 同时在场。
+    expect(body.data.server.bootId.length).toBeGreaterThan(8)
     // 刷新/重开（cookie 仍有效）复用同一会话：不再 Set-Cookie，CSRF 不变
     const cookie = setCookie.split(';')[0]!
     const again = await fetch(`${base}api/v1/bootstrap`, { headers: { Cookie: cookie } })
     expect(again.status).toBe(200)
     expect(again.headers.get('set-cookie')).toBeNull()
-    const againBody = (await again.json()) as { data: { session: { csrfToken: string } } }
+    const againBody = (await again.json()) as {
+      data: { session: { csrfToken: string }; server: { bootId: string } }
+    }
     expect(againBody.data.session.csrfToken).toBe(body.data.session.csrfToken)
+    expect(againBody.data.server.bootId).toBe(body.data.server.bootId)
     // 旧的 nonce 交换端点已移除（全量合法头 → 404，无信息泄露）
     const gone = await fetch(`${base}api/v1/browser-session/exchange`, {
       method: 'POST',

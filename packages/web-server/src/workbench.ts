@@ -178,8 +178,30 @@ function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code })
 }
 
-export function createWorkbenchPort(rootInput: string): WorkbenchPort {
+export function createWorkbenchPort(
+  rootInput: string,
+  options: {
+    /**
+     * W-08 SAG 条款：写路径前钩子——编辑器保存的文件先经活动会话的 BackupStore
+     * 备份（before 快照 + SessionChanges 归因），workbench 改动不再绕过 undo
+     * 管线。实现方（apps/cli web.ts）拿活动会话 id；无活动会话/备份失败都只
+     * 记警告不阻塞保存（编辑器保存是用户显式动作，不能因审计面失败而丢失）。
+     */
+    onWrite?: (path: string) => Promise<void>
+  } = {},
+): WorkbenchPort {
   const root = resolve(rootInput)
+  const backupBeforeWrite = async (abs: string): Promise<void> => {
+    if (!options.onWrite) return
+    try {
+      await options.onWrite(abs)
+    } catch (error) {
+      console.warn(
+        `[workbench] pre-write backup failed for ${abs}:`,
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
 
   /** 相对路径 → 绝对路径；逃逸 root（含绝对路径入参）一律拒绝。 */
   const resolveWithin = (rel: string): string => {
@@ -285,6 +307,7 @@ export function createWorkbenchPort(rootInput: string): WorkbenchPort {
       const abs = resolveWithin(rel)
       const info = await stat(abs).catch(() => fail('web_schema_invalid', `not found: ${rel}`))
       if (!info.isFile()) fail('web_schema_invalid', `not a file: ${rel}`)
+      await backupBeforeWrite(abs)
       await writeFile(abs, content, 'utf8')
       return { path: rel, size: Buffer.byteLength(content, 'utf8') }
     },
@@ -328,6 +351,9 @@ export function createWorkbenchPort(rootInput: string): WorkbenchPort {
       // 与 writeText 不同:允许新建(vscode 新建文件/粘贴图片走这里),父目录必须已存在。
       const info = await stat(abs).catch(() => undefined)
       if (info?.isDirectory()) fail('web_schema_invalid', `is a directory: ${rel}`)
+      // 只备份已存在的文件（新建无 before 快照，BackupStore 本就把 ENOENT 记为
+      // existed:false，但此处省一次调用）。
+      if (info?.isFile()) await backupBeforeWrite(abs)
       await writeFile(abs, buffer)
       return { path: rel, size: buffer.byteLength }
     },

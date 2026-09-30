@@ -460,6 +460,9 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     throw new Error(`--port must be 1024..65535 (got ${options.port}); 0 picks a free port`)
 
   const serverId = randomBytes(16).toString('base64url')
+  // P6-09：进程内唯一，重启必然变化（serverId 同样重启轮换，但语义是「这轮 server」，
+  // bootId 是「这次进程」——重启后 serverId 变 + bootId 变，客户端比对后者即可）。
+  const bootId = randomBytes(12).toString('base64url')
   const rawPreviewSecret = randomBytes(32)
   const sessions = new Map<string, BrowserSession>()
   const sessionTtl = options.sessionTtlMs ?? 12 * 60 * 60_000
@@ -556,7 +559,9 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       ok(
         res,
         {
-          server: { serverId, version: ports.identity.version, startedAt },
+          // P6-09：进程启动唯一 id（重启即换）。客户端据此识别「服务器已重启、
+          // 内存里的会话/队列/CSRF 全部失效」，清除 stale 状态而非对着旧编号继续。
+          server: { serverId, bootId, version: ports.identity.version, startedAt },
           workspace: { cwd: ports.cwd },
           // 已认证页面恢复会话用（刷新后内存态 CSRF 丢失；cookie 本身就是凭证）。
           session: { csrfToken: session.csrfToken, expiresAt: session.expiresAt },

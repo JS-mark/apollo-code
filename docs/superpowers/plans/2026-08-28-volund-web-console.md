@@ -64,6 +64,10 @@ apps/web ─ web-server ──────────────┘
 | P4 Management | P4-01…08 | Memory/Skill/MCP/Plugin/settings/status | P3 + 各 runtime 能力 |
 | P5 Observe & review | P5-01…08 | activity/shell/subagent/telemetry/logs/review | P3/P4 |
 | P6 Hardening | P6-01…11 | security/perf/a11y/compat/release evidence | P2–P5 |
+
+> **2026-09-30 逐条核对结论**（详见 memory web-console-plan-assessment；本表此后冻结，不再作为执行清单）：
+> **退役** —— W-15（上游 §17 review 工作流 absent，无端口可接，改依赖挂账）；P7-02 `volund web` 子命令条款（演进为随 TUI 自启，spec §22 W-01 冻结）；P7-05 opt-in beta / P7-06 beta gate 门形态（`[web].enabled` 已默认开）；P6-06/07/08 全套 suite 目标（缩为关键路径基准 + axe smoke + 手工浏览器清单）。
+> **收尾批次（按性价比）** —— ① P7-01 资产随包分发（**已落地**：build 链 pack-web-assets + standalone 归档 web-assets/ + 校验器三态）；② W-08 workbench 写路径接备份/CAS/undo；③ P6-03 mutation 幂等键；④ P6-05 secret audit CI；⑤ W-05 composer 剩余（@-picker/slash/历史）；⑥ W-16 缩水收口（axe smoke+⌘K）；⑦ P6-01/02 补语料 + P6-09 版本比对门；⑧ P7-03 专题页 + P6-10 轻量评审 + P7-04 evidence 合并。
 | P7 Local beta | P7-01…06 | docs、packaging、beta gate | P6 |
 | F1 Local automation | F1-01…05 | 受控 scheduler | beta 后独立 |
 | F2 Remote/team | F2-01…08 | 远程/微信/团队研究与独立项目 | 长期硬门 |
