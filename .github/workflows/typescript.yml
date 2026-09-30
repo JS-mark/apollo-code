@@ -6,6 +6,14 @@ on:
     branches: [main]
 
 jobs:
+  # P6-05（Web console 计划收尾）：对 Web 产物/server 源做 secret 指纹扫描。
+  secret-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Web console secret audit
+        run: ./scripts/release/web-secret-audit.sh
+
   quality:
     runs-on: ubuntu-24.04
     steps:
