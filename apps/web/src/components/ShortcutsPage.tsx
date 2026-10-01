@@ -10,9 +10,10 @@ export function ShortcutsPage() {
     { key: '3', keys: 'Cmd/Ctrl + V', action: '粘贴剪贴板图片为附件' },
     { key: '4', keys: '拖拽图片到输入框', action: '添加图片附件' },
     { key: '5', keys: 'Esc', action: '关闭打开的下拉菜单' },
-    { key: '6', keys: 'Cmd + J', action: '打开工作台并聚焦终端' },
-    { key: '7', keys: 'Cmd + B', action: '收起/展开会话侧栏' },
-    { key: '8', keys: 'Cmd + ,', action: '打开设置' },
+    { key: '6', keys: 'Cmd/Ctrl + K 或 Cmd + /', action: '命令面板（⌘K）' },
+    { key: '7', keys: 'Cmd + J', action: '打开工作台并聚焦终端' },
+    { key: '8', keys: 'Cmd + B', action: '收起/展开会话侧栏' },
+    { key: '9', keys: 'Cmd + ,', action: '打开设置' },
   ]
   return (
     <section style={{ padding: 24, overflow: 'auto' }}>

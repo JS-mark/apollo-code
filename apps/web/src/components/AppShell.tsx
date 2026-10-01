@@ -18,13 +18,14 @@ import {
 } from '@ant-design/icons'
 import { Button, Dropdown, Tooltip, Typography } from 'antd'
 import type { InputRef } from 'antd'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Bootstrap, SessionGroupsView, SessionSummary, StatusView } from '../lib/api'
 import { openBrowserSession, WebApi } from '../lib/api'
 import { BrandMark } from './BrandMark'
 import { ChatPanel } from './ChatPanel'
 import { CodePage } from './CodePage'
+import { CommandModal, type CommandAction } from './CommandModal'
 import { ManagePage } from './ManagePage'
 import { RemotePage } from './RemotePage'
 import { RightPanel } from './RightPanel'
@@ -143,10 +144,79 @@ export function AppShell() {
   }, [route])
   const sidebarSearchRef = useRef<InputRef>(null)
 
+  // W-16 缩水收口：⌘K 动作面板——全站路由与常用动作的键盘可达入口。
+  const [commandOpen, setCommandOpen] = useState(false)
+  const commandActions = useMemo<readonly CommandAction[]>(() => {
+    const go = (route: Route): CommandAction => ({
+      key: `go-${route}`,
+      label: `前往：${
+        {
+          chat: '会话',
+          code: '代码',
+          status: '状态',
+          manage: '管理',
+          tasks: '定时任务',
+          settings: '设置',
+          shortcuts: '快捷键',
+          changes: '变更',
+          stats: '统计',
+          remote: '远程控制',
+        }[route]
+      }`,
+      hint: '路由',
+      run: () => setRoute(route),
+    })
+    return [
+      go('chat'),
+      go('code'),
+      go('status'),
+      go('manage'),
+      go('tasks'),
+      go('remote'),
+      go('changes'),
+      go('stats'),
+      go('settings'),
+      go('shortcuts'),
+      {
+        key: 'workbench-terminal',
+        label: '工作台：聚焦终端',
+        hint: '⌘J',
+        run: () => {
+          setRightPanel('workbench')
+          setTerminalSignal((value) => value + 1)
+        },
+      },
+      {
+        key: 'workbench-changes',
+        label: '工作台：查看变更',
+        run: () => {
+          setRightPanel('workbench')
+          setWbFocus((current) => ({ seq: current.seq + 1, tab: 'changes', path: '' }))
+        },
+      },
+      {
+        key: 'toggle-sidebar',
+        label: '收起/展开会话侧栏',
+        hint: '⌘B',
+        run: () => setSidebarCollapsed((collapsed) => !collapsed),
+      },
+    ]
+  }, [])
+
   // 全局快捷键:⌘J 打开工作台并聚焦终端(对齐 CodeBuddy web);⌘B 收起/展开侧栏(对齐 VS Code,
-  // 侧栏仅会话页存在,故只在该路由生效,避免其他 tab 上暗改状态);⌘, 打开设置(macOS 惯例;Safari 会拦截给自身偏好设置,无法 preventDefault)。
+  // 侧栏仅会话页存在,故只在该路由生效,避免其他 tab 上暗改状态);⌘, 打开设置(macOS 惯例;Safari 会拦截给自身偏好设置,无法 preventDefault);
+  // ⌘K 动作面板（VS Code/Linear 惯例;浏览器保留 ⌘K 给地址栏搜索的场合用 ⌘/ 兜底——两键都注册）。
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        (event.key.toLowerCase() === 'k' || event.key === '/')
+      ) {
+        event.preventDefault()
+        setCommandOpen((open) => !open)
+        return
+      }
       if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'j') {
         event.preventDefault()
         setRightPanel('workbench')
@@ -552,6 +622,11 @@ export function AppShell() {
           />
         )}
       </div>
+      <CommandModal
+        open={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        actions={commandActions}
+      />
     </div>
   )
 }
