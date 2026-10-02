@@ -520,6 +520,43 @@ div.tool-row:hover {
 .chat-composer {
   padding: 2px 0 14px;
 }
+/* W-05：composer 补全面板（@ 文件 / slash 命令） */
+.composer-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border-radius: 8px;
+  background: var(--ant-color-bg-container, #fff);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+}
+
+.composer-popup-item {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  color: inherit;
+}
+
+.composer-popup-item.active,
+.composer-popup-item:hover {
+  background: var(--ant-color-bg-text-hover, #f5f5f5);
+}
+
 /* 发送排队区（composer 上方）：拖拽排序 + 移出。 */
 .send-queue {
   display: flex;
@@ -557,6 +594,7 @@ div.tool-row:hover {
 }
 
 .composer {
+  position: relative; /* composer-popup 的定位锚 */
   padding: 10px 12px 8px;
   border: 1px solid var(--ant-color-border-secondary);
   border-radius: 20px;
@@ -723,13 +761,13 @@ div.tool-row:hover {
 .composer-send {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 50%;
   background: var(--ant-color-text);
   color: var(--ant-color-bg-base);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   transition:
     opacity 0.15s,
@@ -737,6 +775,11 @@ div.tool-row:hover {
 }
 .composer-send:hover:not(:disabled) {
   transform: scale(1.06);
+}
+/* 运行态=中断本轮：危险动作给红色，与发送态黑底区分。 */
+.composer-send.stop {
+  background: var(--ant-color-error);
+  color: #fff;
 }
 .composer-send:disabled {
   opacity: 0.3;

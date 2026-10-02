@@ -1522,6 +1522,34 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       return
     }
+    // ── W-05 @-picker：cwd 相对路径 → 会话 attachFilePath（TUI @ 选中同语义）。──
+    if (
+      hub &&
+      path === '/api/v1/sessions/active/attachments/attach-path' &&
+      req.method === 'POST'
+    ) {
+      const body = await readJsonBody(req)
+      const target = (body as { path?: unknown })?.path
+      if (typeof target !== 'string' || !target.trim()) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'path is required' })
+        return
+      }
+      try {
+        ok(res, await hub.attachFilePath(target))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    // ── W-05 @-picker 候选：会话 cwd 相对路径快照（TUI listFiles 同源）。──
+    if (hub && path === '/api/v1/sessions/active/files' && req.method === 'GET') {
+      try {
+        ok(res, { files: await hub.listFiles() })
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
     // ── 附件字节回放（transcript 水合/SSE 收口后的图片回显：内容寻址 handle →
     // AttachmentStore 字节）。与网关 GET /v1/attachments/:handle 同形状；GET 读
     // 端点复用 browser session cookie 门（<img> 带不了自定义头）。──

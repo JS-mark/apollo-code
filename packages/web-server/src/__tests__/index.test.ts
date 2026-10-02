@@ -702,7 +702,7 @@ describe('P6-03 submit idempotency', () => {
         async interrupt() {},
         async end() {},
       },
-      permissions: { subscribe: () => () => {}, requests: () => [], decide: () => false },
+      permissions: new (await import('@volund/app-runtime')).PermissionPromptController(),
     })
     const { url } = await start({ sessionHub })
     const { base, headers } = await authed(url)
@@ -749,8 +749,12 @@ describe('P6-03 submit idempotency', () => {
 
   it('rejects malformed clientRequestId', async () => {
     const sessionHub = new SessionHub({
-      session: { getActive: () => undefined },
-      permissions: { subscribe: () => () => {}, requests: () => [], decide: () => false },
+      session: {
+        getActive: () => undefined,
+        interrupt: async () => {},
+        end: async () => {},
+      },
+      permissions: new (await import('@volund/app-runtime')).PermissionPromptController(),
     })
     const { url } = await start({ sessionHub })
     const { base, headers } = await authed(url)

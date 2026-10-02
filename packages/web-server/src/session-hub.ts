@@ -338,6 +338,28 @@ export class SessionHub {
    * §22 W-05 附件暂存：浏览器上传的图片字节经会话的 AttachmentStore 管线落盘
    * （内容寻址 handle；字节不进事件流/日志）。无会话或宿主不支持 → 明确错误。
    */
+  /**
+   * W-05 @-picker：cwd 相对路径 → 会话 attachFilePath（cwd 内 path 引用 /
+   * cwd 外图片落 AttachmentStore）；语义与 TUI @ 选中逐字对齐。
+   */
+  async attachFilePath(path: string): Promise<import('@volund/shared').PasteAttachmentResult> {
+    const interactive = this.interactive
+    if (!interactive)
+      throw Object.assign(new Error('no active session'), { code: 'web_session_invalid' })
+    if (!interactive.attachFilePath)
+      throw Object.assign(new Error('attach-by-path is not wired'), {
+        code: 'web_capability_unavailable',
+      })
+    return interactive.attachFilePath(path)
+  }
+
+  /** W-05 @-picker 候选：会话 cwd 相对路径快照（对齐 TUI listFiles）。 */
+  async listFiles(): Promise<readonly string[]> {
+    const interactive = this.interactive
+    if (!interactive?.listFiles) return []
+    return interactive.listFiles()
+  }
+
   async stageAttachment(bytes: Uint8Array, mime: string): Promise<StagedAttachmentInfo> {
     const interactive = this.interactive
     if (!interactive)

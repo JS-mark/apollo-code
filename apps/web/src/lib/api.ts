@@ -22,6 +22,24 @@ async function parseResponse<T>(res: Response): Promise<T> {
   return body.data as T
 }
 
+/** W-05 @-picker：attach-path 应答（与 shared PasteAttachmentResult 同形，本地声明）。 */
+export type AttachmentPathResult =
+  | {
+      readonly kind: 'attached'
+      readonly attachment: {
+        readonly kind: string
+        readonly mime: string
+        readonly size: number
+        readonly path?: string
+        readonly handle?: string
+        readonly chip?: string
+      }
+    }
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'denied' }
+  | { readonly kind: 'unavailable'; readonly reason: string }
+
 export interface Bootstrap {
   server: { serverId: string; bootId: string; version: string; startedAt: number }
   workspace: { cwd: string }
@@ -379,6 +397,29 @@ export class WebApi {
     }
     await parseResponse(res)
   }
+  /** W-05 @-picker：会话 cwd 相对路径快照（TUI listFiles 同源；无会话/未接线 → 空）。 */
+  async listSessionFiles(): Promise<readonly string[]> {
+    try {
+      const res = await fetch('/api/v1/sessions/active/files')
+      if (!res.ok) return []
+      const body = (await res.json()) as { data?: { files?: string[] } }
+      return body.data?.files ?? []
+    } catch {
+      return []
+    }
+  }
+
+  /** W-05 @-picker 选中：cwd 相对路径 → 会话附件（cwd 内 path 引用 / 图片落盘）。 */
+  async attachFilePath(path: string): Promise<AttachmentPathResult> {
+    return parseResponse(
+      await fetch('/api/v1/sessions/active/attachments/attach-path', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ path }),
+      }),
+    )
+  }
+
   /** W-05 图片上传：字节直传（Content-Type=mime），返回内容寻址的暂存引用。 */
   async stageAttachment(bytes: Blob, mime: string): Promise<StagedAttachment> {
     const res = await fetch('/api/v1/sessions/active/attachments', {

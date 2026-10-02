@@ -28,8 +28,26 @@ import { Alert, Button, Dropdown, Popover, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ModelsView, SessionSummary, StagedAttachment, WebApi } from '../lib/api'
+import {
+  mentionFileCandidates,
+  mentionQueryAt,
+  mentionChipLabel,
+  replaceMentionToken,
+} from '../lib/composer-mention'
+import {
+  arrowDownNavigatesHistory,
+  arrowUpOpensHistory,
+  historyDown,
+  historyUp,
+  historyValue,
+  initialInputHistory,
+  pushHistory,
+  resetHistoryNavigation,
+  type InputHistoryState,
+} from '../lib/input-history'
 import type { ChatImage, ChatMessage, SubagentActivity, ToolCard } from '../lib/session-stream'
 import { chatImageSrc, chatFeed, toolLabel, useSessionStream } from '../lib/session-stream'
+import { slashCandidates, slashQueryAt, WEB_SLASH_COMMANDS } from '../lib/slash-commands'
 import { BrandMark } from './BrandMark'
 import { ChangesCard } from './ChangesCard'
 import { Markdown } from './Markdown'
@@ -295,6 +313,16 @@ export function ChatPanel({
   const stream = useSessionStream(sessionId !== undefined, sessionId)
   const chat = stream.state
   const [draft, setDraft] = useState(() => localStorage.getItem(`volund-web-draft:${cwd}`) ?? '')
+  // W-05：@-picker / slash 面板 / 历史输入。键序（对齐 TUI）：mention > slash > history > Enter。
+  const [mention, setMention] = useState<{
+    query: string
+    files: readonly string[]
+    active: number
+  }>()
+  const [slashActive, setSlashActive] = useState(0)
+  const [inputHistory, setInputHistory] = useState<InputHistoryState>(initialInputHistory)
+  const textareaSelectionRef = useRef(0)
+  const fileQueryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [images, setImages] = useState<PendingImage[]>([])
   const [busy, setBusy] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -450,6 +478,144 @@ export function ChatPanel({
     [api, ensureSession, stream],
   )
 
+  // ── W-05：draft/selection → mention & slash 派生态 ────────────────────────
+  const mentionQuery =
+    mention !== undefined ? mentionQueryAt(draft, textareaSelectionRef.current) : undefined
+  const mentionList =
+    mention !== undefined && mentionQuery !== undefined
+      ? mentionFileCandidates(mentionQuery.query, mention.files ?? [])
+      : []
+  const slashQuery = slashQueryAt(draft)
+  const slashList = slashQuery !== undefined ? slashCandidates(slashQuery) : []
+  const mentionOpen = mentionList.length > 0
+  const slashOpen = slashList.length > 0
+
+  const replaceDraftToken = (replacement: string) => {
+    setDraft((current) => replaceMentionToken(current, mentionQuery?.query ?? '') + replacement)
+  }
+
+  const historyPut = (state: InputHistoryState) => {
+    setInputHistory(state)
+    const value = historyValue(state)
+    if (value !== null) setDraft(value)
+  }
+
+  const onTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return
+    const selectionStart = textareaSelectionRef.current
+    // 1) @-mention 弹层
+    if (mentionOpen) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setMention((current) =>
+          current
+            ? {
+                ...current,
+                active:
+                  event.key === 'ArrowDown'
+                    ? (current.active + 1) % mentionList.length
+                    : (current.active - 1 + mentionList.length) % mentionList.length,
+              }
+            : current,
+        )
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMention(undefined)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const candidate = mentionList[mention?.active ?? 0]
+        if (!candidate) return
+        void attachFileCandidate(candidate.path)
+        return
+      }
+    }
+    // 2) slash 面板
+    if (slashOpen) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSlashActive((current) =>
+          event.key === 'ArrowDown'
+            ? (current + 1) % slashList.length
+            : (current - 1 + slashList.length) % slashList.length,
+        )
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setDraft(`/${slashQuery ?? ''}`) // 关闭面板：补空格退出 slash 语义
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const command = slashList[slashActive]
+        if (!command) return
+        setDraft('')
+        void command.run({
+          hasActiveSession: sessionId !== undefined,
+          interrupt: () => void api.interrupt().catch(() => {}),
+          endSession: () => {
+            void api
+              .endSession()
+              .then(() => onSessionChange(undefined))
+              .catch(() => {})
+          },
+          notice: (value) => stream.setNotice(value),
+        })
+        return
+      }
+    }
+    // 3) 历史输入（↑ 首行 / ↓ 历史态末行）
+    if (event.key === 'ArrowUp' && arrowUpOpensHistory(draft, selectionStart)) {
+      event.preventDefault()
+      historyPut(historyUp(inputHistory, draft))
+      return
+    }
+    if (
+      event.key === 'ArrowDown' &&
+      arrowDownNavigatesHistory(inputHistory, draft, selectionStart)
+    ) {
+      event.preventDefault()
+      historyPut(historyDown(inputHistory))
+      return
+    }
+    // 4) Enter 发送
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void send(draft)
+    }
+  }
+
+  // @ 选中：走会话 attachFilePath（TUI 同语义）；unavailable → 官方降级（插纯路径）。
+  const attachFileCandidate = async (path: string) => {
+    setMention(undefined)
+    const next = replaceMentionToken(draft, mentionQuery?.query ?? '')
+    try {
+      const result = await api.attachFilePath(path)
+      if (result.kind === 'attached') {
+        const chip = mentionChipLabel(path)
+        setDraft(`${next}${chip} `)
+        setPendingFileAttachments((current) => [
+          ...current,
+          {
+            chip,
+            path,
+            mime: result.attachment.mime,
+            size: result.attachment.size,
+            ...(result.attachment.handle !== undefined ? { handle: result.attachment.handle } : {}),
+          },
+        ])
+        return
+      }
+    } catch {
+      // 无会话/未接线 → 官方降级：插入纯路径文本
+    }
+    setDraft(`${next}${path} `)
+  }
+
   const send = useCallback(
     async (text: string, options?: { queued?: boolean }) => {
       const trimmed = text.trim()
@@ -484,17 +650,30 @@ export function ChatPanel({
         }))
         stream.echo(trimmed, echoImages)
         setImages([])
+        // W-05：@-picker 的 file 附件随提交出站（chip 由服务端 stripAttachmentChips 剥离）。
+        const files = pendingFileAttachmentsRef.current
+        setPendingFileAttachments([])
         // prompt 为空但带图时以 chip 占位（server 要求非空 prompt；提交时 chip 会被剥离）。
         const prompt = trimmed || ready.map((item) => item.chip).join(' ')
         await api.submitTurn(prompt, {
           ...(modelOverride ? { model: modelOverride } : {}),
-          attachments: ready.map((item) => ({
-            kind: 'image',
-            chip: item.chip,
-            mime: item.mime,
-            size: item.staged!.size,
-            ...(item.staged!.handle ? { handle: item.staged!.handle } : {}),
-          })),
+          attachments: [
+            ...ready.map((item) => ({
+              kind: 'image' as const,
+              chip: item.chip,
+              mime: item.mime,
+              size: item.staged!.size,
+              ...(item.staged!.handle ? { handle: item.staged!.handle } : {}),
+            })),
+            ...files.map((file) => ({
+              kind: 'file' as const,
+              chip: file.chip,
+              mime: file.mime ?? 'application/octet-stream',
+              size: file.size ?? 0,
+              ...(file.handle !== undefined ? { handle: file.handle } : {}),
+              path: file.path,
+            })),
+          ],
         })
       } catch (cause) {
         stream.setNotice(cause instanceof Error ? cause.message : String(cause))
@@ -526,6 +705,12 @@ export function ChatPanel({
   // 发送队列 UI：拖拽排序（HTML5 dnd，桌面鼠标）+ 移出；渲染在 composer 上方。
   const dragIdRef = useRef<string | undefined>(undefined)
   const [draggingId, setDraggingId] = useState<string>()
+  const [pendingFileAttachments, setPendingFileAttachments] = useState<
+    { chip: string; path: string; mime: string; size: number; handle?: string }[]
+  >([])
+  // send 是 useCallback 闭包——经 ref 读取最新待发 file 附件，避免依赖链膨胀。
+  const pendingFileAttachmentsRef = useRef(pendingFileAttachments)
+  pendingFileAttachmentsRef.current = pendingFileAttachments
   const queueBlock =
     chat.sendQueue.length > 0 ? (
       <div className="send-queue" aria-label="发送队列">
@@ -831,6 +1016,53 @@ export function ChatPanel({
           ))}
         </div>
       )}
+      {/* W-05：@-mention / slash 补全面板（textarea 上方绝对定位） */}
+      {mentionOpen && (
+        <div className="composer-popup" role="listbox" aria-label="文件引用候选">
+          {mentionList.map((candidate, index) => (
+            <button
+              key={candidate.path}
+              type="button"
+              role="option"
+              aria-selected={index === (mention?.active ?? 0)}
+              className={`composer-popup-item${index === (mention?.active ?? 0) ? ' active' : ''}`}
+              onClick={() => void attachFileCandidate(candidate.path)}
+            >
+              📄 {candidate.path}
+            </button>
+          ))}
+        </div>
+      )}
+      {!mentionOpen && slashOpen && (
+        <div className="composer-popup" role="listbox" aria-label="命令候选">
+          {slashList.map((command, index) => (
+            <button
+              key={command.name}
+              type="button"
+              role="option"
+              aria-selected={index === slashActive}
+              className={`composer-popup-item${index === slashActive ? ' active' : ''}`}
+              onClick={() => {
+                setDraft('')
+                void command.run({
+                  hasActiveSession: sessionId !== undefined,
+                  interrupt: () => void api.interrupt().catch(() => {}),
+                  endSession: () => {
+                    void api
+                      .endSession()
+                      .then(() => onSessionChange(undefined))
+                      .catch(() => {})
+                  },
+                  notice: (value) => stream.setNotice(value),
+                })
+              }}
+            >
+              /{command.name}
+              <span style={{ marginLeft: 8, opacity: 0.6 }}>{command.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         className="composer-input"
@@ -842,13 +1074,30 @@ export function ChatPanel({
             : '给智能体发消息（Enter 发送，Shift+Enter 换行）'
         }
         disabled={busy}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault()
-            void send(draft)
+        onChange={(event) => {
+          setDraft(event.target.value)
+          textareaSelectionRef.current = event.target.selectionStart
+          // 打字复位历史浏览态（保留 entries）。
+          setInputHistory((current) => resetHistoryNavigation(current))
+          // @ 触发：光标处命中 mention 语义 → 打开面板并防抖拉取文件快照。
+          const query = mentionQueryAt(event.target.value, event.target.selectionStart)
+          if (query !== undefined && query.query.length >= 1) {
+            setMention((current) => ({
+              query: query.query,
+              files: current?.files ?? [],
+              active: 0,
+            }))
+            if (fileQueryTimer.current) clearTimeout(fileQueryTimer.current)
+            fileQueryTimer.current = setTimeout(() => {
+              void api.listSessionFiles().then((files) => {
+                setMention((current) => (current ? { ...current, files } : current))
+              })
+            }, 200)
+          } else if (query === undefined) {
+            setMention(undefined)
           }
         }}
+        onKeyDown={onTextareaKeyDown}
         onPaste={(event) => {
           if (event.clipboardData.files.length > 0) {
             event.preventDefault()
