@@ -91,6 +91,7 @@ function stdioServer(name: string, scope: 'user' | 'project' = 'user'): McpServe
     name,
     scope,
     source: 'test',
+    maxPromptsPerMinute: 10,
     transport: { kind: 'stdio', command: 'fake', args: [], env: {} },
   }
 }
@@ -100,6 +101,7 @@ function httpServer(name: string, headers: Record<string, string>): McpServerCon
     name,
     scope: 'user',
     source: 'test',
+    maxPromptsPerMinute: 10,
     transport: { kind: 'http', url: `https://${name}.example.com/mcp`, headers, legacySse: false },
   }
 }
@@ -703,5 +705,78 @@ describe('McpManager.applyConfig (WEB-EXT-MANAGE-MARKET-r1 MG-04 域级 reload)'
     detach()
     expect(registry.get('mcp__a__read')).toBeUndefined()
     await manager.close()
+  })
+})
+
+describe('MCP fatigue S0', () => {
+  it('parseMcpServerEntries: max_prompts_per_minute 解析/clamp/缺省 10', () => {
+    const entries = parseMcpServerEntries(
+      {
+        a: { command: 'x', max_prompts_per_minute: 30 },
+        b: { command: 'x', max_prompts_per_minute: 9999 },
+        c: { command: 'x', max_prompts_per_minute: 0 },
+        d: { command: 'x', max_prompts_per_minute: 'many' },
+        e: { command: 'x' },
+      },
+      { scope: 'user', source: 'test' },
+    )
+    const byName = new Map(entries.map((entry) => [entry.name, entry.maxPromptsPerMinute]))
+    expect(byName.get('a')).toBe(30)
+    expect(byName.get('b')).toBe(600) // clamp 上限
+    expect(byName.get('c')).toBe(10) // 0 越下限 → 缺省
+    expect(byName.get('d')).toBe(10) // 非数字 → 缺省
+    expect(byName.get('e')).toBe(10) // 缺省
+  })
+
+  it('guard：60s 窗口内超限 deny、滑出恢复、配置读取失败 fail-open 缺省 10', async () => {
+    const { createMcpFatigueGuard } = await import('../mcp-fatigue')
+    let tick = 0
+    const now = () => 1_700_000_000_000 + tick * 1_000 // 每次调用推进 1s
+    const guard = createMcpFatigueGuard({
+      cwd: () => '/tmp',
+      volundHome: () => '/home',
+      loadConfigs: async () => {
+        throw new Error('config store down')
+      },
+      now,
+    })
+    // fail-open：读不到配置 → 缺省 10；前 10 次放行，第 11 次拒
+    for (let index = 0; index < 10; index++) expect(guard.check('srv')).toBeUndefined()
+    expect(guard.check('srv')).toEqual({ kind: 'deny', reason: 'fatigue' })
+    // 窗口滑出（60s 后）恢复放行
+    tick += 61
+    expect(guard.check('srv')).toBeUndefined()
+  })
+
+  it('guard：user/project 同名取 min（项目只能收紧）', async () => {
+    const { createMcpFatigueGuard } = await import('../mcp-fatigue')
+    const now = () => 1_700_000_000_000
+    const guard = createMcpFatigueGuard({
+      // 异步配置加载：先让缓存链跑完再开始计数。
+      cwd: () => '/tmp',
+      volundHome: () => '/home',
+      loadConfigs: async () => [
+        {
+          name: 'srv',
+          scope: 'user',
+          source: 'u',
+          maxPromptsPerMinute: 50,
+          transport: { kind: 'stdio', command: 'x', args: [], env: {} },
+        },
+        {
+          name: 'srv',
+          scope: 'project',
+          source: 'p',
+          maxPromptsPerMinute: 2,
+          transport: { kind: 'stdio', command: 'x', args: [], env: {} },
+        },
+      ],
+      now,
+    })
+    // 第一次 check 触发异步配置加载（此时还用缺省 10），缓存就位后再计数。
+    expect(guard.check('srv')).toBeUndefined()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(guard.check('srv')).toBeUndefined() // count 2 ≤ 2（min 收紧生效）
+    expect(guard.check('srv')).toEqual({ kind: 'deny', reason: 'fatigue' }) // count 3 > 2
   })
 })

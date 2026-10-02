@@ -19,6 +19,8 @@ import {
   readAuthSection,
   createConfigDomain,
   createMcpDomain,
+  createMcpFatigueGuard,
+  loadMcpServerConfigs,
   createNativeDomain,
   createPluginDomain,
   broadcastPluginLifecycleHook,
@@ -946,6 +948,15 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const mcpPort = mcpDomain.mcpPort
   const mcpPanelController = mcpDomain.mcpPanelController
   const ensureMcpManager = mcpDomain.ensureManager
+  // MCP fatigue S0（§11.3.9）：per-server 弹窗限速守卫——超限的交互审批请求在进
+  // 共享队列前直接 deny（reason:'fatigue'），模型侧拿到 mcp_fatigue_rate_limited 码。
+  const mcpFatigueGuard = createMcpFatigueGuard({
+    cwd: () => process.cwd(),
+    volundHome: () => home,
+    loadConfigs: (input) => loadMcpServerConfigs(input),
+    onLimited: (server) => telemetry.emit('mcp.fatigue_rate_limited', 'security', { server }),
+    onWarning: (message) => logger.warn(message),
+  })
 
   // ── SUBAGENTS-UI-r1：/subagents 面板控制器（dispatcher 运行注册表）──────────
   // 运行是 REPL 进程本地的：面板即管理面，取消走 dispatcher.cancel 的
@@ -988,7 +999,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // §22 W-07 多路审批：进程级共享队列是权限链的唯一 prompt 源——TUI 与 Web
   // 都订阅它，任一端决策全端清卡（不再经 setPermissionPromptHandler 抢单槽）。
   const permissionPrompts = new PermissionPromptController()
-  interactivePermissionPrompt = (request, signal) => permissionPrompts.request(request, signal)
+  interactivePermissionPrompt = (request, signal) => {
+    // S0-4：只拦 MCP 来源（spec.custom.mcpServer 在净化后仍保留，卡面渲染即依赖它）。
+    const serverName = (
+      request.spec as { value?: { custom?: { mcpServer?: unknown } } } | undefined
+    )?.value?.custom?.mcpServer
+    if (typeof serverName === 'string') {
+      const deny = mcpFatigueGuard.check(serverName)
+      if (deny) return Promise.resolve({ kind: 'deny', reason: deny.reason })
+    }
+    return permissionPrompts.request(request, signal)
+  }
   // AskUserQuestion 的共享提问队列（同款多路分发）：TUI 选项卡与 Web/Mobile
   // 问答卡都订阅它，任一端作答全端清卡。
   const askPrompts = new AskPromptController()
@@ -1682,7 +1703,16 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
     onPermissionPromptHandler: () => {
       // 共享队列是唯一 prompt 源：set/clear 都重断言，端侧互不覆盖（W-07 多路）。
-      interactivePermissionPrompt = (request, signal) => permissionPrompts.request(request, signal)
+      interactivePermissionPrompt = (request, signal) => {
+        const serverName = (
+          request.spec as { value?: { custom?: { mcpServer?: unknown } } } | undefined
+        )?.value?.custom?.mcpServer
+        if (typeof serverName === 'string') {
+          const deny = mcpFatigueGuard.check(serverName)
+          if (deny) return Promise.resolve({ kind: 'deny', reason: deny.reason })
+        }
+        return permissionPrompts.request(request, signal)
+      }
     },
     statusSnapshot: createStatusSnapshotAdapter({
       version: options.identity.version,

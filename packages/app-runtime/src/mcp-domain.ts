@@ -56,6 +56,11 @@ export interface McpServerConfig {
   scope: 'user' | 'project'
   source: string
   transport: McpTransportConfig
+  /**
+   * MCP fatigue 防护（§11.3.9 S0）：每分钟交互权限弹窗上限（默认 10）。
+   * user/project 同时存在时取 min——clone 来的仓库只能收紧、不能放宽轰炸上限。
+   */
+  maxPromptsPerMinute: number
 }
 
 export type McpLoadWarning = (message: string) => void
@@ -108,6 +113,14 @@ export function parseMcpServerEntries(
     }
     const url = typeof entry.url === 'string' ? entry.url : undefined
     const command = typeof entry.command === 'string' ? entry.command : undefined
+    // S0-1：限速值解析——非法/越界按缺省 10 收敛（不因配错而失去防护）。
+    const rawMaxPrompts = entry.max_prompts_per_minute
+    // 语义：1..600 原值；>600 收敛到 600（上限封顶）；非整数/越下限 → 缺省 10
+    // （不因配错而失去防护）。
+    const maxPromptsPerMinute =
+      typeof rawMaxPrompts === 'number' && Number.isInteger(rawMaxPrompts) && rawMaxPrompts >= 1
+        ? Math.min(600, rawMaxPrompts)
+        : 10
     if (url) {
       const type = typeof entry.type === 'string' ? entry.type : 'http'
       if (type !== 'http' && type !== 'streamable-http' && type !== 'sse') {
@@ -125,6 +138,7 @@ export function parseMcpServerEntries(
         name,
         scope: options.scope,
         source: options.source,
+        maxPromptsPerMinute,
         transport: {
           kind: 'http',
           url: expandMcpEnv(url, env, report(options, name)),
@@ -157,6 +171,7 @@ export function parseMcpServerEntries(
         name,
         scope: options.scope,
         source: options.source,
+        maxPromptsPerMinute,
         transport: {
           kind: 'stdio',
           command: expandMcpEnv(command, env, report(options, name)),

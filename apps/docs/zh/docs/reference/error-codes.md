@@ -150,31 +150,31 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 
 `volund plugins` / 市场面板域：
 
-| code                                 | 说明                                                  |
-| ------------------------------------ | ----------------------------------------------------- |
-| `mcp_add_invalid`                    | MCP server 添加参数非法                               |
-| `mcp_add_failed`                     | MCP server 添加失败                                   |
-| `mcp_action_failed`                  | MCP server 操作失败                                   |
-| `skill_command_failed`               | skill 命令执行失败                                    |
-| `plugins_action_failed`              | 插件管理操作失败                                      |
-| `plugin_tool_invalid`                | 插件工具定义非法                                      |
-| `plugin_web_search_invalid`          | WebSearch provider 注册不合法（缺 id 或 search 回调） |
-| `plugin_hook_invalid`                | 插件 hook 定义非法                                    |
-| `plugin_prompt_invalid`              | 插件 prompt 定义非法                                  |
-| `plugin_market_fetch_failed`         | 市场源拉取失败（网络/被墙/源不可达）                  |
-| `plugin_market_index_invalid`        | 市场 index 非法                                       |
-| `plugin_market_metadata_invalid`     | 市场条目元数据非法                                    |
-| `plugin_market_source_invalid`       | 市场源配置非法                                        |
-| `plugin_market_source_pollution`     | 市场源被污染（响应与登记指纹不符）                    |
-| `plugin_registry_digest_mismatch`    | 注册表摘要不匹配                                      |
-| `plugin_registry_metadata_invalid`   | 注册表元数据非法                                      |
-| `plugin_registry_revoked`            | 条目已被吊销                                          |
-| `plugin_registry_signature_invalid`  | 注册表签名校验失败                                    |
-| `plugin_registry_signature_required` | 注册表缺少必需签名                                    |
-| `plugin_registry_source_invalid`     | 注册表源非法                                          |
-| `plugin_registry_source_pollution`   | 注册表源被污染                                        |
-| `plugin_signing_approval_required`   | 插件签名操作需要审批                                  |
-| `plugin_signing_credentials_missing` | 签名凭据缺失                                          |
+| code                                 | 说明                                                   |
+| ------------------------------------ | ------------------------------------------------------ |
+| `mcp_add_invalid`                    | MCP server 添加参数非法                                |
+| `mcp_add_failed`                     | MCP server 添加失败                                    |
+| `mcp_action_failed`                  | MCP server 操作失败                                    |
+| `skill_command_failed`               | skill 命令执行失败                                     |
+| `plugins_action_failed`              | 插件管理操作失败                                       |
+| `plugin_tool_invalid`                | 插件工具定义非法                                       |
+| `plugin_web_search_invalid`          | WebSearch provider 注册不合法（缺 id 或 search 回调）  |
+| `plugin_hook_invalid`                | 插件 hook 定义非法                                     |
+| `plugin_prompt_invalid`              | 插件 prompt 定义非法                                   |
+| `plugin_market_fetch_failed`         | 市场源拉取失败（网络/被墙/源不可达）                   |
+| `plugin_market_index_invalid`        | 市场 index 非法                                        |
+| `plugin_market_metadata_invalid`     | 市场条目元数据非法                                     |
+| `plugin_market_source_invalid`       | 市场源配置非法                                         |
+| `plugin_market_source_pollution`     | 市场源被污染（响应与登记指纹不符）                     |
+| `plugin_registry_digest_mismatch`    | 注册表摘要不匹配                                       |
+| `plugin_registry_metadata_invalid`   | 注册表元数据非法                                       |
+| `plugin_registry_revoked`            | 条目已被吊销                                           |
+| `plugin_registry_signature_invalid`  | 注册表签名校验失败                                     |
+| `plugin_registry_signature_required` | 注册表缺少必需签名                                     |
+| `plugin_registry_source_invalid`     | 注册表源非法                                           |
+| `plugin_registry_source_pollution`   | 注册表源被污染                                         |
+| `plugin_signing_approval_required`   | 插件签名操作需要审批                                   |
+| `plugin_signing_credentials_missing` | 签名凭据缺失                                           |
 | `plugin_archive_invalid`             | `.volund` 归档非法（缺 EOCD / 目录损坏 / 缺 manifest） |
 | `plugin_archive_unsafe_entry`        | 归档条目名逃逸目标目录（zip-slip）                     |
 | `plugin_archive_unsupported_method`  | 归档使用了 store 以外的压缩方法                        |
@@ -184,16 +184,16 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 
 `volund tasks` / `volund daemon` 域（见[定时任务指南](../guides/scheduled-tasks.md)）：
 
-| code                      | 说明                                                           |
-| ------------------------- | -------------------------------------------------------------- |
-| `tasks_disabled`          | 调度器未启用（`[tasks].enabled` 不是 `true`）                    |
-| `task_daemon_running`     | 另一个 daemon（pid 仍存活）已持有调度锁                          |
-| `task_definition_invalid` | 任务定义未通过校验（`TaskStore.upsertTask` 实参）                |
-| `task_io`                 | 任务存储锁超时 / 存储事务 IO 错误                                |
-| `task_run_failed`         | 任务运行失败（spawn 失败 / 超时击杀 / 非零退出 / daemon 中断）    |
-| `task_store_corrupt`      | 任务存储快照与恢复备份均不可读                                   |
+| code                      | 说明                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `tasks_disabled`          | 调度器未启用（`[tasks].enabled` 不是 `true`）                                    |
+| `task_daemon_running`     | 另一个 daemon（pid 仍存活）已持有调度锁                                          |
+| `task_definition_invalid` | 任务定义未通过校验（`TaskStore.upsertTask` 实参）                                |
+| `task_io`                 | 任务存储锁超时 / 存储事务 IO 错误                                                |
+| `task_run_failed`         | 任务运行失败（spawn 失败 / 超时击杀 / 非零退出 / daemon 中断）                   |
+| `task_store_corrupt`      | 任务存储快照与恢复备份均不可读                                                   |
 | `task_config_drift`       | 拒绝运行：用户级 config.toml 内容 hash（不含 [tasks] 段）与冻结值不一致（F1-03） |
-| `task_trust_missing`      | 拒绝运行：任务冻结的工作目录已不被信任（F1-03）                  |
+| `task_trust_missing`      | 拒绝运行：任务冻结的工作目录已不被信任（F1-03）                                  |
 
 ## Evolution 本地存储
 
@@ -286,27 +286,28 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 
 packages/gateway-server 域（HTTP 状态码映射见括号）：
 
-| code                           | 说明                                            |
-| ------------------------------ | ----------------------------------------------- |
-| `gateway_auth_invalid`         | Bearer token 缺失/过期/签名不符（401）          |
-| `gateway_client_rejected`      | OAuth client 凭证错误（401）                    |
-| `gateway_grant_unsupported`    | grant_type 不支持（400）                        |
-| `gateway_rate_limited`         | 触发每客户端/每 IP 限流（429）                  |
-| `gateway_schema_invalid`       | 请求体/帧形状非法或未知端点（400/404）          |
-| `gateway_session_busy`         | 会话 runner 被占用或排队超时（409）             |
-| `gateway_session_not_found`    | 会话不存在或不可恢复（404）                     |
-| `gateway_unsupported_content`  | chat 携带了不支持的多模态 part（400）           |
-| `gateway_upstream_failed`      | runner/装配侧失败（502）                        |
-| `gateway_ws_protocol_error`    | WS 帧非 JSON / 缺 type / 未知类型               |
-| `gateway_uplink_offline`       | 本机未拨出注册或隧道断开（503）                 |
-| `gateway_pairing_invalid`      | 配对码不存在/过期/已核销（400）                 |
-| `gateway_static_missing`       | 移动站静态产物缺失（404）                       |
-| `gateway_attachment_not_found` | 附件 handle 不存在/已清理（404）                |
-| `gateway_enrollment_disabled`  | 动态注册被策略关闭（403）                       |
-| `remote_cwd_invalid`           | uplink RPC 的 cwd 不存在或逃逸本机工作区（400） |
-| `remote_hub_failed`            | 本机侧 hub RPC 执行失败（经隧道回传）           |
-| `permission_timeout`           | 审批卡超时被自动拒绝后模型侧看到的工具结果       |
-| `ask_timeout`                  | 提问卡超时被自动关闭后模型侧看到的工具结果       |
+| code                           | 说明                                                  |
+| ------------------------------ | ----------------------------------------------------- |
+| `gateway_auth_invalid`         | Bearer token 缺失/过期/签名不符（401）                |
+| `gateway_client_rejected`      | OAuth client 凭证错误（401）                          |
+| `gateway_grant_unsupported`    | grant_type 不支持（400）                              |
+| `gateway_rate_limited`         | 触发每客户端/每 IP 限流（429）                        |
+| `gateway_schema_invalid`       | 请求体/帧形状非法或未知端点（400/404）                |
+| `gateway_session_busy`         | 会话 runner 被占用或排队超时（409）                   |
+| `gateway_session_not_found`    | 会话不存在或不可恢复（404）                           |
+| `gateway_unsupported_content`  | chat 携带了不支持的多模态 part（400）                 |
+| `gateway_upstream_failed`      | runner/装配侧失败（502）                              |
+| `gateway_ws_protocol_error`    | WS 帧非 JSON / 缺 type / 未知类型                     |
+| `gateway_uplink_offline`       | 本机未拨出注册或隧道断开（503）                       |
+| `gateway_pairing_invalid`      | 配对码不存在/过期/已核销（400）                       |
+| `gateway_static_missing`       | 移动站静态产物缺失（404）                             |
+| `gateway_attachment_not_found` | 附件 handle 不存在/已清理（404）                      |
+| `gateway_enrollment_disabled`  | 动态注册被策略关闭（403）                             |
+| `remote_cwd_invalid`           | uplink RPC 的 cwd 不存在或逃逸本机工作区（400）       |
+| `remote_hub_failed`            | 本机侧 hub RPC 执行失败（经隧道回传）                 |
+| `permission_timeout`           | 审批卡超时被自动拒绝后模型侧看到的工具结果            |
+| `ask_timeout`                  | 提问卡超时被自动关闭后模型侧看到的工具结果            |
+| `mcp_fatigue_rate_limited`     | MCP server 审批弹窗超分钟限速被自动拒绝后的模型侧结果 |
 
 ::: tip 审批卡与提问卡超时
 经由网关的权限审批卡默认 **120 秒无人决策自动拒绝**，提问卡（ask）共用同一时钟、
@@ -375,8 +376,8 @@ provider/工具/MCP/插件抛出的未知错误经 `normalizeError` 归一后，
 
 为原生 worker 池登记但尚未 emit——worker 池目前以 restart 计数降级，不抛出这些码：
 
-| code                    | 说明                                     |
-| ----------------------- | ---------------------------------------- |
+| code                    | 说明                                        |
+| ----------------------- | ------------------------------------------- |
 | `search_worker_crashed` | 搜索 worker 池丢失一个 worker（B.2 §5.6.1） |
 | `fs_worker_crashed`     | fs worker 池丢失一个 worker（B.2 §5.8）     |
 

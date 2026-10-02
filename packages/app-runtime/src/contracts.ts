@@ -17,8 +17,11 @@ export type InteractivePermissionDecisionKind =
 
 export interface InteractivePermissionDecision {
   kind: InteractivePermissionDecisionKind
-  /** 网关超时 auto-deny 标记（SessionHub.decide 透传）；语义同 PermissionDecision.reason。 */
-  reason?: 'timeout'
+  /**
+   * 结构化拒绝原因（SessionHub.decide 透传）；语义同 PermissionDecision.reason
+   * （timeout = 网关审批卡超时；fatigue = MCP server 弹窗限速）。
+   */
+  reason?: 'timeout' | 'fatigue'
 }
 
 /**
@@ -64,9 +67,31 @@ export class PermissionPromptController {
     return () => this.listeners.delete(listener)
   }
 
-  request(request: InteractivePermissionRequest): Promise<InteractivePermissionDecision> {
+  request(
+    request: InteractivePermissionRequest,
+    signal?: AbortSignal,
+  ): Promise<InteractivePermissionDecision> {
     return new Promise((resolve) => {
-      this.pending.push({ request, resolve })
+      const entry: PendingPermissionRequest = { request, resolve }
+      // 回合中断 → 撤卡并立即 settle deny：否则中断被在途审批挂住（三端一直
+      // 「运行中」，点中断像没反应）。订阅者随 notify 收到空队列，全端清卡。
+      const onAbort = () => {
+        const index = this.pending.indexOf(entry)
+        if (index < 0) return
+        this.pending.splice(index, 1)
+        resolve({ kind: 'deny' })
+        this.notify()
+      }
+      if (signal?.aborted) {
+        onAbort()
+        return
+      }
+      if (signal) {
+        const cleanup = () => signal.removeEventListener('abort', onAbort)
+        entry.cleanup = cleanup
+        signal.addEventListener('abort', onAbort, { once: true })
+      }
+      this.pending.push(entry)
       this.notify()
     })
   }
@@ -75,6 +100,7 @@ export class PermissionPromptController {
     const index = this.pending.findIndex((item) => item.request.id === id)
     if (index < 0) return
     const [pending] = this.pending.splice(index, 1)
+    pending?.cleanup?.()
     pending?.resolve(decision)
     this.notify()
   }
@@ -92,6 +118,8 @@ export class PermissionPromptController {
 interface PendingPermissionRequest {
   request: InteractivePermissionRequest
   resolve(decision: InteractivePermissionDecision): void
+  /** 移除 abort 监听（decide 正常落定时防泄漏）。 */
+  cleanup?: () => void
 }
 
 /** 提问卡的一个候选项（AskUserQuestion 工具的 options 投影）。 */
@@ -129,9 +157,28 @@ export class AskPromptController {
     return () => this.listeners.delete(listener)
   }
 
-  request(request: InteractiveAskRequest): Promise<string | undefined> {
+  request(request: InteractiveAskRequest, signal?: AbortSignal): Promise<string | undefined> {
     return new Promise((resolve) => {
-      this.pending.push({ request, resolve })
+      const entry: PendingAskRequest = { request, resolve }
+      // 同权限卡：回合中断撤卡并 settle undefined（=未作答），工具立即返回、
+      // 回合以 user_interrupt 收尾；订阅者收到空队列，全端清卡。
+      const onAbort = () => {
+        const index = this.pending.indexOf(entry)
+        if (index < 0) return
+        this.pending.splice(index, 1)
+        resolve(undefined)
+        this.notify()
+      }
+      if (signal?.aborted) {
+        onAbort()
+        return
+      }
+      if (signal) {
+        const cleanup = () => signal.removeEventListener('abort', onAbort)
+        entry.cleanup = cleanup
+        signal.addEventListener('abort', onAbort, { once: true })
+      }
+      this.pending.push(entry)
       this.notify()
     })
   }
@@ -141,6 +188,7 @@ export class AskPromptController {
     if (index < 0) return
     const [pending] = this.pending.splice(index, 1)
     if (reason === 'timeout' && value === undefined) this.timedOut.add(id)
+    pending?.cleanup?.()
     pending?.resolve(value)
     this.notify()
   }
@@ -163,6 +211,8 @@ export class AskPromptController {
 interface PendingAskRequest {
   request: InteractiveAskRequest
   resolve(value: string | undefined): void
+  /** 移除 abort 监听（decide 正常落定时防泄漏）。 */
+  cleanup?: () => void
 }
 
 export type PermissionInteractionMode = 'none' | 'line' | 'tui'
@@ -239,7 +289,10 @@ export interface InteractiveSession<TStatusView = unknown> {
   interrupt?(): Promise<void>
   setPermissionPromptHandler?(
     handler:
-      | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+      | ((
+          request: InteractivePermissionRequest,
+          signal?: AbortSignal,
+        ) => Promise<InteractivePermissionDecision>)
       | undefined,
   ): void
   /**

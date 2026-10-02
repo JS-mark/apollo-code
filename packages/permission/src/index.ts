@@ -42,10 +42,11 @@ export type PermissionDecision = {
     | 'deny'
     | 'deny-forever'
   /**
-   * 网关审批卡超时 auto-deny 标记（GATEWAY_PERMISSION_TIMEOUT_MS）：模型侧
-   * 工具结果据此给出 permission_timeout 而非笼统 denied（用户主动拒绝不带它）。
+   * 结构化拒绝原因（用户主动拒绝不带）：timeout = 网关审批卡超时 auto-deny
+   * （permission_timeout）；fatigue = MCP server 弹窗限速（mcp_fatigue_rate_limited）。
+   * 模型侧工具结果据此给出带码文案而非笼统 denied。
    */
-  reason?: 'timeout'
+  reason?: 'timeout' | 'fatigue'
 }
 export interface PermissionRules {
   projectDeny?: (request: PermissionRequest) => boolean
@@ -53,7 +54,10 @@ export interface PermissionRules {
   projectAllow?: (request: PermissionRequest) => boolean
   globalAllow?: (request: PermissionRequest) => boolean
 }
-export type PromptHandler = (request: PermissionRequest) => Promise<PermissionDecision>
+export type PromptHandler = (
+  request: PermissionRequest,
+  signal?: AbortSignal,
+) => Promise<PermissionDecision>
 
 /**
  * 会话权限模式（§4.4 三档）：
@@ -225,7 +229,7 @@ export class PermissionManager {
     this.#cache.clear()
     this.#mode = this.#initialMode
   }
-  async request(request: PermissionRequest): Promise<PermissionDecision> {
+  async request(request: PermissionRequest, signal?: AbortSignal): Promise<PermissionDecision> {
     if (this.rules.projectDeny?.(request)) return { kind: 'deny' }
     if (this.rules.globalDeny?.(request)) return { kind: 'deny' }
     const cached = this.#cache.get(keyOf(request))
@@ -247,14 +251,28 @@ export class PermissionManager {
       return { kind: 'allow-once' }
     }
     if (!this.#prompt) return { kind: 'deny' }
-    return this.enqueue(async () => this.record(request, await this.#prompt!(request)))
+    // 回合中断（runner.interrupt abort）：不再弹卡、在途卡由 prompt 层撤下并
+    // settle deny——否则中断被在途审批挂住，点中断像没反应。
+    if (signal?.aborted) return { kind: 'deny' }
+    return this.enqueue(async () => {
+      if (signal?.aborted) return { kind: 'deny' }
+      return this.record(request, await this.#prompt!(request, signal))
+    })
   }
-  async requestAndExecute<T>(request: PermissionRequest, operation: () => Promise<T>): Promise<T> {
-    const decision = await this.request(request)
+  async requestAndExecute<T>(
+    request: PermissionRequest,
+    operation: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const decision = await this.request(request, signal)
     if (decision.kind.startsWith('deny')) {
       if (decision.reason === 'timeout')
         throw new Error(
           `permission_timeout: ${request.toolName} approval timed out without a response; the request was auto-denied. Ask the user again or proceed without it.`,
+        )
+      if (decision.reason === 'fatigue')
+        throw new Error(
+          `mcp_fatigue_rate_limited: ${request.toolName} was auto-denied — its MCP server is triggering approval prompts too quickly; inspect the server or raise its max_prompts_per_minute.`,
         )
       throw new Error(`Permission denied for ${request.toolName}`)
     }

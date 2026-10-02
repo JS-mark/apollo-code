@@ -268,6 +268,7 @@ export const ErrorCodes = {
   remoteHubFailed: 'remote_hub_failed', // REM-r1 本机侧 hub RPC 执行失败（经隧道回传网关）
   permissionTimeout: 'permission_timeout', // 网关审批卡超时 auto-deny（GATEWAY_PERMISSION_TIMEOUT_MS）后模型侧工具结果
   askTimeout: 'ask_timeout', // 网关提问卡超时自动关闭（同一时钟）后模型侧工具结果
+  mcpFatigueRateLimited: 'mcp_fatigue_rate_limited', // MCP fatigue S0：server 弹窗超限自动 deny（§11.3.9）
 
   /* ── ui 域（主题 / 斜杠命令，packages/ui） ───────────────────────────── */
   slashCommandBuiltinReserved: 'slash_command_builtin_reserved',

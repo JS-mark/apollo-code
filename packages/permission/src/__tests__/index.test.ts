@@ -205,7 +205,7 @@ describe('PermissionManager', () => {
       expect(decision).toEqual({ kind: 'deny' })
       expect(decision.kind).not.toBe('allow-once')
       expect(prompt).toHaveBeenCalledTimes(index + 1)
-      expect(prompt).toHaveBeenLastCalledWith(bashReq(command))
+      expect(prompt).toHaveBeenLastCalledWith(bashReq(command), undefined)
     }
   })
 
@@ -585,5 +585,39 @@ describe('PermissionManager grantEphemeral (skill allowed-tools)', () => {
     const permissions = manager({ projectDeny: () => true })
     permissions.grantEphemeral([{ tool: 'Bash', spec: {} }])
     await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+  })
+})
+
+describe('structured deny reasons (timeout / fatigue)', () => {
+  const baseRequest = {
+    toolName: 'mcp__srv__tool',
+    spec: { custom: { mcpServer: 'srv', mcpTool: 'tool' } },
+    input: {},
+    session: { id: 's1', cwd: '/tmp' },
+    attempt: 1,
+  } as Parameters<PermissionManager['requestAndExecute']>[0]
+
+  it('reason: fatigue → mcp_fatigue_rate_limited 码前缀文案', async () => {
+    const manager = new PermissionManager({})
+    manager.setPromptHandler(async () => ({ kind: 'deny', reason: 'fatigue' }))
+    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toThrow(
+      'mcp_fatigue_rate_limited:',
+    )
+  })
+
+  it('reason: timeout → permission_timeout 文案（回归锚）', async () => {
+    const manager = new PermissionManager({})
+    manager.setPromptHandler(async () => ({ kind: 'deny', reason: 'timeout' }))
+    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toThrow(
+      'permission_timeout:',
+    )
+  })
+
+  it('普通 deny 维持笼统文案', async () => {
+    const manager = new PermissionManager({})
+    manager.setPromptHandler(async () => ({ kind: 'deny' }))
+    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toThrow(
+      'Permission denied for mcp__srv__tool',
+    )
   })
 })

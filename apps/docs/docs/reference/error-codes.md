@@ -155,50 +155,50 @@ the domain tables below.
 
 The `volund plugins` / marketplace domain:
 
-| code                                 | description                                                             |
-| ------------------------------------ | ----------------------------------------------------------------------- |
-| `mcp_add_invalid`                    | Invalid MCP server add arguments                                        |
-| `mcp_add_failed`                     | Adding the MCP server failed                                            |
-| `mcp_action_failed`                  | MCP server action failed                                                |
-| `skill_command_failed`               | Skill command failed                                                    |
-| `plugins_action_failed`              | Plugin management action failed                                         |
-| `plugin_tool_invalid`                | Invalid plugin tool definition                                          |
-| `plugin_web_search_invalid`          | Invalid WebSearch provider registration (missing id or search callback) |
-| `plugin_hook_invalid`                | Invalid plugin hook definition                                          |
-| `plugin_prompt_invalid`              | Invalid plugin prompt definition                                        |
-| `plugin_market_fetch_failed`         | Fetching a marketplace source failed (network / unreachable)            |
-| `plugin_market_index_invalid`        | Invalid marketplace index                                               |
-| `plugin_market_metadata_invalid`     | Invalid marketplace entry metadata                                      |
-| `plugin_market_source_invalid`       | Invalid marketplace source config                                       |
-| `plugin_market_source_pollution`     | Marketplace source tampered (response fingerprint mismatch)             |
-| `plugin_registry_digest_mismatch`    | Registry digest mismatch                                                |
-| `plugin_registry_metadata_invalid`   | Invalid registry metadata                                               |
-| `plugin_registry_revoked`            | The entry has been revoked                                              |
-| `plugin_registry_signature_invalid`  | Registry signature verification failed                                  |
-| `plugin_registry_signature_required` | The registry is missing a required signature                            |
-| `plugin_registry_source_invalid`     | Invalid registry source                                                 |
-| `plugin_registry_source_pollution`   | Registry source tampered                                                |
-| `plugin_signing_approval_required`   | The plugin signing operation requires approval                          |
-| `plugin_signing_credentials_missing` | Signing credentials are missing                                         |
+| code                                 | description                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `mcp_add_invalid`                    | Invalid MCP server add arguments                                           |
+| `mcp_add_failed`                     | Adding the MCP server failed                                               |
+| `mcp_action_failed`                  | MCP server action failed                                                   |
+| `skill_command_failed`               | Skill command failed                                                       |
+| `plugins_action_failed`              | Plugin management action failed                                            |
+| `plugin_tool_invalid`                | Invalid plugin tool definition                                             |
+| `plugin_web_search_invalid`          | Invalid WebSearch provider registration (missing id or search callback)    |
+| `plugin_hook_invalid`                | Invalid plugin hook definition                                             |
+| `plugin_prompt_invalid`              | Invalid plugin prompt definition                                           |
+| `plugin_market_fetch_failed`         | Fetching a marketplace source failed (network / unreachable)               |
+| `plugin_market_index_invalid`        | Invalid marketplace index                                                  |
+| `plugin_market_metadata_invalid`     | Invalid marketplace entry metadata                                         |
+| `plugin_market_source_invalid`       | Invalid marketplace source config                                          |
+| `plugin_market_source_pollution`     | Marketplace source tampered (response fingerprint mismatch)                |
+| `plugin_registry_digest_mismatch`    | Registry digest mismatch                                                   |
+| `plugin_registry_metadata_invalid`   | Invalid registry metadata                                                  |
+| `plugin_registry_revoked`            | The entry has been revoked                                                 |
+| `plugin_registry_signature_invalid`  | Registry signature verification failed                                     |
+| `plugin_registry_signature_required` | The registry is missing a required signature                               |
+| `plugin_registry_source_invalid`     | Invalid registry source                                                    |
+| `plugin_registry_source_pollution`   | Registry source tampered                                                   |
+| `plugin_signing_approval_required`   | The plugin signing operation requires approval                             |
+| `plugin_signing_credentials_missing` | Signing credentials are missing                                            |
 | `plugin_archive_invalid`             | Invalid `.volund` archive (missing EOCD / corrupt directory / no manifest) |
-| `plugin_archive_unsafe_entry`        | Archive entry name escapes the target directory (zip-slip)              |
-| `plugin_archive_unsupported_method`  | Archive uses a compression method other than store                      |
-| `plugin_target_exists`               | Scaffold target directory is not empty (`plugins crate`)                |
+| `plugin_archive_unsafe_entry`        | Archive entry name escapes the target directory (zip-slip)                 |
+| `plugin_archive_unsupported_method`  | Archive uses a compression method other than store                         |
+| `plugin_target_exists`               | Scaffold target directory is not empty (`plugins crate`)                   |
 
 ## Scheduled tasks
 
 The `volund tasks` / `volund daemon` domain (see the [scheduled tasks guide](../guides/scheduled-tasks.md)):
 
-| code                     | description                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------- |
-| `tasks_disabled`         | The scheduler is disabled (`[tasks].enabled` is not `true`)                          |
-| `task_daemon_running`    | Another daemon (with a live pid) already holds the scheduling lock                   |
-| `task_definition_invalid` | Task definition rejected by validation (`TaskStore.upsertTask` arguments)          |
-| `task_io`                | Task store lock timeout / storage transaction IO error                              |
-| `task_run_failed`        | A task run failed (spawn failure / timeout kill / non-zero exit / daemon interrupt) |
-| `task_store_corrupt`     | Task store snapshot and recovery backup are both unreadable                         |
-| `task_config_drift`      | Run refused: the user-level config.toml hash (`[tasks]` excluded) differs from the frozen value (F1-03) |
-| `task_trust_missing`     | Run refused: the task's frozen working directory is no longer trusted (F1-03)       |
+| code                      | description                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `tasks_disabled`          | The scheduler is disabled (`[tasks].enabled` is not `true`)                                             |
+| `task_daemon_running`     | Another daemon (with a live pid) already holds the scheduling lock                                      |
+| `task_definition_invalid` | Task definition rejected by validation (`TaskStore.upsertTask` arguments)                               |
+| `task_io`                 | Task store lock timeout / storage transaction IO error                                                  |
+| `task_run_failed`         | A task run failed (spawn failure / timeout kill / non-zero exit / daemon interrupt)                     |
+| `task_store_corrupt`      | Task store snapshot and recovery backup are both unreadable                                             |
+| `task_config_drift`       | Run refused: the user-level config.toml hash (`[tasks]` excluded) differs from the frozen value (F1-03) |
+| `task_trust_missing`      | Run refused: the task's frozen working directory is no longer trusted (F1-03)                           |
 
 ## Evolution local storage
 
@@ -291,27 +291,28 @@ The embedded web server (packages/web-server) domain:
 
 packages/gateway-server domain (HTTP status mapping in parentheses):
 
-| code                           | description                                                              |
-| ------------------------------ | ------------------------------------------------------------------------ |
-| `gateway_auth_invalid`         | Bearer token missing / expired / bad signature (401)                     |
-| `gateway_client_rejected`      | OAuth client credentials are wrong (401)                                 |
-| `gateway_grant_unsupported`    | Unsupported grant_type (400)                                             |
-| `gateway_rate_limited`         | Per-client / per-IP rate limit hit (429)                                 |
-| `gateway_schema_invalid`       | Malformed body/frame or unknown endpoint (400/404)                       |
-| `gateway_session_busy`         | The session runner is busy or queue wait timed out (409)                 |
-| `gateway_session_not_found`    | Session does not exist or cannot be resumed (404)                        |
-| `gateway_unsupported_content`  | The chat carried an unsupported multimodal part (400)                    |
-| `gateway_upstream_failed`      | Runner/assembly-side failure (502)                                       |
-| `gateway_ws_protocol_error`    | WS frame is not JSON / missing type / unknown type                       |
-| `gateway_uplink_offline`       | This machine is not dialed in, or the tunnel dropped (503)               |
-| `gateway_pairing_invalid`      | Pairing code missing / expired / already redeemed (400)                  |
-| `gateway_static_missing`       | Mobile site static assets are missing (404)                              |
-| `gateway_attachment_not_found` | The attachment handle does not exist / was cleaned up (404)              |
-| `gateway_enrollment_disabled`  | Dynamic enrollment is disabled by policy (403)                           |
-| `remote_cwd_invalid`           | The uplink RPC's cwd does not exist or escapes the local workspace (400) |
-| `remote_hub_failed`            | The local hub RPC failed (relayed through the tunnel)                    |
-| `permission_timeout`           | Model-facing tool result when an approval card times out and is auto-denied |
-| `ask_timeout`                  | Model-facing tool result when a question card times out and is auto-closed |
+| code                           | description                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `gateway_auth_invalid`         | Bearer token missing / expired / bad signature (401)                                                    |
+| `gateway_client_rejected`      | OAuth client credentials are wrong (401)                                                                |
+| `gateway_grant_unsupported`    | Unsupported grant_type (400)                                                                            |
+| `gateway_rate_limited`         | Per-client / per-IP rate limit hit (429)                                                                |
+| `gateway_schema_invalid`       | Malformed body/frame or unknown endpoint (400/404)                                                      |
+| `gateway_session_busy`         | The session runner is busy or queue wait timed out (409)                                                |
+| `gateway_session_not_found`    | Session does not exist or cannot be resumed (404)                                                       |
+| `gateway_unsupported_content`  | The chat carried an unsupported multimodal part (400)                                                   |
+| `gateway_upstream_failed`      | Runner/assembly-side failure (502)                                                                      |
+| `gateway_ws_protocol_error`    | WS frame is not JSON / missing type / unknown type                                                      |
+| `gateway_uplink_offline`       | This machine is not dialed in, or the tunnel dropped (503)                                              |
+| `gateway_pairing_invalid`      | Pairing code missing / expired / already redeemed (400)                                                 |
+| `gateway_static_missing`       | Mobile site static assets are missing (404)                                                             |
+| `gateway_attachment_not_found` | The attachment handle does not exist / was cleaned up (404)                                             |
+| `gateway_enrollment_disabled`  | Dynamic enrollment is disabled by policy (403)                                                          |
+| `remote_cwd_invalid`           | The uplink RPC's cwd does not exist or escapes the local workspace (400)                                |
+| `remote_hub_failed`            | The local hub RPC failed (relayed through the tunnel)                                                   |
+| `permission_timeout`           | Model-facing tool result when an approval card times out and is auto-denied                             |
+| `ask_timeout`                  | Model-facing tool result when a question card times out and is auto-closed                              |
+| `mcp_fatigue_rate_limited`     | Model-facing tool result when an MCP server's approval prompts exceed its per-minute rate (auto-denied) |
 
 ::: tip Approval and question cards
 Permission approval cards that travel through the gateway are **auto-denied after
@@ -383,8 +384,8 @@ into a `VOLUND_<CATEGORY>` code while keeping the upstream message:
 Registered for the native worker pools but not emitted yet — the pools currently
 degrade via restart counters instead of surfacing these codes:
 
-| code                  | description                              |
-| --------------------- | ---------------------------------------- |
+| code                    | description                                       |
+| ----------------------- | ------------------------------------------------- |
 | `search_worker_crashed` | The search worker pool lost a worker (B.2 §5.6.1) |
 | `fs_worker_crashed`     | The fs worker pool lost a worker (B.2 §5.8)       |
 
