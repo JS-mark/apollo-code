@@ -1698,6 +1698,20 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
               body.scope === 'project' ? 'project' : body.scope === 'user' ? 'user' : undefined,
             ),
           reload: async () => ({ items: await mgmt.mcp!.reload() }),
+          // S2 信任门：批准当前工具集（写快照 + 解除调用门）。
+          approveTools: async (body) => {
+            if (!mgmt.mcp!.approveTools)
+              throw Object.assign(new Error('mcp tool trust is not wired in this assembly'), {
+                code: 'web_capability_unavailable',
+              })
+            try {
+              return await mgmt.mcp!.approveTools(String(body.name))
+            } catch (cause) {
+              throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), {
+                code: 'mcp_action_failed',
+              })
+            }
+          },
           // SM 线收口：浏览器 OAuth（阻塞至完成，最长 5min）。域错误统一挂
           // mcp_action_failed（与 CLI 同码）；装配缺失时诚实降级 503。
           login: async (body) => {

@@ -313,6 +313,7 @@ packages/gateway-server domain (HTTP status mapping in parentheses):
 | `permission_timeout`           | Model-facing tool result when an approval card times out and is auto-denied                             |
 | `ask_timeout`                  | Model-facing tool result when a question card times out and is auto-closed                              |
 | `mcp_fatigue_rate_limited`     | Model-facing tool result when an MCP server's approval prompts exceed its per-minute rate (auto-denied) |
+| `mcp_tool_unapproved`          | Model-facing tool result when an MCP server's tool set changed without re-approval (trust gate)         |
 
 ::: tip Approval and question cards
 Permission approval cards that travel through the gateway are **auto-denied after

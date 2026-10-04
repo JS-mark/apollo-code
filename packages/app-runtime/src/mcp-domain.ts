@@ -21,6 +21,7 @@ import type { Tool, ToolRegistry } from '@volund/tool-kit'
 import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
 import { fetchMcpMarketIndex } from './mcp-market'
 import type { McpPanelController } from './mcp-panel'
+import { createMcpToolTrustStore, mcpToolsHash, type McpToolTrustStore } from './mcp-trust'
 import type { McpManagementPort, McpPort } from './ports'
 import { serializeToml } from './toml'
 
@@ -293,12 +294,17 @@ interface ServerState {
   reconnectTimer?: NodeJS.Timeout | undefined
   /** 我们主动 close（disconnect/reload/close）时置位——抑制 transport onClose 触发重连。 */
   closing: boolean
+  /** S2 信任门：当前工具集 hash 与批准态（无 trustStore = 恒 true）。 */
+  toolsHash?: string | undefined
+  toolsApproved?: boolean | undefined
 }
 
 export interface McpManagerOptions {
   servers: readonly McpServerConfig[]
   /** config [mcp] disabled 名单（运行期共享引用：面板切换即时生效）。 */
   disabled: Set<string>
+  /** S2 信任门快照存储；缺省 = 无信任门（测试/嵌入式最小装配）。 */
+  trustStore?: McpToolTrustStore
   onWarning?: (message: string) => void
   /** 状态迁移回调（面板订阅刷新）。 */
   onStateChange?: () => void
@@ -479,6 +485,44 @@ export class McpManager {
     )
       await new Promise((resolve) => setTimeout(resolve, 50))
   }
+  /** S2 信任门：当前工具集是否已批准（无 trustStore = 恒批准；未批准时写 detail 提示）。 */
+  async #evaluateToolTrust(state: ServerState): Promise<boolean> {
+    const store = this.#options.trustStore
+    if (!store) return true
+    const approved = await store.approvedHashAsync(state.config.name)
+    if (approved === state.toolsHash) return true
+    state.detail = `tool set changed; calls are blocked until approved (run ${productIdentity.commandName} mcp approve ${state.config.name})`
+    this.#log('trust.pending', {
+      server: state.config.name,
+      hash: state.toolsHash ?? '',
+    })
+    return false
+  }
+
+  /** S2：批准当前工具集（写快照 + 解除调用门 + 清 detail）。 */
+  async approveTools(name: string): Promise<{ toolsHash: string; tools: number }> {
+    const state = this.#states.get(name)
+    if (!state)
+      throw Object.assign(new Error(`unknown MCP server: ${name}`), { code: 'web_session_invalid' })
+    if (state.tools.length === 0)
+      throw Object.assign(new Error(`MCP server '${name}' exposes no tools to approve`), {
+        code: 'web_schema_invalid',
+      })
+    const store = this.#options.trustStore
+    if (!store)
+      throw Object.assign(new Error('tool trust is not wired in this assembly'), {
+        code: 'web_capability_unavailable',
+      })
+    const toolsHash = mcpToolsHash(state.tools)
+    await store.approve(name, toolsHash)
+    state.toolsHash = toolsHash
+    state.toolsApproved = true
+    if (state.detail?.includes('tool set changed')) state.detail = undefined
+    this.#log('trust.approved', { server: name, hash: toolsHash })
+    this.#options.onStateChange?.()
+    return { toolsHash, tools: state.tools.length }
+  }
+
   async #connectState(state: ServerState, isReconnect = false): Promise<void> {
     if (state.status === 'connected' || this.#closed) return
     await this.#disconnectState(state)
@@ -511,6 +555,8 @@ export class McpManager {
       state.protocolVersion =
         typeof init.protocolVersion === 'string' ? init.protocolVersion : undefined
       state.tools = await client.listTools()
+      state.toolsHash = mcpToolsHash(state.tools)
+      state.toolsApproved = await this.#evaluateToolTrust(state)
       state.status = 'connected'
       state.reconnectAttempt = 0
       this.#log('connect.ok', {
@@ -664,6 +710,18 @@ export class McpManager {
             return Promise.resolve({
               content: [
                 { type: 'text', text: `MCP server '${state.config.name}' is not connected` },
+              ],
+              isError: true,
+            })
+          }
+          // S2 信任门：工具集未批准（首次/变更）→ 逐调用 fail-closed。
+          if (state.toolsApproved === false) {
+            return Promise.resolve({
+              content: [
+                {
+                  type: 'text',
+                  text: `mcp_tool_unapproved: ${state.config.name} exposed a changed tool set; approve it (${productIdentity.commandName} mcp approve ${state.config.name}) before calls are allowed.`,
+                },
               ],
               isError: true,
             })
@@ -835,6 +893,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
   // mcp：runtime 级单例 manager（首会话 cwd 已知时初始化；项目级 mcp.toml /
   // .mcp.json 的信任由会话目录信任门兜底——cli.ts 在未信任目录上拒绝启动）。
   const mcpDisabled = new Set<string>()
+  // S2 信任门快照存储（~/.volund/mcp-tool-trust.json）；manager 无 store = 无门（测试面）。
+  const toolTrustStore = createMcpToolTrustStore(options.home)
   let mcpManager: McpManager | undefined
   /** 从 config.toml 并入 [mcp] disabled 名单（域级 reload 前先 clear 做精确刷新）。 */
   async function readMcpDisabledNames(): Promise<void> {
@@ -863,6 +923,7 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
     const manager = new McpManager({
       servers,
       disabled: mcpDisabled,
+      trustStore: toolTrustStore,
       onWarning: (message) => options.logger.warn(message),
       // SKILLS-MCPS-r1 §S3.6：结构化诊断 JSONL（启动/连接/失败/stderr 尾），
       // 与 telemetry 同目录。追加写、失败静默（不阻塞主链路）。
@@ -999,6 +1060,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       }
     },
     async add(input) {
+      // S2：add = upsert——同名重加/配置变更都清信任快照，重走信任门。
+      await toolTrustStore.remove(input.name)
       const file =
         input.scope === 'project'
           ? join(options.getDefaultCwd(), '.volund', 'mcp.toml')
@@ -1030,8 +1093,18 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
           : scope === 'user'
             ? [join(options.home, 'mcp.toml')]
             : [join(options.getDefaultCwd(), '.volund', 'mcp.toml'), join(options.home, 'mcp.toml')]
-      for (const file of files) if (await removeMcpServerToml({ file, name })) return { file }
+      for (const file of files)
+        if (await removeMcpServerToml({ file, name })) {
+          // S2：remove 清信任快照——重新 add 必须重走信任门（防删了重加绕过变更检测）。
+          await toolTrustStore.remove(name)
+          return { file }
+        }
       throw new Error(`MCP server not configured: ${name}`)
+    },
+    /** S2：批准当前工具集（live manager 写快照 + 解除调用门）。 */
+    async approveTools(name) {
+      const manager = await ensureMcpManager(options.getDefaultCwd())
+      return manager.approveTools(name)
     },
     async setEnabled(name, enabled) {
       const manager = await ensureMcpManager(options.getDefaultCwd())
@@ -1136,6 +1209,10 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       await ensureMcpManager(options.getDefaultCwd())
       const items = await reloadDomainManager()
       return { ...result, items }
+    },
+    async approveTools(name) {
+      const manager = await ensureMcpManager(options.getDefaultCwd())
+      return manager.approveTools(name)
     },
     async marketList() {
       return await fetchMcpMarketIndex(options.home)

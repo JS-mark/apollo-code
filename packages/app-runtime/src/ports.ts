@@ -91,6 +91,8 @@ export interface McpPort {
   ): Promise<{ tools: Array<{ name: string; description?: string }> }>
   /** SKILLS-MCPS-r1 §S3.7：写入目标 scope 的 mcp.toml（同名整条覆盖）。 */
   add(input: McpAddInput): Promise<{ file: string }>
+  /** S2 信任门：批准当前工具集（写快照 + 解除调用门；live manager 语义）。 */
+  approveTools(name: string): Promise<{ toolsHash: string; tools: number }>
   remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string }>
   setEnabled(name: string, enabled: boolean): Promise<void>
   /** SM-07：浏览器 OAuth 2.1 + PKCE + DCR；token 存 auth，回程 loopback。 */
@@ -114,6 +116,8 @@ export interface McpManagementPort {
     scope?: 'user' | 'project',
   ): Promise<{ file: string; items: readonly McpPanelEntry[] }>
   reload(): Promise<readonly McpPanelEntry[]>
+  /** S2 信任门：批准当前工具集（写快照 + 解除调用门 + onStateChange）。 */
+  approveTools(name: string): Promise<{ toolsHash: string; tools: number }>
   /**
    * SM 线收口：浏览器 OAuth（阻塞至完成，最长 5min）；仅 http server。
    * 成功后串联域级 reload——凭据在连接期才被消费，needs-auth 要靠重连翻转。

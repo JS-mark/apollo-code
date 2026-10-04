@@ -602,6 +602,23 @@ export async function runCli(
           : { exitCode: 1, stdout, stderr: message }
       }
     }
+    if (action === 'approve') {
+      if (!ports.mcp?.approveTools) {
+        return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      }
+      const name = args._[2]
+      if (!name) return { exitCode: 2, stdout, stderr: 'mcp approve requires a server name' }
+      try {
+        const result = await ports.mcp.approveTools(name)
+        stdout += `Approved ${result.tools} tool(s) from ${name}; calls are unblocked\n`
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return args.json
+          ? jsonFailure(message, 1, 'mcp_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
     return { exitCode: 2, stdout, stderr: `Unknown mcp action: ${action}` }
   }
   if (subcommand === 'skill') {
@@ -1090,7 +1107,9 @@ export async function runCli(
       // 任一端决策全端清卡；无共享队列的宿主退回本地实例。
       const permissions = ports.permissionPrompts ?? new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
-        interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
+        interactive.setPermissionPromptHandler?.((request, signal) =>
+          permissions.request(request, signal),
+        )
       const permissionsBypassed = Boolean(args.yolo || args.dangerouslySkipPermissions)
       // §22 W-01：静默自启 Web 控制台（挂载本会话；[web] enabled=false / VOLUND_WEB=0
       // 关闭）——在欢迎屏组装前完成，地址直接上屏；失败进启动 notices，不阻塞 TUI。

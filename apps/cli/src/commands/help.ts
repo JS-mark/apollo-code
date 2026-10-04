@@ -261,6 +261,7 @@ Commands:
   inspect <name>                       List the tools a server exposes
   login <name>                         Authorize a server that requires OAuth
   logout <name>                        Clear a server's stored credentials
+  approve <name>                       Approve the server's current tool set (trust gate)
   enable <name>                        Enable a server
   disable <name>                       Disable a server
 

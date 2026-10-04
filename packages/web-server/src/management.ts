@@ -46,6 +46,8 @@ export interface McpPortLike {
     scope?: 'user' | 'project',
   ): Promise<{ file: string; items: readonly unknown[] }>
   reload(): Promise<readonly unknown[]>
+  /** S2 信任门：批准当前工具集；未装配时动作兜底 503。 */
+  approveTools?(name: string): Promise<{ toolsHash: string; tools: number }>
   /** SM 线收口：浏览器 OAuth（阻塞至完成，最长 5min）；未装配时动作兜底 503。 */
   login?(name: string): Promise<{ server: string }>
   logout?(name: string): Promise<void>

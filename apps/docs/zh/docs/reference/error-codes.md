@@ -286,28 +286,29 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 
 packages/gateway-server 域（HTTP 状态码映射见括号）：
 
-| code                           | 说明                                                  |
-| ------------------------------ | ----------------------------------------------------- |
-| `gateway_auth_invalid`         | Bearer token 缺失/过期/签名不符（401）                |
-| `gateway_client_rejected`      | OAuth client 凭证错误（401）                          |
-| `gateway_grant_unsupported`    | grant_type 不支持（400）                              |
-| `gateway_rate_limited`         | 触发每客户端/每 IP 限流（429）                        |
-| `gateway_schema_invalid`       | 请求体/帧形状非法或未知端点（400/404）                |
-| `gateway_session_busy`         | 会话 runner 被占用或排队超时（409）                   |
-| `gateway_session_not_found`    | 会话不存在或不可恢复（404）                           |
-| `gateway_unsupported_content`  | chat 携带了不支持的多模态 part（400）                 |
-| `gateway_upstream_failed`      | runner/装配侧失败（502）                              |
-| `gateway_ws_protocol_error`    | WS 帧非 JSON / 缺 type / 未知类型                     |
-| `gateway_uplink_offline`       | 本机未拨出注册或隧道断开（503）                       |
-| `gateway_pairing_invalid`      | 配对码不存在/过期/已核销（400）                       |
-| `gateway_static_missing`       | 移动站静态产物缺失（404）                             |
-| `gateway_attachment_not_found` | 附件 handle 不存在/已清理（404）                      |
-| `gateway_enrollment_disabled`  | 动态注册被策略关闭（403）                             |
-| `remote_cwd_invalid`           | uplink RPC 的 cwd 不存在或逃逸本机工作区（400）       |
-| `remote_hub_failed`            | 本机侧 hub RPC 执行失败（经隧道回传）                 |
-| `permission_timeout`           | 审批卡超时被自动拒绝后模型侧看到的工具结果            |
-| `ask_timeout`                  | 提问卡超时被自动关闭后模型侧看到的工具结果            |
-| `mcp_fatigue_rate_limited`     | MCP server 审批弹窗超分钟限速被自动拒绝后的模型侧结果 |
+| code                           | 说明                                                            |
+| ------------------------------ | --------------------------------------------------------------- |
+| `gateway_auth_invalid`         | Bearer token 缺失/过期/签名不符（401）                          |
+| `gateway_client_rejected`      | OAuth client 凭证错误（401）                                    |
+| `gateway_grant_unsupported`    | grant_type 不支持（400）                                        |
+| `gateway_rate_limited`         | 触发每客户端/每 IP 限流（429）                                  |
+| `gateway_schema_invalid`       | 请求体/帧形状非法或未知端点（400/404）                          |
+| `gateway_session_busy`         | 会话 runner 被占用或排队超时（409）                             |
+| `gateway_session_not_found`    | 会话不存在或不可恢复（404）                                     |
+| `gateway_unsupported_content`  | chat 携带了不支持的多模态 part（400）                           |
+| `gateway_upstream_failed`      | runner/装配侧失败（502）                                        |
+| `gateway_ws_protocol_error`    | WS 帧非 JSON / 缺 type / 未知类型                               |
+| `gateway_uplink_offline`       | 本机未拨出注册或隧道断开（503）                                 |
+| `gateway_pairing_invalid`      | 配对码不存在/过期/已核销（400）                                 |
+| `gateway_static_missing`       | 移动站静态产物缺失（404）                                       |
+| `gateway_attachment_not_found` | 附件 handle 不存在/已清理（404）                                |
+| `gateway_enrollment_disabled`  | 动态注册被策略关闭（403）                                       |
+| `remote_cwd_invalid`           | uplink RPC 的 cwd 不存在或逃逸本机工作区（400）                 |
+| `remote_hub_failed`            | 本机侧 hub RPC 执行失败（经隧道回传）                           |
+| `permission_timeout`           | 审批卡超时被自动拒绝后模型侧看到的工具结果                      |
+| `ask_timeout`                  | 提问卡超时被自动关闭后模型侧看到的工具结果                      |
+| `mcp_fatigue_rate_limited`     | MCP server 审批弹窗超分钟限速被自动拒绝后的模型侧结果           |
+| `mcp_tool_unapproved`          | MCP server 工具集变更未重新批准（信任门）时模型侧看到的工具结果 |
 
 ::: tip 审批卡与提问卡超时
 经由网关的权限审批卡默认 **120 秒无人决策自动拒绝**，提问卡（ask）共用同一时钟、

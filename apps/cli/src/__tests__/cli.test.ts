@@ -294,6 +294,7 @@ describe('runCli', () => {
         test: vi.fn(async () => ({ protocolVersion: 'test' })),
         inspect: vi.fn(async () => ({ tools: [] })),
         login: vi.fn(async () => ({ server: 'x' })),
+        approveTools: vi.fn(async () => ({ toolsHash: 'h'.repeat(64), tools: 1 })),
         logout: vi.fn(async () => {}),
       },
     })
@@ -658,6 +659,7 @@ describe('runCli', () => {
       setEnabled: vi.fn(async () => {}),
       login: vi.fn(async () => ({ server: 'demo' })),
       logout: vi.fn(async () => {}),
+      approveTools: vi.fn(async () => ({ toolsHash: 'h'.repeat(64), tools: 1 })),
     }
     const listed = await runCli(['mcp', 'list'], ports({ mcp }))
     expect(listed.stdout).toContain('demo')
