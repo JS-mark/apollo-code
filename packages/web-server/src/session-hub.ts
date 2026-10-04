@@ -54,6 +54,8 @@ export interface WebPermissionRequest {
   id: string
   attempt: number
   display: { approvable: boolean; spec: string; toolName: string }
+  /** S1 batch 卡：MCP 来源请求携带（卡面渲染「允许此 server 全部工具」入口）。 */
+  mcpServer?: string
   /**
    * §2.7bis.5 U4 / §22 W-07 审批归属：子代理会话的请求携带血统
    * （主代理省略）；gateway 盲转透传给 Mobile，三端卡面同语义徽标。
@@ -93,8 +95,21 @@ function projectPermissionRequest(request: InteractivePermissionRequest): WebPer
     id: request.id,
     attempt: request.attempt,
     display: request.display,
+    // S1 batch 卡：净化 spec 保留 custom.mcpServer（fatigue 守卫同源）——卡面据此
+    // 渲染「允许此 server 全部工具」入口。
+    ...((): { mcpServer: string } | undefined => {
+      const server = mcpServerOf(request.spec)
+      return server ? { mcpServer: server } : undefined
+    })(),
     ...(request.lineage ? { lineage: request.lineage } : {}),
   }
+}
+
+/** 净化 spec 里的 MCP server 名（preparePermissionApprovalValue 保留 custom 结构）。 */
+function mcpServerOf(spec: unknown): string | undefined {
+  const server = (spec as { value?: { custom?: { mcpServer?: unknown } } } | undefined)?.value
+    ?.custom?.mcpServer
+  return typeof server === 'string' ? server : undefined
 }
 
 /** InteractiveAskRequest → 出站投影（id/question/options 即作答面）。 */

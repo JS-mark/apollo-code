@@ -94,6 +94,8 @@ export interface PermissionCard {
   id: string
   attempt: number
   display: { approvable: boolean; spec: string; toolName: string }
+  /** S1 batch 卡：MCP 来源请求携带——卡面渲染「允许此 server 全部工具」入口。 */
+  mcpServer?: string
   /** 子代理来源（§2.7bis.5 U4）；主代理请求省略——无徽标回归面。 */
   lineage?: PermissionLineage
 }

@@ -621,3 +621,50 @@ describe('structured deny reasons (timeout / fatigue)', () => {
     )
   })
 })
+
+describe('S1 batch card decisions (allow-mcp-server)', () => {
+  const mcpRequest = (tool: string) => ({
+    toolName: `mcp__srv__${tool}`,
+    spec: { custom: { mcpServer: 'srv', mcpTool: tool } },
+    input: {},
+    session: { id: 's1', cwd: process.cwd() },
+    attempt: 1,
+  })
+
+  it('allow-mcp-server：本调用放行 + 后续同 server 请求自动 allow-session', async () => {
+    const manager = new PermissionManager({})
+    manager.setPromptHandler(async () => ({ kind: 'allow-mcp-server' }))
+    await expect(manager.requestAndExecute(mcpRequest('a'), async () => 'ok')).resolves.toBe('ok')
+    // 后续请求（同 server 不同 tool）不再弹卡
+    manager.setPromptHandler(async () => ({ kind: 'deny' }))
+    await expect(manager.requestAndExecute(mcpRequest('b'), async () => 'ok')).resolves.toBe('ok')
+  })
+
+  it('allow-batch-once 归一 allow-once（同 tool 第二次仍弹卡）', async () => {
+    const manager = new PermissionManager({})
+    let prompts = 0
+    manager.setPromptHandler(async () => {
+      prompts += 1
+      return { kind: 'allow-batch-once' }
+    })
+    await manager.requestAndExecute(mcpRequest('a'), async () => 'ok')
+    await manager.requestAndExecute(mcpRequest('a'), async () => 'ok')
+    expect(prompts).toBe(2)
+  })
+
+  it('deny-batch 归一 deny；deny 规则不被 allow-mcp-server 绕过', async () => {
+    const manager = new PermissionManager({})
+    manager.setPromptHandler(async () => ({ kind: 'deny-batch' }))
+    await expect(manager.requestAndExecute(mcpRequest('a'), async () => 'never')).rejects.toThrow(
+      'Permission denied for mcp__srv__a',
+    )
+
+    const withDenyRule = new PermissionManager({
+      globalDeny: (request) => request.toolName.includes('danger'),
+    })
+    withDenyRule.setPromptHandler(async () => ({ kind: 'allow-mcp-server' }))
+    await expect(
+      withDenyRule.requestAndExecute(mcpRequest('danger'), async () => 'never'),
+    ).rejects.toThrow('Permission denied for mcp__srv__danger')
+  })
+})

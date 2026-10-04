@@ -41,6 +41,12 @@ export type PermissionDecision = {
     | 'allow-forever'
     | 'deny'
     | 'deny-forever'
+    /** S1 batch 卡：会话内该 MCP server 的 tool 全放行（record 归一为 allow-session）。 */
+    | 'allow-mcp-server'
+    /** S1 batch 卡：仅本批放行（record 归一为 allow-once）。 */
+    | 'allow-batch-once'
+    /** S1 batch 卡：本批全拒（record 归一为 deny）。 */
+    | 'deny-batch'
   /**
    * 结构化拒绝原因（用户主动拒绝不带）：timeout = 网关审批卡超时 auto-deny
    * （permission_timeout）；fatigue = MCP server 弹窗限速（mcp_fatigue_rate_limited）。
@@ -178,6 +184,8 @@ export class PermissionManager {
   >()
   /** 回合级临时放行（skill allowed-tools）：见 grantEphemeral。 */
   readonly #ephemeral: Array<{ tool: string; spec: PermissionSpec }> = []
+  /** S1 batch 卡：会话内「该 MCP server 全放行」名单（allow-mcp-server 写入）。 */
+  readonly #mcpServerAllows = new Set<string>()
   #queue = Promise.resolve()
   #prompt?: PromptHandler
   readonly #initialMode: PermissionSessionMode
@@ -234,6 +242,11 @@ export class PermissionManager {
     if (this.rules.globalDeny?.(request)) return { kind: 'deny' }
     const cached = this.#cache.get(keyOf(request))
     if (cached) return { kind: cached }
+    // S1 batch 卡：会话内该 server 已被「全部允许」——deny 规则已在上方短路。
+    const mcpServer = (request.spec as { custom?: { mcpServer?: unknown } } | undefined)?.custom
+      ?.mcpServer
+    if (typeof mcpServer === 'string' && this.#mcpServerAllows.has(mcpServer))
+      return { kind: 'allow-session' }
     // 会话级完全访问：deny 规则与已缓存决策之后、scoped allow 之前短路。
     if (this.#mode === 'full') return { kind: 'allow-session' }
     // 回合级 skill 放行：direct return 不写缓存——授权只活到 clearEphemeral()。
@@ -316,6 +329,16 @@ export class PermissionManager {
       this.#mode = 'full'
       this.options.onFullAccessGranted?.()
     }
+    // S1 batch 卡语义归一：allow-mcp-server = 写会话级 server 名单 + 本调用放行；
+    // allow-batch-once = 本调用放行（不缓存）；deny-batch = 本调用拒绝。
+    if (decision.kind === 'allow-mcp-server') {
+      const server = (request.spec as { custom?: { mcpServer?: unknown } } | undefined)?.custom
+        ?.mcpServer
+      if (typeof server === 'string') this.#mcpServerAllows.add(server)
+      return { kind: 'allow-session' }
+    }
+    if (decision.kind === 'allow-batch-once') return { kind: 'allow-once' }
+    if (decision.kind === 'deny-batch') return { kind: 'deny' }
     if (decision.kind === 'allow-project') await this.options.persist?.('project', request, true)
     if (decision.kind === 'allow-forever') await this.options.persist?.('global', request, true)
     if (decision.kind === 'deny-forever') await this.options.persist?.('global', request, false)

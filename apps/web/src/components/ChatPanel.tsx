@@ -1326,6 +1326,15 @@ export function ChatPanel({
                       <Button size="small" onClick={() => void decide('allow-session')}>
                         本会话允许
                       </Button>
+                      {chat.permission.mcpServer && (
+                        <Tooltip
+                          title={`本会话内放行 MCP server「${chat.permission.mcpServer}」的全部工具`}
+                        >
+                          <Button size="small" onClick={() => void decide('allow-mcp-server')}>
+                            允许此 server 全部工具
+                          </Button>
+                        </Tooltip>
+                      )}
                     </>
                   ) : null}
                   <Button size="small" type="primary" danger onClick={() => void decide('deny')}>

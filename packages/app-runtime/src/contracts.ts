@@ -14,6 +14,10 @@ export type InteractivePermissionDecisionKind =
   | 'allow-forever'
   | 'deny'
   | 'deny-forever'
+  /** S1 batch 卡（§11.3.9）：仅 MCP 来源请求；语义见 permission 域 record()。 */
+  | 'allow-mcp-server'
+  | 'allow-batch-once'
+  | 'deny-batch'
 
 export interface InteractivePermissionDecision {
   kind: InteractivePermissionDecisionKind
