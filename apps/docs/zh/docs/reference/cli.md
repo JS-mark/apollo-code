@@ -17,29 +17,29 @@ volund --cwd <path> --trust-workspace "prompt"
 
 `volund evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`volund evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。新会话缺省使用内置 context 默认值；只有 `~/.volund/config.toml` 中精确的 boolean `[evolution] enabled = true` 才进入已有 context tuning 读取路径。配置缺失或 false 时保持关闭；语法错误、不可读或错类型配置会在读取 tuning 前阻止 Runner 启动。这个兼容开关不会启动自动 observation/validation；关闭时 `show` 与 `rollback` 仍可使用。
 
-| 命令                          | 用途                                                                       |
-| ----------------------------- | -------------------------------------------------------------------------- |
-| `volund [prompt]`             | 启动交互式或单次编程会话（`chat` 为等价别名）。                            |
-| `volund login <provider>`     | 验证并安全保存 provider 凭据（当前仅支持 `anthropic`）。                   |
-| `volund logout <provider>`    | 删除已保存的 provider 凭据。                                               |
-| `volund config <action>`      | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。               |
-| `volund status [--json]`      | 查看脱敏后的运行时与配置状态。                                             |
-| `volund history <action>`     | 查看与管理已保存会话（`list`/`show`/`search`/`export`/`import`/`clear`）。 |
-| `volund sessions <action>`    | 列出或删除已保存会话（`list`/`delete`）。                                  |
-| `volund resume <session-id>`  | 从最后一个持久化 turn 边界恢复。                                           |
-| `volund restore <session-id>` | 回滚该会话修改过的文件。                                                   |
-| `volund doctor [--strict]`    | 诊断配置、凭据、原生包、沙箱、skills、MCP server、任务调度器与远程链路。   |
-| `volund memory <action>`      | 管理长期记忆、pinned 上下文和本地搜索索引。                                |
-| `volund plugin <action>`      | 检查或清理本地插件；旧版安装与启用暂不可用。                               |
-| `volund plugins <action>`     | 插件创作工具链（`builtin`/`crate`/`dev`/`build`/`install`）。              |
-| `volund skill <action>`       | 安装、列出、查看、启停、卸载 prompt skill。                                |
-| `volund mcp <action>`         | 添加、列出、测试、查看、login/logout、启停、删除 MCP server。              |
-| `volund tasks <action>`       | 管理定时任务（`list`/`add`/`enable`/`disable`/`remove`/`runs`）。          |
-| `volund daemon`               | 前台运行 7x24 任务调度器。                                                 |
-| `volund context <action>`     | 查看与控制上下文压缩（`show`/`diff`/`keep`/`unkeep`/`compact`/`policy`）。 |
-| `volund hook list`            | 列出内置 hooks。                                                           |
-| `volund version`              | 输出版本。                                                                 |
-| `volund help`                 | 显示帮助。                                                                 |
+| 命令                          | 用途                                                                                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `volund [prompt]`             | 启动交互式或单次编程会话（`chat` 为等价别名）。                                                                                                                                   |
+| `volund login <provider>`     | 验证并安全保存 provider 凭据（当前仅支持 `anthropic`）。                                                                                                                          |
+| `volund logout <provider>`    | 删除已保存的 provider 凭据。                                                                                                                                                      |
+| `volund config <action>`      | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。                                                                                                                      |
+| `volund status [--json]`      | 查看脱敏后的运行时与配置状态。                                                                                                                                                    |
+| `volund history <action>`     | 查看与管理已保存会话（`list`/`show`/`search`/`export`/`import`/`clear`）。                                                                                                        |
+| `volund sessions <action>`    | 列出或删除已保存会话（`list`/`delete`）。                                                                                                                                         |
+| `volund resume <session-id>`  | 从最后一个持久化 turn 边界恢复。                                                                                                                                                  |
+| `volund restore <session-id>` | 回滚该会话修改过的文件。                                                                                                                                                          |
+| `volund doctor [--strict]`    | 诊断配置、凭据、原生包、沙箱、skills、MCP server、任务调度器与远程链路。                                                                                                          |
+| `volund memory <action>`      | 管理长期记忆、pinned 上下文和本地搜索索引。                                                                                                                                       |
+| `volund plugin <action>`      | 检查或清理本地插件；旧版安装与启用暂不可用。                                                                                                                                      |
+| `volund plugins <action>`     | 插件创作工具链（`builtin`/`crate`/`dev [--watch]`/`build`/`install <.volund \| github:owner/repo>`/`trust`/`upgrade <name\|--all>`）。github: 安装需钉存发布者钥 + 签名 release。 |
+| `volund skill <action>`       | 安装、列出、查看、启停、卸载 prompt skill。                                                                                                                                       |
+| `volund mcp <action>`         | 添加、列出、测试、查看、login/logout、启停、删除 MCP server。                                                                                                                     |
+| `volund tasks <action>`       | 管理定时任务（`list`/`add`/`enable`/`disable`/`remove`/`runs`）。                                                                                                                 |
+| `volund daemon`               | 前台运行 7x24 任务调度器。                                                                                                                                                        |
+| `volund context <action>`     | 查看与控制上下文压缩（`show`/`diff`/`keep`/`unkeep`/`compact`/`policy`）。                                                                                                        |
+| `volund hook list`            | 列出内置 hooks。                                                                                                                                                                  |
+| `volund version`              | 输出版本。                                                                                                                                                                        |
+| `volund help`                 | 显示帮助。                                                                                                                                                                        |
 
 常用模式包括 `--no-tui`、`--json` 和 `--no-color`。会话读取用户级配置（`~/.volund/config.toml`）加 `[env]` 与旗标；项目文件（`<cwd>/.volund/config.toml`）只被 `volund config` 检视，从不合并进 CLI 会话。每次运行都要求工作区受信任——通过交互式信任提示、已持久化的信任规则或 `--trust-workspace`（见[目录信任](#目录信任)）。危险沙箱绕过参数会被审计，并要求显式确认。
 

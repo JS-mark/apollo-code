@@ -37,6 +37,7 @@
   "dependencies": {
     "@cordisjs/core": "catalog:",
     "@volund/auth": "workspace:*",
+    "@volund/capability-contract": "workspace:*",
     "@volund/config": "workspace:*",
     "@volund/core": "workspace:*",
     "@volund/kernel": "workspace:*",

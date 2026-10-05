@@ -17,29 +17,29 @@ volund --cwd <path> --trust-workspace "prompt"
 
 `volund evolution show [--namespace context] [--since <date>]` displays the sanitized, append-only local tuning audit. `volund evolution rollback [--namespace context] [--to <timestamp>]` restores context parameters to the preceding or selected point. New sessions use built-in context defaults unless `~/.volund/config.toml` contains the exact boolean `[evolution] enabled = true`; missing or false remains off, while malformed, unreadable, or wrong-type configuration stops Runner startup before tuning is read. This compatibility switch only applies existing context tuning values—it does not start automatic observation or validation. `show` and `rollback` remain available while tuning is off.
 
-| Command                       | Purpose                                                                                                          |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `volund [prompt]`             | Start an interactive or one-shot coding session (`chat` is an accepted alias).                                   |
-| `volund login <provider>`     | Verify, then securely store a provider credential (currently `anthropic` only).                                  |
-| `volund logout <provider>`    | Remove a stored provider credential.                                                                             |
-| `volund config <action>`      | Inspect and edit configuration (`list`/`get`/`set`/`unset`/`path`/`edit`).                                       |
-| `volund status [--json]`      | Show redacted runtime and configuration status.                                                                  |
-| `volund history <action>`     | Inspect and manage saved sessions (`list`/`show`/`search`/`export`/`import`/`clear`).                            |
-| `volund sessions <action>`    | List or delete saved sessions (`list`/`delete`).                                                                 |
-| `volund resume <session-id>`  | Resume at the last durable turn boundary.                                                                        |
-| `volund restore <session-id>` | Restore files changed during a session.                                                                          |
-| `volund doctor [--strict]`    | Diagnose config, credentials, native packages, sandbox, skills, MCP servers, the scheduler, and the remote link. |
-| `volund memory <action>`      | Manage durable memories, pinned context, and the local search index.                                             |
-| `volund plugin <action>`      | Inspect or remove contained local plugins; legacy install/enable are temporarily unavailable.                    |
-| `volund plugins <action>`     | Plugin authoring toolchain (`builtin`/`crate`/`dev`/`build`/`install`).                                          |
-| `volund skill <action>`       | Install, list, show, enable/disable, uninstall prompt skills.                                                    |
-| `volund mcp <action>`         | Add, list, test, inspect, login/logout, enable/disable, and remove MCP servers.                                  |
-| `volund tasks <action>`       | Manage scheduled tasks (`list`/`add`/`enable`/`disable`/`remove`/`runs`).                                        |
-| `volund daemon`               | Run the 7x24 task scheduler in the foreground.                                                                   |
-| `volund context <action>`     | Inspect and control context compaction (`show`/`diff`/`keep`/`unkeep`/`compact`/`policy`).                       |
-| `volund hook list`            | List built-in hooks.                                                                                             |
-| `volund version`              | Print the version.                                                                                               |
-| `volund help`                 | Show command help.                                                                                               |
+| Command                       | Purpose                                                                                                                                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `volund [prompt]`             | Start an interactive or one-shot coding session (`chat` is an accepted alias).                                                                                                                                        |
+| `volund login <provider>`     | Verify, then securely store a provider credential (currently `anthropic` only).                                                                                                                                       |
+| `volund logout <provider>`    | Remove a stored provider credential.                                                                                                                                                                                  |
+| `volund config <action>`      | Inspect and edit configuration (`list`/`get`/`set`/`unset`/`path`/`edit`).                                                                                                                                            |
+| `volund status [--json]`      | Show redacted runtime and configuration status.                                                                                                                                                                       |
+| `volund history <action>`     | Inspect and manage saved sessions (`list`/`show`/`search`/`export`/`import`/`clear`).                                                                                                                                 |
+| `volund sessions <action>`    | List or delete saved sessions (`list`/`delete`).                                                                                                                                                                      |
+| `volund resume <session-id>`  | Resume at the last durable turn boundary.                                                                                                                                                                             |
+| `volund restore <session-id>` | Restore files changed during a session.                                                                                                                                                                               |
+| `volund doctor [--strict]`    | Diagnose config, credentials, native packages, sandbox, skills, MCP servers, the scheduler, and the remote link.                                                                                                      |
+| `volund memory <action>`      | Manage durable memories, pinned context, and the local search index.                                                                                                                                                  |
+| `volund plugin <action>`      | Inspect or remove contained local plugins; legacy install/enable are temporarily unavailable.                                                                                                                         |
+| `volund plugins <action>`     | Plugin authoring toolchain (`builtin`/`crate`/`dev [--watch]`/`build`/`install <.volund \| github:owner/repo>`/`trust`/`upgrade <name\|--all>`).github: installs require a pinned publisher key and a signed release. |
+| `volund skill <action>`       | Install, list, show, enable/disable, uninstall prompt skills.                                                                                                                                                         |
+| `volund mcp <action>`         | Add, list, test, inspect, login/logout, enable/disable, and remove MCP servers.                                                                                                                                       |
+| `volund tasks <action>`       | Manage scheduled tasks (`list`/`add`/`enable`/`disable`/`remove`/`runs`).                                                                                                                                             |
+| `volund daemon`               | Run the 7x24 task scheduler in the foreground.                                                                                                                                                                        |
+| `volund context <action>`     | Inspect and control context compaction (`show`/`diff`/`keep`/`unkeep`/`compact`/`policy`).                                                                                                                            |
+| `volund hook list`            | List built-in hooks.                                                                                                                                                                                                  |
+| `volund version`              | Print the version.                                                                                                                                                                                                    |
+| `volund help`                 | Show command help.                                                                                                                                                                                                    |
 
 Common modes include `--no-tui`, `--json`, and `--no-color`. Sessions read user-level configuration (`~/.volund/config.toml`) plus `[env]` and flags; the project file (`<cwd>/.volund/config.toml`) is only inspected by `volund config` and is never merged into CLI sessions. Every run requires the workspace to be trusted — via the interactive prompt, a persisted trust rule, or `--trust-workspace` (see [Directory trust](#directory-trust)). Dangerous sandbox bypass flags are audited and require explicit confirmation.
 

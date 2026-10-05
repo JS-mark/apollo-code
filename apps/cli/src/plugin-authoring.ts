@@ -9,7 +9,7 @@
  *
  * 与 `volund plugin`（单数，legacy 目录管理）不同：本族全部面向沙箱插件链路。
  */
-import { existsSync } from 'node:fs'
+import { existsSync, watch } from 'node:fs'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
@@ -17,6 +17,7 @@ import { basename, isAbsolute, join, resolve } from 'node:path'
 import {
   buildVolundArchive,
   extractVolundArchive,
+  installFromGithub,
   readPluginManifestHeader,
   VOLUND_ARCHIVE_SUFFIX,
 } from '@volund/app-runtime'
@@ -258,6 +259,83 @@ export async function installVolundArchive(
     await cp(staging, target, { recursive: true })
     return { name: header.name, version: header.version, dir: target }
   } finally {
-    await rm(staging, { recursive: true, force: true }).catch(() => undefined)
+    await rm(staging, { recursive: true, force: true })
   }
+}
+
+export interface GithubInstallOutcome {
+  readonly name: string
+  readonly version: string
+  readonly dir: string
+  readonly source: string
+  readonly tag: string
+}
+
+/** github:<owner>/<repo>[@tag] 安装（发布者签名信任根，见 app-runtime/plugin-github）。 */
+export async function installGithubSpec(
+  ctx: PluginAuthoringContext,
+  spec: string,
+): Promise<GithubInstallOutcome> {
+  const result = await installFromGithub({
+    home: ctx.home,
+    spec,
+    volundVersion: ctx.version,
+  })
+  return {
+    name: result.name,
+    version: result.version,
+    dir: result.dir,
+    source: result.source,
+    tag: result.tag,
+  }
+}
+
+/** dev 变更重载一行（watch 模式每次变更后打印）。 */
+export function devReloadLine(result: DevResult): string {
+  const probeLine = result.probe.status === 'ok' ? 'ok' : `failed (${result.probe.error})`
+  return `[plugins dev] reloaded ${result.manifest.name}@${result.manifest.version} — probe ${probeLine}`
+}
+
+/**
+ * dev watch（§11.3.7 L4 hot reload）：递归监听源目录，变更去抖后重跑
+ * devPlugin（探测 + 重挂软链/复制）。SIGINT/abort 退出；装载体裁的报错在
+ * probe 行内披露，watcher 本身不退出（改崩了还能改回来）。
+ */
+export async function watchPluginDev(
+  ctx: PluginAuthoringContext,
+  dir: string,
+  options: {
+    debounceMs?: number
+    signal?: AbortSignal
+    onReload?: (result: DevResult) => void
+  } = {},
+): Promise<void> {
+  const root = resolve(dir)
+  const debounceMs = options.debounceMs ?? 300
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const watcher = watch(root, { recursive: true }, () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = undefined
+      void devPlugin(ctx, dir)
+        .then((result) => options.onReload?.(result))
+        .catch(() => undefined)
+    }, debounceMs)
+  })
+  await new Promise<void>((resolveWatch) => {
+    if (options.signal?.aborted) {
+      watcher.close()
+      return resolveWatch()
+    }
+    options.signal?.addEventListener(
+      'abort',
+      () => {
+        watcher.close()
+        resolveWatch()
+      },
+      { once: true },
+    )
+  })
+  if (timer) clearTimeout(timer)
+  watcher.close()
 }

@@ -732,6 +732,9 @@ importers:
       '@volund/auth':
         specifier: workspace:*
         version: link:../auth
+      '@volund/capability-contract':
+        specifier: workspace:*
+        version: link:../capability-contract
       '@volund/config':
         specifier: workspace:*
         version: link:../config

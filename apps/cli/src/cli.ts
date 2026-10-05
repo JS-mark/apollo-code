@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
+import { pinPluginPublisher, readPluginTrustStore, upgradePlugins } from '@volund/app-runtime'
 import { ErrorCodes, productIdentity, sanitize, validateWorkspacePath } from '@volund/shared'
 import {
   PermissionPromptController,
@@ -36,7 +37,15 @@ import { trustCommand } from './commands/trust'
 import { readDaemonStatus, spawnDetachedDaemon } from './daemon'
 import { createMemoryPanelController } from './memory-panel'
 import { projectMemoryScope } from './memory-scope'
-import { buildPlugin, cratePlugin, devPlugin, installVolundArchive } from './plugin-authoring'
+import {
+  buildPlugin,
+  cratePlugin,
+  devPlugin,
+  devReloadLine,
+  installGithubSpec,
+  installVolundArchive,
+  watchPluginDev,
+} from './plugin-authoring'
 import type { VolundPorts } from './ports'
 import type { CliIo, CliResult, ParsedCliArgs } from './shared/cli-types'
 
@@ -434,6 +443,15 @@ export async function runCli(
                 '新会话生效（重载 REPL；daemon 触发的任务子会话自动装载）。',
               ].join('\n') + '\n'
           }
+          if (args.watch) {
+            // --watch（L4 hot reload）：初始探测直写 stdout，此后变更去抖重载；
+            // 本分支长驻不返回（SIGINT 收尾），与 daemon 同款语义。
+            for (const line of [stdout, 'watching for changes…']) process.stdout.write(`${line}\n`)
+            await watchPluginDev(authoring, dirArg ?? cwd, {
+              onReload: (reload) => process.stdout.write(`${devReloadLine(reload)}\n`),
+            })
+            return { exitCode: 0, stdout: '', stderr }
+          }
           return { exitCode: result.probe.status === 'ok' ? 0 : 1, stdout, stderr }
         }
         if (action === 'build') {
@@ -447,7 +465,18 @@ export async function runCli(
           return { exitCode: 0, stdout, stderr }
         }
         if (!dirArg) {
-          return { exitCode: 2, stdout, stderr: 'plugins install requires a .volund path' }
+          return {
+            exitCode: 2,
+            stdout,
+            stderr: 'plugins install requires a .volund path or github:<owner>/<repo> spec',
+          }
+        }
+        if (dirArg.startsWith('github:')) {
+          const result = await installGithubSpec(authoring, dirArg)
+          stdout += args.json
+            ? `${JSON.stringify(result)}\n`
+            : `Installed ${result.name}@${result.version} (${result.source}@${result.tag}) → ${result.dir}\n发布者签名验讫；新会话生效。\n`
+          return { exitCode: 0, stdout, stderr }
         }
         const result = await installVolundArchive(authoring, dirArg)
         stdout += args.json
@@ -462,13 +491,76 @@ export async function runCli(
           : { exitCode: 1, stdout, stderr: message }
       }
     }
+    if (action === 'trust') {
+      // 发布者公钥钉存（github: 安装的信任根）：无自动 TOFU——key 必须由用户
+      // 带外核验后显式钉入 ~/.volund/plugins-trust.json。
+      const home = volundHome()
+      const source = typeof args._[2] === 'string' ? args._[2] : undefined
+      try {
+        if (!source || source === '--list' || source === 'list') {
+          const store = await readPluginTrustStore(home)
+          const entries = Object.entries(store.publishers)
+          stdout += args.json
+            ? `${JSON.stringify(Object.fromEntries(entries))}\n`
+            : entries.length
+              ? `${entries.map(([id, entry]) => `${id}\t${entry.ed25519}`).join('\n')}\n`
+              : 'no publishers pinned (volund plugins trust <source> --key <base64url>)\n'
+          return { exitCode: 0, stdout, stderr }
+        }
+        const key = typeof args.key === 'string' ? args.key : undefined
+        if (!key)
+          return {
+            exitCode: 2,
+            stdout,
+            stderr: 'plugins trust requires --key <ed25519 public key base64url>',
+          }
+        await pinPluginPublisher(home, source, key)
+        stdout += args.json ? `${JSON.stringify({ source, pinned: true })}\n` : `Pinned ${source}\n`
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const code = (error as { code?: string }).code
+        return args.json
+          ? jsonFailure(message, 1, code ?? 'plugins_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
+    if (action === 'upgrade') {
+      const names = args._.slice(2).filter((entry): entry is string => typeof entry === 'string')
+      if (names.length === 0 && !args.all)
+        return { exitCode: 2, stdout, stderr: 'plugins upgrade requires a plugin name or --all' }
+      try {
+        const rows = await upgradePlugins({
+          home: volundHome(),
+          volundVersion: ports.identity.version,
+          ...(names.length ? { names } : {}),
+        })
+        stdout += args.json
+          ? `${JSON.stringify(rows)}\n`
+          : rows.length
+            ? `${rows
+                .map(
+                  (row) =>
+                    `${row.channel}\t${row.name}\t${row.from} → ${row.to ?? '-'}\t${row.status}${row.detail ? ` (${row.detail})` : ''}`,
+                )
+                .join('\n')}\n`
+            : 'nothing upgradable (no market/github installed plugins)\n'
+        return { exitCode: rows.some((row) => row.status === 'failed') ? 1 : 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const code = (error as { code?: string }).code
+        return args.json
+          ? jsonFailure(message, 1, code ?? 'plugins_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
     if (!ports.localPlugins)
       return { exitCode: 2, stdout, stderr: 'local plugin port is not connected' }
     if (action !== 'builtin') {
       return {
         exitCode: 2,
         stdout,
-        stderr: `Unknown plugins action: ${action} (available: builtin, crate, dev, build, install)`,
+        stderr: `Unknown plugins action: ${action} (available: builtin, crate, dev, build, install, trust, upgrade)`,
       }
     }
     try {
