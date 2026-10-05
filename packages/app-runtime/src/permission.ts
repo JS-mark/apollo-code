@@ -380,9 +380,14 @@ export async function requestPermission(input: {
   events: EventBus
   interactionMode: PermissionInteractionMode
   interactivePermissionPrompt:
-    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | ((
+        request: InteractivePermissionRequest,
+        signal?: AbortSignal,
+      ) => Promise<InteractivePermissionDecision>)
     | undefined
   request: PermissionRequest
+  /** 回合中断信号：透传给交互面——abort 时在途卡撤下、等待立即 settle。 */
+  signal?: AbortSignal
   /** Deterministic test seam; production always uses the real terminal predicate. */
   terminalIsInteractive?: () => boolean
   /** Deterministic line-input seam; production uses promptLineMaybe. */
@@ -428,7 +433,7 @@ export async function requestPermission(input: {
   if (input.interactionMode === 'line')
     return permissionPrompt(uiRequest, input.terminalIsInteractive, input.linePermissionPrompt)
   if (!input.interactivePermissionPrompt) return { kind: 'deny' }
-  const decision = await input.interactivePermissionPrompt(uiRequest)
+  const decision = await input.interactivePermissionPrompt(uiRequest, input.signal)
   if (!approvalAllowed) return { kind: 'deny' }
   return decision
 }
@@ -444,7 +449,10 @@ export interface ProductionToolPermissionChainOptions {
   permissionSnapshot: ProductionPermissionSessionSnapshot
   logger?: Logger
   interactivePermissionPrompt: () =>
-    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | ((
+        request: InteractivePermissionRequest,
+        signal?: AbortSignal,
+      ) => Promise<InteractivePermissionDecision>)
     | undefined
   /** Deterministic test seam; omitted by createProductionPorts. */
   terminalIsInteractive?: () => boolean
@@ -525,12 +533,13 @@ export function createProductionToolPermissionChain(
             : {}),
         })
       : undefined
-  permissions.setPromptHandler(async (request) => {
+  permissions.setPromptHandler(async (request, signal) => {
     const decision = await requestPermission({
       events: options.events,
       interactionMode,
       interactivePermissionPrompt: options.interactivePermissionPrompt(),
       request,
+      ...(signal ? { signal } : {}),
       ...(options.terminalIsInteractive
         ? { terminalIsInteractive: options.terminalIsInteractive }
         : {}),

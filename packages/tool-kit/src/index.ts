@@ -37,8 +37,13 @@ export interface ToolUiPort {
    * 终端数字问答），返回选中项 label；undefined = 用户未作答/跳过；
    * { reason: 'timeout' } = 网关超时自动关闭（GATEWAY_PERMISSION_TIMEOUT_MS）。
    * 可选——宿主未实现时调用方按「交互不可用」降级。
+   * signal = 工具回合的中断信号：abort 时等待须立即 settle（undefined），
+   * 否则回合中断会被在途提问卡挂住（卡全端撤下）。
    */
-  requestChoice?(request: ToolChoiceRequest): Promise<string | AskChoiceDismissal | undefined>
+  requestChoice?(
+    request: ToolChoiceRequest,
+    signal?: AbortSignal,
+  ): Promise<string | AskChoiceDismissal | undefined>
 }
 export interface ToolChoiceOption {
   label: string

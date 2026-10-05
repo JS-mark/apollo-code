@@ -1074,6 +1074,70 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('queue flush waits for whenTurnSettled before submitting（终态事件先于锁释放出站）', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: Array<string | undefined> = []
+    let release!: () => void
+    const settled = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onSubmit: (value) => {
+          submitted.push(value)
+        },
+        whenTurnSettled: () => settled,
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1234567890',
+      type: 'stream.started',
+      version: 1,
+    })
+    stdin.write('继续')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('queued'))
+
+    // 终态事件到达（补发被触发），但互斥锁未释放：不得发出、不得报错。
+    await events.emit({
+      payload: {
+        turnId: 'turn-1',
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUSD: 0 },
+      },
+      sessionId: 'session-1234567890',
+      type: 'turn.completed',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(submitted).toEqual([])
+    expect(stdout.output).not.toContain('queue send failed')
+
+    // 锁释放 → 补发落地。
+    release()
+    await vi.waitFor(() => expect(submitted).toEqual(['继续']))
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('renders the static Ink shell and stream updates', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()

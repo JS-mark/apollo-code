@@ -34,6 +34,8 @@ export interface SessionControllerLike {
   onActivate?(listener: (session: InteractiveSession<unknown>) => void): () => void
   /** 是否有 turn 在途（SessionController.turnInFlight；测试假件可缺省视为空闲）。 */
   readonly turnInFlight?: boolean
+  /** 等待在途 turn 落锁（SessionController.whenTurnSettled；缺省 = 不等，行为同旧）。 */
+  whenTurnSettled?: () => Promise<void>
   /** 删除会话档案（SessionController.delete；未接线 → hub 报 web_capability_unavailable）。 */
   delete?(id: string): Promise<{ next?: string }>
   interrupt(): Promise<void>
@@ -87,6 +89,11 @@ export interface SessionHubPorts {
 export interface SessionHubOptions {
   /** 嵌入式（随 TUI 启动）：只挂载既有会话，禁止 web 侧 start/resume/end。 */
   readonly embedded?: boolean
+  /**
+   * submit 等锁宽限（ms，默认 2000）：仅当 turnInFlight 时等待 whenTurnSettled，
+   * 超时后照旧提交（真并发由 controller mutex fail closed）。
+   */
+  readonly submitSettleGraceMs?: number
 }
 
 /** InteractivePermissionRequest → 出站投影（display 面即可决策面；spec/input 不出站）。 */
@@ -328,7 +335,13 @@ export class SessionHub {
     this.detach()
   }
 
-  /** 提交 turn：202 语义——立即返回，事件流承载结果；并发提交 409（controller mutex）。 */
+  /**
+   * 提交 turn：202 语义——立即返回，事件流承载结果；并发提交 409（controller mutex）。
+   * turn 的终态事件先于互斥释放出站（runner 在 run() 内 emit，事件总线同步转给 SSE，
+   * 锁要等订阅者落盘完才清）：发送队列的终态边沿补发/多端提交恰打在这扇窗口会撞
+   * session_turn_in_progress。在途时先等锁落定（带宽限）再提交——补发只延迟几毫秒，
+   * 真并发的提交宽限耗尽后照旧 fail closed。
+   */
   async submit(input: {
     prompt: string
     model?: string
@@ -336,6 +349,20 @@ export class SessionHub {
   }): Promise<'accepted'> {
     if (!this.interactive)
       throw Object.assign(new Error('no active session'), { code: 'web_session_invalid' })
+    if (this.ports.session.turnInFlight === true) {
+      const settled = this.ports.session.whenTurnSettled?.call(this.ports.session)
+      if (settled)
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, this.options.submitSettleGraceMs ?? 2000)
+          // whenTurnSettled 自身不 reject，假件兜一手：落锁即走，不留悬挂定时器。
+          void settled
+            .catch(() => {})
+            .then(() => {
+              clearTimeout(timer)
+              resolve()
+            })
+        })
+    }
     const promise = this.interactive.submit(input.prompt, {
       ...(input.model ? { model: input.model } : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),

@@ -1087,6 +1087,7 @@ export class ToolExecutor {
           ...(toolUseId === undefined ? {} : { toolUseId }),
         },
         () => tool.invoke(input, this.context(signal)),
+        signal,
       )
     } catch (e) {
       result = failure(e)

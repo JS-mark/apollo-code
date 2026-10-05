@@ -180,6 +180,11 @@ export interface ResumedInteractiveSession {
   /** §7.5.3 @ picker 的文件候选源（cwd 相对路径快照）。 */
   listFiles?(): Promise<readonly string[]>
   onSubmit(input: string, options?: SubmitOptions): Promise<void> | void
+  /**
+   * 等待在途 turn 落锁：turn 终态事件先于互斥释放出站——排队补发收到终态立即
+   * submit 会撞 session_turn_in_progress。缺省 = 旧宿主，补发按直接提交回退。
+   */
+  whenTurnSettled?: () => Promise<void>
   transcript?: readonly TranscriptItem[]
 }
 
@@ -231,6 +236,8 @@ export interface InteractiveAppOptions {
   /** §7.5.3 @ picker 的文件候选源（cwd 相对路径）；缺省时 @ 只提供模型别名。 */
   listFiles?: () => Promise<readonly string[]>
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
+  /** 等待在途 turn 落锁（排队补发先等锁再提交，见 ResumedInteractiveSession）。 */
+  whenTurnSettled?: () => Promise<void>
   /** AskUserQuestion 的共享提问队列（TUI 选项卡；Web/Mobile 经 hub 作答同队列）。 */
   asks?: AskPromptController
   permissions?: PermissionPromptController
@@ -385,6 +392,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const activeOnSubmit = activeSession
     ? (input: string, submitOptions?: SubmitOptions) => activeSession.onSubmit(input, submitOptions)
     : options.onSubmit
+  // 排队补发的等锁口：跟随活动会话（web 驱动换绑后锁属于新 facade）。
+  const activeWhenTurnSettled = activeSession?.whenTurnSettled ?? options.whenTurnSettled
   const activeOnPasteAttachment = activeSession
     ? activeSession.onPasteAttachment
     : options.onPasteAttachment
@@ -1130,10 +1139,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
                 ...current,
                 { id: `q-${++queueSeq.current}`, attachments: [], text: outcome.text },
               ])
-              appendSystemMessage(
-                setState,
-                'queued — the skill will run when the current turn finishes',
-              )
+              // 排队反馈由 composer 上方的队列块承担（列表 + "queued — sent one
+              // per turn…"），不再往 transcript 插系统行——那行会永久留在记录里。
               return
             }
             try {
@@ -1154,10 +1161,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             ...current,
             { id: `q-${++queueSeq.current}`, attachments, text: input },
           ])
-          appendSystemMessage(
-            setState,
-            'queued — the message will be sent when the current turn finishes',
-          )
+          // 排队反馈由 composer 上方的队列块承担，不往 transcript 插系统行。
           return
         }
         try {
@@ -1208,6 +1212,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // 清空）。旧实现以 statusLevel!=='active' 为触发——回合中途的 stream.completed/
   // tool.completed/permission_asked 会误发并撞 session_turn_in_progress（未捕获
   // rejection + 队列已清空 = 消息丢失），终态驱动后该窗口不复存在。
+  // 终态事件先于服务端互斥释放出站（runner 在 run() 内 emit，锁要等订阅者落盘
+  // 完才清）——补发先 whenTurnSettled 等锁再 submit（缺省直接提交，同旧宿主）。
   const flushedSeqRef = useRef(0)
   useEffect(() => {
     if (turnSettledSeq === 0 || flushedSeqRef.current === turnSettledSeq) return
@@ -1217,14 +1223,21 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     setQueuedInputs((current) => current.filter((item) => item.id !== head.id))
     setQueueFlushError(undefined)
     rememberAttachmentChips(head.attachments)
-    void Promise.resolve(
-      activeOnSubmit?.(head.text, submitOptions(modelOverride ?? '', head.attachments)),
-    ).catch((cause: unknown) => {
-      // 补发失败（如 mutex 撞车）：插回队首等下一个终态边沿重试，错误就地提示。
-      setQueuedInputs((current) => [head, ...current.filter((item) => item.id !== head.id)])
-      setQueueFlushError(cause instanceof Error ? cause.message : String(cause))
-    })
-  }, [turnSettledSeq, queuedInputs, activeOnSubmit, modelOverride, rememberAttachmentChips])
+    void Promise.resolve(activeWhenTurnSettled?.())
+      .then(() => activeOnSubmit?.(head.text, submitOptions(modelOverride ?? '', head.attachments)))
+      .catch((cause: unknown) => {
+        // 补发失败（如 mutex 撞车）：插回队首等下一个终态边沿重试，错误就地提示。
+        setQueuedInputs((current) => [head, ...current.filter((item) => item.id !== head.id)])
+        setQueueFlushError(cause instanceof Error ? cause.message : String(cause))
+      })
+  }, [
+    turnSettledSeq,
+    queuedInputs,
+    activeOnSubmit,
+    activeWhenTurnSettled,
+    modelOverride,
+    rememberAttachmentChips,
+  ])
 
   // 队列删除：alt+<n> 移除第 n 条（TUI 无拖拽，键盘即排序/清理手段）。
   useInput(

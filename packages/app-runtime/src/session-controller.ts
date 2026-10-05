@@ -93,7 +93,10 @@ export interface SessionControllerOptions<TStatusView = unknown> {
   readonly onPermissionPromptHandler?:
     | ((
         handler:
-          | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+          | ((
+              request: InteractivePermissionRequest,
+              signal?: AbortSignal,
+            ) => Promise<InteractivePermissionDecision>)
           | undefined,
       ) => void)
     | undefined
@@ -155,6 +158,17 @@ export class SessionController<TStatusView = unknown> extends Service {
   /** 是否有 turn 在途（Web 审批/状态条的投影数据源）。 */
   get turnInFlight(): boolean {
     return this.turnFlight !== undefined
+  }
+
+  /**
+   * 等待在途 turn 落锁（含等待期间新启的 turn）；无在途时立即返回。turn 的终态
+   * 事件（turn.completed/aborted）在 run() 内部 emit——事件总线同步转发给 SSE 订阅者，
+   * 而互斥锁要等全部订阅者（含 SessionStore 落盘）await 完、run() 返回后才在
+   * finally 释放。客户端收到终态立即补发的提交（发送队列补发/多端并发）会打进
+   * 这扇窗口撞 session_turn_in_progress；hub submit 侧先 here 等锁再提交即闭合。
+   */
+  async whenTurnSettled(): Promise<void> {
+    while (this.turnFlight) await this.turnFlight.catch(() => {})
   }
 
   async startSession(input: {
@@ -283,7 +297,10 @@ export class SessionController<TStatusView = unknown> extends Service {
         : {}),
       setPermissionPromptHandler: (
         handler:
-          | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+          | ((
+              request: InteractivePermissionRequest,
+              signal?: AbortSignal,
+            ) => Promise<InteractivePermissionDecision>)
           | undefined,
       ) => {
         this.options.onPermissionPromptHandler?.(handler)
@@ -317,6 +334,7 @@ export class SessionController<TStatusView = unknown> extends Service {
       },
       submit: (prompt: string, submitOptions?: SubmitOptions) =>
         this.runTurnExclusive(prompt, submitOptions),
+      whenTurnSettled: () => this.whenTurnSettled(),
       end: async () => {
         await this.end()
       },

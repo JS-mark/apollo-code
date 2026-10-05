@@ -14,6 +14,7 @@ import {
   FileTextOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
+  HolderOutlined,
   LoadingOutlined,
   PaperClipOutlined,
   RightOutlined,
@@ -749,14 +750,32 @@ export function ChatView({
   )
 }
 
-/** 触摸拖拽的行高（与 .send-queue-row 固定高度一致；改样式须同步）。 */
-const SEND_QUEUE_ROW_HEIGHT = 36
+/** 触摸拖拽的行几何（与 globals.css 的 .send-queue-row height/margin-top 成对，改须两处同步）。 */
+const SEND_QUEUE_ROW_HEIGHT = 44
+const SEND_QUEUE_ROW_GAP = 6
+const SEND_QUEUE_ROW_STEP = SEND_QUEUE_ROW_HEIGHT + SEND_QUEUE_ROW_GAP
+/** 松手后滑入槽位的时长（与 .send-queue-row.settling 的 transform 过渡一致）。 */
+const SEND_QUEUE_SETTLE_MS = 170
+/** 移出动画时长（与 .send-queue-row.removing 的过渡一致），动画播完才真正出队。 */
+const SEND_QUEUE_REMOVE_MS = 200
+
+/** 一次拖拽的快照：from/to 是队列下标，delta 是被拖行相对起点的原始位移（px）。 */
+interface SendQueueDrag {
+  id: string
+  startY: number
+  from: number
+  to: number
+  delta: number
+  settling: boolean
+}
 
 /**
- * 发送队列（mobile）：触摸拖拽排序 + 移出。拖拽手柄 `touch-action: none` 防
- * 页面滚动，move 时按行高换算目标位、实时 dispatch 重排（web 侧为 HTML5 dnd）。
+ * 发送队列（mobile）：触摸拖拽排序 + 移出（web 侧为 HTML5 dnd）。
+ * 拖拽期间不逐帧 dispatch：被拖行 translate3d 1:1 跟手，其余行按目标位偏移
+ * 一个行距（CSS 过渡让位）；松手先滑入槽位（settling），落位后再一次性提交
+ * 重排——提交前后视觉位置完全一致，零跳动。手柄 `touch-action: none` 防页面滚动。
  */
-function SendQueueList({
+export function SendQueueList({
   queue,
   onRemove,
   onReorder,
@@ -765,50 +784,171 @@ function SendQueueList({
   onRemove(id: string): void
   onReorder(order: readonly string[]): void
 }) {
-  const dragRef = useRef<{ id: string; startIndex: number; startY: number } | undefined>(undefined)
+  const [drag, setDrag] = useState<SendQueueDrag | undefined>(undefined)
+  const dragRef = useRef<SendQueueDrag | undefined>(undefined)
+  const [removing, setRemoving] = useState<readonly string[]>([])
+  const removeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const pendingSettle = useRef<
+    { drag: SendQueueDrag; timer: ReturnType<typeof setTimeout> } | undefined
+  >(undefined)
+  const queueRef = useRef(queue)
+  queueRef.current = queue
+  const onRemoveRef = useRef(onRemove)
+  onRemoveRef.current = onRemove
+
+  const updateDrag = (next: SendQueueDrag | undefined) => {
+    dragRef.current = next
+    setDrag(next)
+  }
+
+  /** 提交挂起的落位：按 from/to 重排一次并清掉拖拽态。 */
+  const commitSettle = () => {
+    const pending = pendingSettle.current
+    if (!pending) return
+    clearTimeout(pending.timer)
+    pendingSettle.current = undefined
+    const { from, to } = pending.drag
+    const current = queueRef.current
+    if (from !== to && from < current.length) {
+      const order = current.map((entry) => entry.id)
+      order.splice(Math.min(to, order.length - 1), 0, ...order.splice(from, 1))
+      onReorder(order)
+    }
+    updateDrag(undefined)
+  }
+
+  useEffect(
+    () => () => {
+      // 卸载兜底：组件只在队列非空时挂载，挂起的移出必须补发，否则行会复活。
+      if (pendingSettle.current) clearTimeout(pendingSettle.current.timer)
+      for (const [id, timer] of removeTimers.current) {
+        clearTimeout(timer)
+        onRemoveRef.current(id)
+      }
+      removeTimers.current.clear()
+    },
+    [],
+  )
+
+  const handleRemove = (id: string) => {
+    if (removeTimers.current.has(id)) return
+    setRemoving((prev) => [...prev, id])
+    removeTimers.current.set(
+      id,
+      setTimeout(() => {
+        removeTimers.current.delete(id)
+        setRemoving((prev) => prev.filter((entry) => entry !== id))
+        onRemoveRef.current(id)
+      }, SEND_QUEUE_REMOVE_MS),
+    )
+  }
+
+  /** 松手：被拖行滑入目标槽位（同时收起抬升），落位后一次性提交。 */
+  const release = () => {
+    const current = dragRef.current
+    if (!current || current.settling) return
+    const settled = { ...current, settling: true }
+    dragRef.current = settled
+    setDrag(settled)
+    pendingSettle.current = { drag: settled, timer: setTimeout(commitSettle, SEND_QUEUE_SETTLE_MS) }
+  }
+
   return (
     <div className="send-queue" aria-label="发送队列">
-      {queue.map((item, index) => (
-        <div key={item.id} className="send-queue-row">
-          <span
-            className="send-queue-handle"
-            aria-label={`拖动排序：${item.text}`}
-            onTouchStart={(event) => {
-              const touch = event.touches[0]!
-              dragRef.current = { id: item.id, startIndex: index, startY: touch.clientY }
-            }}
-            onTouchMove={(event) => {
-              const drag = dragRef.current
-              if (!drag || drag.id !== item.id) return
-              const touch = event.touches[0]!
-              const delta = Math.round((touch.clientY - drag.startY) / SEND_QUEUE_ROW_HEIGHT)
-              const target = Math.max(0, Math.min(queue.length - 1, drag.startIndex + delta))
-              if (target === index) return
-              const order = queue.map((entry) => entry.id)
-              order.splice(target, 0, ...order.splice(index, 1))
-              onReorder(order)
-              drag.startIndex = target
-              event.preventDefault()
-            }}
-            onTouchEnd={() => {
-              dragRef.current = undefined
-            }}
-          >
-            ≡
-          </span>
-          <span className="send-queue-text">
-            {index + 1}. {item.text}
-          </span>
-          <button
-            type="button"
-            className="send-queue-remove"
-            aria-label="移出队列"
-            onClick={() => onRemove(item.id)}
-          >
-            <CloseOutlined style={{ fontSize: 10 }} />
-          </button>
-        </div>
-      ))}
+      {(() => {
+        // 拖拽期间徽标按视觉位次实时重排（数组真实顺序要等落位才提交）。
+        const visualOrder = Array.from({ length: queue.length }, (_, i) => i)
+        if (drag) visualOrder.splice(drag.to, 0, ...visualOrder.splice(drag.from, 1))
+        return queue.map((item, index) => {
+          const isRemoving = removing.includes(item.id)
+          const isDragged = drag?.id === item.id
+          let offset = 0
+          if (drag && !isRemoving) {
+            if (isDragged) {
+              offset = drag.settling ? (drag.to - drag.from) * SEND_QUEUE_ROW_STEP : drag.delta
+            } else if (drag.from < drag.to && index > drag.from && index <= drag.to) {
+              offset = -SEND_QUEUE_ROW_STEP
+            } else if (drag.to < drag.from && index >= drag.to && index < drag.from) {
+              offset = SEND_QUEUE_ROW_STEP
+            }
+          }
+          const className = [
+            'send-queue-row',
+            isDragged ? (drag!.settling ? 'settling' : 'dragging') : '',
+            isRemoving ? 'removing' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
+          return (
+            <div
+              key={item.id}
+              className={className}
+              style={
+                isDragged
+                  ? {
+                      transform: `translate3d(0, ${offset}px, 0)${drag!.settling ? '' : ' scale(1.03)'}`,
+                      zIndex: 2,
+                    }
+                  : offset !== 0
+                    ? { transform: `translate3d(0, ${offset}px, 0)` }
+                    : undefined
+              }
+            >
+              <span
+                className="send-queue-handle"
+                aria-label={`拖动排序：${item.text}`}
+                onTouchStart={(event) => {
+                  if (removeTimers.current.has(item.id)) return
+                  commitSettle()
+                  const touch = event.touches[0]!
+                  updateDrag({
+                    id: item.id,
+                    startY: touch.clientY,
+                    from: index,
+                    to: index,
+                    delta: 0,
+                    settling: false,
+                  })
+                }}
+                onTouchMove={(event) => {
+                  const current = dragRef.current
+                  if (!current || current.id !== item.id || current.settling) return
+                  if (!queueRef.current.some((entry) => entry.id === current.id)) {
+                    updateDrag(undefined) // 行已被移出（回合结束自动发送），终止拖拽
+                    return
+                  }
+                  const touch = event.touches[0]!
+                  const delta = touch.clientY - current.startY
+                  const from = Math.min(current.from, queueRef.current.length - 1)
+                  const to = Math.max(
+                    0,
+                    Math.min(
+                      queueRef.current.length - 1,
+                      from + Math.round(delta / SEND_QUEUE_ROW_STEP),
+                    ),
+                  )
+                  if (to !== current.to) navigator.vibrate?.(8)
+                  updateDrag({ ...current, from, to, delta })
+                }}
+                onTouchEnd={release}
+                onTouchCancel={release}
+              >
+                <HolderOutlined />
+              </span>
+              <span className="send-queue-index">{visualOrder.indexOf(index) + 1}</span>
+              <span className="send-queue-text">{item.text}</span>
+              <button
+                type="button"
+                className="send-queue-remove"
+                aria-label="移出队列"
+                onClick={() => handleRemove(item.id)}
+              >
+                <CloseOutlined style={{ fontSize: 10 }} />
+              </button>
+            </div>
+          )
+        })
+      })()}
     </div>
   )
 }

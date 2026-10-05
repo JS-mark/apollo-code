@@ -49,6 +49,8 @@ function hubWith(
     permissions?: PermissionPromptController
     asks?: AskPromptController
     turnInFlight?: boolean
+    whenTurnSettled?: () => Promise<void>
+    submitSettleGraceMs?: number
     delete?(id: string): Promise<{ next?: string }>
   } = {},
 ): { hub: SessionHub; permissions: PermissionPromptController; asks?: AskPromptController } {
@@ -70,11 +72,19 @@ function hubWith(
         get turnInFlight() {
           return options.turnInFlight ?? false
         },
+        ...(options.whenTurnSettled ? { whenTurnSettled: options.whenTurnSettled } : {}),
         async interrupt() {},
         async end() {},
       },
     },
-    options.embedded !== undefined ? { embedded: options.embedded } : {},
+    options.embedded !== undefined || options.submitSettleGraceMs !== undefined
+      ? {
+          ...(options.embedded !== undefined ? { embedded: options.embedded } : {}),
+          ...(options.submitSettleGraceMs !== undefined
+            ? { submitSettleGraceMs: options.submitSettleGraceMs }
+            : {}),
+        }
+      : {},
   )
   return { hub, permissions, ...(options.asks ? { asks: options.asks } : {}) }
 }
@@ -287,6 +297,66 @@ describe('SessionHub', () => {
     ]
     await hub.submit({ prompt: '看图', attachments })
     expect(submissions).toEqual([{ prompt: '看图', options: { attachments } }])
+  })
+
+  it('submit during the settle window waits for the mutex instead of turn.failed（发送队列补发竞态）', async () => {
+    const session = fakeSession()
+    const submissions: string[] = []
+    session.submit = async (prompt: string) => {
+      submissions.push(prompt)
+    }
+    let release!: () => void
+    const settled = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const opts: Parameters<typeof hubWith>[1] = {
+      whenTurnSettled: () => settled,
+    }
+    const { hub } = hubWith(session, opts)
+    await hub.start({ cwd: '/tmp/hub' })
+    // start 之后回合才入途（start 自身有 assertNoTurnInFlight 守卫）。
+    opts.turnInFlight = true
+    const seen: unknown[] = []
+    hub.subscribe((envelope) => seen.push(envelope.event))
+    const pending = hub.submit({ prompt: '继续' })
+    // 锁未释放前提交不落（正在等 whenTurnSettled）。
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(submissions).toEqual([])
+    release()
+    await expect(pending).resolves.toBe('accepted')
+    expect(submissions).toEqual(['继续'])
+    expect(seen.some((event) => (event as { type?: string }).type === 'turn.failed')).toBe(false)
+  })
+
+  it('settle grace bounds the wait; expiry submits as before（真并发仍由 mutex fail closed）', async () => {
+    const session = fakeSession()
+    const submissions: string[] = []
+    session.submit = async (prompt: string) => {
+      submissions.push(prompt)
+    }
+    const opts: Parameters<typeof hubWith>[1] = {
+      whenTurnSettled: () => new Promise<void>(() => {}),
+      submitSettleGraceMs: 20,
+    }
+    const { hub } = hubWith(session, opts)
+    await hub.start({ cwd: '/tmp/hub' })
+    opts.turnInFlight = true
+    await expect(hub.submit({ prompt: '并发' })).resolves.toBe('accepted')
+    expect(submissions).toEqual(['并发'])
+  })
+
+  it('submit skips the settle wait on hosts without whenTurnSettled（旧宿主行为不变）', async () => {
+    const session = fakeSession()
+    const submissions: string[] = []
+    session.submit = async (prompt: string) => {
+      submissions.push(prompt)
+    }
+    const opts: Parameters<typeof hubWith>[1] = {}
+    const { hub } = hubWith(session, opts)
+    await hub.start({ cwd: '/tmp/hub' })
+    opts.turnInFlight = true
+    await expect(hub.submit({ prompt: '旧宿主' })).resolves.toBe('accepted')
+    expect(submissions).toEqual(['旧宿主'])
   })
 
   it('stageAttachment delegates to the session and surfaces honest errors', async () => {

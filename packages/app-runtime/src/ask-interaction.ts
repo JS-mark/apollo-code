@@ -35,8 +35,11 @@ function projectOptions(options: ToolChoiceRequest['options']): ToolChoiceReques
 
 export function createAskUserInteraction(
   options: AskUserInteractionOptions,
-): (request: ToolChoiceRequest) => Promise<string | AskChoiceDismissal | undefined> {
-  return async (request) => {
+): (
+  request: ToolChoiceRequest,
+  signal?: AbortSignal,
+) => Promise<string | AskChoiceDismissal | undefined> {
+  return async (request, signal) => {
     if (options.mode === 'none')
       throw new Error('user interaction is unavailable in non-interactive mode')
     if (options.mode === 'line') {
@@ -57,11 +60,14 @@ export function createAskUserInteraction(
       return picked?.label
     }
     const id = uuidv7()
-    const answer = await options.prompts.request({
-      id,
-      question: request.question,
-      options: projectOptions(request.options),
-    })
+    const answer = await options.prompts.request(
+      {
+        id,
+        question: request.question,
+        options: projectOptions(request.options),
+      },
+      signal,
+    )
     // 网关超时自动关闭（AskPromptController.decide 带 timeout 标记）：模型侧要能
     // 区分「用户主动跳过」与「无人应答超时」，故以结构化结果外露。
     return options.prompts.consumeTimedOut(id) ? { reason: 'timeout' } : answer

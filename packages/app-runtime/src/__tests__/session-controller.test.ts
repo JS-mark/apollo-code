@@ -224,6 +224,49 @@ describe('SessionController', () => {
     expect(runs).toBe(2)
   })
 
+  it('whenTurnSettled waits for the in-flight turn to release the mutex, then returns', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let runs = 0
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: (state, events) => {
+        const base = fakeFactory()(state, events) as Runner
+        return {
+          ...base,
+          get state() {
+            return state
+          },
+          run: vi.fn(async (text: string) => {
+            runs += 1
+            if (runs === 1) await gate
+            return base.run(text)
+          }),
+        } as unknown as Runner
+      },
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    const first = session.submit('one')
+    await expect(session.submit('two')).rejects.toMatchObject({
+      code: 'session_turn_in_progress',
+    })
+    let settled = false
+    const waiting = controller.whenTurnSettled().then(() => {
+      settled = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    release()
+    await first
+    await waiting
+    expect(settled).toBe(true)
+    expect(controller.turnInFlight).toBe(false)
+    // 空闲时立即返回（hub submit 的常规路径零开销）。
+    await expect(controller.whenTurnSettled()).resolves.toBeUndefined()
+  })
+
   it('double end is a no-op and kills background shells exactly once', async () => {
     const killAll = vi.fn()
     const background = { events: {}, killAll } as unknown as BackgroundShells

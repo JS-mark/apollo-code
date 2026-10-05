@@ -27,10 +27,10 @@ const props = (overrides: { loading?: boolean; noSession?: boolean } = {}) => ({
   resolveAttachment: () => Promise.resolve('blob:x'),
   onGoSessions: () => {},
   onStall: () => {},
-        onQueuePush: () => {},
-        onQueueRemove: () => {},
-        onQueueReorder: () => {},
-        onNotice: () => {},
+  onQueuePush: () => {},
+  onQueueRemove: () => {},
+  onQueueReorder: () => {},
+  onNotice: () => {},
 })
 
 describe('ChatView 会话流空态（有会话无消息）', () => {

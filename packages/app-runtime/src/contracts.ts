@@ -328,6 +328,12 @@ export interface InteractiveSession<TStatusView = unknown> {
    */
   readAttachment?(handle: string): Promise<{ mime: string; bytes: Uint8Array } | undefined>
   submit(input: string, options?: SubmitOptions): Promise<void>
+  /**
+   * 等待在途 turn 落锁（turn 终态事件先于互斥释放出站——客户端收到终态立即
+   * 提交会撞 session_turn_in_progress；排队补发先 here 等锁再 submit）。
+   * 可选：旧宿主 facade 未实现时调用方按「直接提交」回退。
+   */
+  whenTurnSettled?(): Promise<void>
   end(): Promise<void>
   exitCode(): number
 }

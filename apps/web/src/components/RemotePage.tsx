@@ -260,7 +260,7 @@ export function RemotePage({ api }: { api: WebApi }) {
           <Space.Compact style={{ display: 'flex' }}>
             <Input
               prefix={<LinkOutlined />}
-              placeholder="网关地址，如 https://gateway.ai-agentic.cc"
+              placeholder="网关地址，如 https://gateway.nexo-ai.top"
               value={gatewayUrl.value}
               onChange={(event) => setGatewayUrl(event.target.value)}
             />
