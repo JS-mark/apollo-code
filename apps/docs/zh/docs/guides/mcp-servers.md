@@ -48,14 +48,14 @@ volund mcp add -s project my-server -- npx -y my-mcp
 
 ## 管理
 
-| 操作         | REPL                              | CLI                                           |
-| ------------ | --------------------------------- | --------------------------------------------- |
-| 列表/状态    | `/mcp` 面板                       | `volund mcp list`（连通性有界等待 4s 后快照） |
-| 详情         | 面板里 Enter（元数据 + 工具清单） | `volund mcp inspect <name>`                   |
-| 启停（持久） | 面板里 Space                      | `volund mcp enable\|disable <name>`           |
-| 连通测试     | 面板里 `r`（全部重连）            | `volund mcp test <name>`                      |
-| OAuth 登录/登出 | —                              | `volund mcp login\|logout <name>`             |
-| 删除         | —                                 | `volund mcp remove <name>`                    |
+| 操作            | REPL                              | CLI                                           |
+| --------------- | --------------------------------- | --------------------------------------------- |
+| 列表/状态       | `/mcp` 面板                       | `volund mcp list`（连通性有界等待 4s 后快照） |
+| 详情            | 面板里 Enter（元数据 + 工具清单） | `volund mcp inspect <name>`                   |
+| 启停（持久）    | 面板里 Space                      | `volund mcp enable\|disable <name>`           |
+| 连通测试        | 面板里 `r`（全部重连）            | `volund mcp test <name>`                      |
+| OAuth 登录/登出 | —                                 | `volund mcp login\|logout <name>`             |
+| 删除            | —                                 | `volund mcp remove <name>`                    |
 
 Web 控制台「管理 → MCP」页签为 http/sse server 提供**认证 / 登出**按钮（仅本地嵌入式控制台）。登录会在宿主机上打开浏览器并阻塞到 OAuth 回程完成（最长 5 分钟）；完成后 needs-auth 自动翻转为已连接。
 

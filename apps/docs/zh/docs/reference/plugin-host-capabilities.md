@@ -45,8 +45,8 @@
 | `tools.register` / `tools.unregister`           | 模型可调用工具（自动命名空间 `plugin:<名>:`）进内核 `tools` 服务；permissionSpec `{custom:{pluginTool}}` 走统一权限链；输出按不可信内容包裹       |
 | `hooks.on`                                      | 生命周期订阅；`preToolUse`/`postToolUse` 经 ToolExecutor 派发 hook（首个 HookResult 生效，fail-open），`sessionStart`/`sessionEnd` 从会话事件广播 |
 | `session.on`                                    | 会话生命周期事件的 `hooks.on` 别名                                                                                                                |
-| `http.fetch`                                    | 插件的 HTTPS-only 出站请求；目标主机必须出现在 manifest 的 `permissions.net` 白名单（外加宿主批准的额外主机）                                       |
-| `webSearch.provide` / `webSearch.configStatus`  | 向 `[web_search]` provider 桥贡献搜索后端（`volund-plugin-web-search` 在用）；`configStatus` 报告后端可用性                                         |
+| `http.fetch`                                    | 插件的 HTTPS-only 出站请求；目标主机必须出现在 manifest 的 `permissions.net` 白名单（外加宿主批准的额外主机）                                     |
+| `webSearch.provide` / `webSearch.configStatus`  | 向 `[web_search]` provider 桥贡献搜索后端（`volund-plugin-web-search` 在用）；`configStatus` 报告后端可用性                                       |
 | `prompt.contribute` / `prompt.revoke`           | 静态 fragment 进每会话组装器（`plugin:<名>:` id 命名空间，priority 缺省 600）                                                                     |
 | `plugins.list` 扩展                             | `domains` 组：第一方工具域（/plugins 与 `volund plugins builtin` 可见可切换）                                                                     |
 | `env.getEffective`, `session.getUsage`, `log.*` | 宿主数据/诊断，同以前                                                                                                                             |

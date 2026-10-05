@@ -28,7 +28,7 @@ volund --cwd <path> --trust-workspace "prompt"
 | `volund sessions <action>`    | 列出或删除已保存会话（`list`/`delete`）。                                  |
 | `volund resume <session-id>`  | 从最后一个持久化 turn 边界恢复。                                           |
 | `volund restore <session-id>` | 回滚该会话修改过的文件。                                                   |
-| `volund doctor [--strict]`    | 诊断配置、凭据、原生包、沙箱、skills、MCP server、任务调度器与远程链路。    |
+| `volund doctor [--strict]`    | 诊断配置、凭据、原生包、沙箱、skills、MCP server、任务调度器与远程链路。   |
 | `volund memory <action>`      | 管理长期记忆、pinned 上下文和本地搜索索引。                                |
 | `volund plugin <action>`      | 检查或清理本地插件；旧版安装与启用暂不可用。                               |
 | `volund plugins <action>`     | 插件创作工具链（`builtin`/`crate`/`dev`/`build`/`install`）。              |

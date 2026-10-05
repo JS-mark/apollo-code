@@ -117,12 +117,12 @@ export async function activate(volund: VolundBridge): Promise<void> {
 
 ## Distribution and lifecycle
 
-| Channel | Source                                                   | Lifecycle                                                     |
-| ------- | -------------------------------------------------------- | ------------------------------------------------------------- |
-| Builtin | Shipped with the artifact (`apps/cli/plugins/`)          | Always trusted, cannot be uninstalled                         |
-| Dev     | `~/.volund/plugins-dev/` + `VOLUND_DEV_PLUGINS`          | Auto-approved and enabled; managed by removing the directory  |
+| Channel | Source                                                   | Lifecycle                                                             |
+| ------- | -------------------------------------------------------- | --------------------------------------------------------------------- |
+| Builtin | Shipped with the artifact (`apps/cli/plugins/`)          | Always trusted, cannot be uninstalled                                 |
+| Dev     | `~/.volund/plugins-dev/` + `VOLUND_DEV_PLUGINS`          | Auto-approved and enabled; managed by removing the directory          |
 | Archive | `.volund` file built with `volund plugins build`         | `volund plugins install <file>` unpacks into `~/.volund/plugins-dev/` |
-| Market  | `~/.volund/plugins/`, installed from a configured market | Install → inspect → approve → enable; hot-uninstall supported |
+| Market  | `~/.volund/plugins/`, installed from a configured market | Install → inspect → approve → enable; hot-uninstall supported         |
 
 Configure a market in `~/.volund/config.toml`:
 

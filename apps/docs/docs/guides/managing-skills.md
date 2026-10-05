@@ -40,11 +40,11 @@ A same-name skill in a higher-priority layer marks the lower-priority copy `shad
 
 ## Use
 
-| Route                          | Semantics                                                                                                                              |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `/skill-name [task]`           | One-shot invocation: the skill body plus the task text becomes the user message for the current turn (no persistent prompt change).    |
-| `/skill activate <name>`       | Session-level: the skill is injected into the system prompt until `/skill deactivate`.                                                 |
-| `a` key in the `/skills` panel | Same as `/skill activate`.                                                                                                             |
+| Route                          | Semantics                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/skill-name [task]`           | One-shot invocation: the skill body plus the task text becomes the user message for the current turn (no persistent prompt change).                     |
+| `/skill activate <name>`       | Session-level: the skill is injected into the system prompt until `/skill deactivate`.                                                                  |
+| `a` key in the `/skills` panel | Same as `/skill activate`.                                                                                                                              |
 | Model-driven                   | The model invokes the `Skill` tool (with the skill's name) after seeing the index; disabled when the frontmatter sets `disable-model-invocation: true`. |
 
 ## Manage

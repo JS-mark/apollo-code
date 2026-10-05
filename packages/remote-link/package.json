@@ -1,8 +1,8 @@
 {
   "name": "@volund/remote-link",
   "version": "0.2.0",
-  "description": "Local-side remote link for Volund — outbound uplink to the public gateway",
   "private": true,
+  "description": "Local-side remote link for Volund — outbound uplink to the public gateway",
   "files": [
     "dist"
   ],

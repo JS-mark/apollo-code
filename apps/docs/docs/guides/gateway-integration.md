@@ -2,7 +2,7 @@
 
 The remote gateway is a **standalone protocol surface**: any application that implements
 the gateway protocol can integrate, without depending on the volund codebase. Public
-instance `https://gateway.ai-agentic.cc` (or self-host per the
+instance `https://gateway.nexo-ai.top` (or self-host per the
 [remote gateway](/docs/guides/remote-gateway) guide).
 
 - Field-level contract:
@@ -22,7 +22,7 @@ Ask the gateway operator for machine credentials (client_id / client_secret with
 `chat sessions` scopes):
 
 ```bash
-curl -X POST https://gateway.ai-agentic.cc/oauth/token \
+curl -X POST https://gateway.nexo-ai.top/oauth/token \
   -H 'content-type: application/x-www-form-urlencoded' \
   -d 'grant_type=client_credentials&client_id=REFID_002Q&client_secret=REFID_004Q'
 # → {"access_token":"...","token_type":"Bearer","expires_in":3600,"scope":"chat sessions"}
@@ -36,7 +36,7 @@ The token is an HS256 JWT; re-request it with the same credentials before expiry
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="https://gateway.ai-agentic.cc/v1", api_key="<access_token>")
+client = OpenAI(base_url="https://gateway.nexo-ai.top/v1", api_key="<access_token>")
 for chunk in client.chat.completions.create(
     model="claude-sonnet-4",   # bare names/aliases resolve machine-side via [models.aliases]
     messages=[{"role": "user", "content": "Translate the README into English"}],
@@ -53,7 +53,7 @@ and you get the final answer; tool calls are not relayed.
 ### 3. Interactive channel (approvals / interrupts / live events)
 
 ```
-wss://gateway.ai-agentic.cc/v1/ws?access_token=<token>
+wss://gateway.nexo-ai.top/v1/ws?access_token=<token>
 ```
 
 Client frames: `ping` / `session.start{cwd?}` / `session.resume{id}` / `session.end` /
@@ -74,7 +74,7 @@ Implement the machine plane when you want your own agent runtime to be driven by
 clients — the dial-out side exposes no ports at all (NAT/firewall friendly):
 
 1. **Credentials**: the machine client needs the `uplink` scope.
-2. **Dial**: WebSocket to `wss://gateway.ai-agentic.cc/uplink?access_token=<token>`.
+2. **Dial**: WebSocket to `wss://gateway.nexo-ai.top/uplink?access_token=<token>`.
 3. **Register (must be the first frame)**: `uplink.register` with
    `instance{instanceId, workspaceCwd, hostname?, version?, channels[], active,
 pendingPermissions[]}`; wait for `uplink.registered`. Reconnecting with the same
@@ -82,7 +82,7 @@ pendingPermissions[]}`; wait for `uplink.registered`. Reconnecting with the same
    (reference: 1s start, ×2, 30s cap).
 4. **Serve RPCs**: implement all 20 hub RPCs — `hub.start/resume/submit/interrupt/
 closeActive/decide/answerAsk/stageAttachment/readAttachment`, `sessions.list/delete`,
-`session.transcript`, `models.list`, `tasks.status/list/runs`, and
+   `session.transcript`, `models.list`, `tasks.status/list/runs`, and
    `changes.list/diff/undoPreview/undo` — answering with
    `rpc.result{id, ok, result|error}`. The session surface is the first nine plus
    `sessions.list` and `session.transcript`; without the `tasks.*`/`models.list`/

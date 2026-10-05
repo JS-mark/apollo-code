@@ -15,7 +15,7 @@
 ```bash
 # 配对二维码/链接指向移动站（不再是网关自身），链接自动携带 &gw=<网关地址>
 GATEWAY_MOBILE_PUBLIC_URL=https://m.example.com
-GATEWAY_PUBLIC_URL=https://gateway.ai-agentic.cc
+GATEWAY_PUBLIC_URL=https://gateway.nexo-ai.top
 # 跨源放行移动站 Origin（REST 预检；WS 不受 CORS 约束）
 GATEWAY_CORS_ORIGINS=https://m.example.com
 ```

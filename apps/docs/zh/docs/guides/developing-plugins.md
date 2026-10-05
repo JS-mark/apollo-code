@@ -117,12 +117,12 @@ export async function activate(volund: VolundBridge): Promise<void> {
 
 ## 分发与生命周期
 
-| 通道 | 来源                                            | 生命周期                                      |
-| ---- | ----------------------------------------------- | --------------------------------------------- |
-| 内置 | 随产物分发（`apps/cli/plugins/`）               | 与产物同信任级，不可卸载                      |
-| Dev  | `~/.volund/plugins-dev/` + `VOLUND_DEV_PLUGINS` | 自动批准并启用；删目录即卸载                  |
+| 通道 | 来源                                            | 生命周期                                                        |
+| ---- | ----------------------------------------------- | --------------------------------------------------------------- |
+| 内置 | 随产物分发（`apps/cli/plugins/`）               | 与产物同信任级，不可卸载                                        |
+| Dev  | `~/.volund/plugins-dev/` + `VOLUND_DEV_PLUGINS` | 自动批准并启用；删目录即卸载                                    |
 | 归档 | `volund plugins build` 产出的 `.volund` 文件    | `volund plugins install <file>` 解包进 `~/.volund/plugins-dev/` |
-| 市场 | `~/.volund/plugins/`，从配置的市场索引安装      | 安装 → inspect → approve → enable；支持热卸载 |
+| 市场 | `~/.volund/plugins/`，从配置的市场索引安装      | 安装 → inspect → approve → enable；支持热卸载                   |
 
 市场在 `~/.volund/config.toml` 里配置：
 

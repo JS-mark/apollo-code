@@ -1,8 +1,8 @@
 {
   "name": "@volund/app-runtime",
   "version": "0.2.0",
-  "description": "Volund app runtime — shared client resolvers for plugin/skill/MCP market indexes",
   "private": true,
+  "description": "Volund app runtime — shared client resolvers for plugin/skill/MCP market indexes",
   "files": [
     "dist"
   ],

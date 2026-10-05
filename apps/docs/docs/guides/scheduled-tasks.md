@@ -43,25 +43,25 @@ volund tasks runs <id> [--limit N] [--json]
 
 ### Schedule specs
 
-| Spec | Meaning |
-| --- | --- |
-| `interval:<n><ms\|s\|m\|h>` | Every n units (minimum 60 seconds) |
-| `daily:HH:MM` | Every day at HH:MM (24h clock, task time zone) |
-| `weekly:<days>@HH:MM` | Days as `mon,wed,fri` or `0-6` (0 = Sunday) |
+| Spec                        | Meaning                                        |
+| --------------------------- | ---------------------------------------------- |
+| `interval:<n><ms\|s\|m\|h>` | Every n units (minimum 60 seconds)             |
+| `daily:HH:MM`               | Every day at HH:MM (24h clock, task time zone) |
+| `weekly:<days>@HH:MM`       | Days as `mon,wed,fri` or `0-6` (0 = Sunday)    |
 
 ### Add flags
 
-| Flag | Purpose |
-| --- | --- |
-| `--cwd <path>` | Working directory the task runs in (default: current) |
-| `--id <id>` | Task id (default: slugified name) |
-| `--tz <iana>` | IANA time zone (default: host local) |
-| `--missed <skip\|run_latest>` | Policy for windows missed while the daemon was down |
-| `--overlap <skip\|queue>` | Policy when the previous run is still in flight |
-| `--model <id>` | Pin a provider/model for the task's runs |
-| `--timeout-ms <n>` | Per-run wall-clock limit (the daemon kills overruns) |
-| `--max-retries <n>` | Retry budget for failed runs (0-10) |
-| `--disabled` | Create the task without enabling it |
+| Flag                          | Purpose                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| `--cwd <path>`                | Working directory the task runs in (default: current) |
+| `--id <id>`                   | Task id (default: slugified name)                     |
+| `--tz <iana>`                 | IANA time zone (default: host local)                  |
+| `--missed <skip\|run_latest>` | Policy for windows missed while the daemon was down   |
+| `--overlap <skip\|queue>`     | Policy when the previous run is still in flight       |
+| `--model <id>`                | Pin a provider/model for the task's runs              |
+| `--timeout-ms <n>`            | Per-run wall-clock limit (the daemon kills overruns)  |
+| `--max-retries <n>`           | Retry budget for failed runs (0-10)                   |
+| `--disabled`                  | Create the task without enabling it                   |
 
 ## What a run looks like
 

@@ -1,8 +1,8 @@
 {
   "name": "@volund/gateway-server",
   "version": "0.2.0",
-  "description": "Public remote gateway for Volund — WebSocket relay, pairing, and JWT auth",
   "private": true,
+  "description": "Public remote gateway for Volund — WebSocket relay, pairing, and JWT auth",
   "bin": {
     "volund-gateway": "dist/bin.js"
   },

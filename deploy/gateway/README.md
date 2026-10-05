@@ -1,4 +1,4 @@
-# volund 远程网关（gateway.ai-agentic.cc）
+# volund 远程网关（gateway.nexo-ai.top）
 
 公网**中转**网关（relay）：桌面 volund（TUI/Web 控制台）主动向网关拨出 `/uplink`
 注册，手机/机器客户端经网关中转控制**本机**会话（拓扑：手机 → 网关(VPS) →
@@ -67,7 +67,7 @@ Web 控制台）一起启动。配置在 Web 控制台「远程控制」tab 填�
 ```toml
 [remote]
 enabled = true
-gateway_url = "https://gateway.ai-agentic.cc"
+gateway_url = "https://gateway.nexo-ai.top"
 client_id = "volund-xxxx"
 client_secret = "..."
 ```
@@ -91,7 +91,7 @@ relay 下这些调用最终都路由到已注册的本机实例执行。
 ### 1. 换 token
 
 ```bash
-curl -X POST https://gateway.ai-agentic.cc/oauth/token \
+curl -X POST https://gateway.nexo-ai.top/oauth/token \
   -H 'content-type: application/x-www-form-urlencoded' \
   -d 'grant_type=client_credentials&client_id=REFID_002Q&client_secret=REFID_004Q'
 # → {"access_token":"...","token_type":"Bearer","expires_in":3600,"scope":"chat sessions"}
@@ -103,7 +103,7 @@ curl -X POST https://gateway.ai-agentic.cc/oauth/token \
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://gateway.ai-agentic.cc/v1",
+    base_url="https://gateway.nexo-ai.top/v1",
     api_key="<access_token>",
 )
 for chunk in client.chat.completions.create(
@@ -131,7 +131,7 @@ for chunk in client.chat.completions.create(
 ### 3. WebSocket 交互通道（审批/打断/事件流）
 
 ```
-wss://gateway.ai-agentic.cc/v1/ws        # Authorization: Bearer <token>
+wss://gateway.nexo-ai.top/v1/ws        # Authorization: Bearer <token>
                                            # 浏览器不能自定义头时用 ?access_token=<token>
 ```
 
@@ -154,7 +154,7 @@ wss://gateway.ai-agentic.cc/v1/ws        # Authorization: Bearer <token>
 最小 Node 客户端：
 
 ```js
-const ws = new WebSocket("wss://gateway.ai-agentic.cc/v1/ws?access_token=" + token)
+const ws = new WebSocket("wss://gateway.nexo-ai.top/v1/ws?access_token=" + token)
 ws.onmessage = (e) => {
   const frame = JSON.parse(e.data)
   if (frame.type === "hello") ws.send(JSON.stringify({ type: "session.start" }))

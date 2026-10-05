@@ -1,7 +1,7 @@
 # 网关接入（协议集成）
 
 远程网关是**独立的协议面**：任何实现了网关协议的应用都能对接，不依赖 volund
-代码库。公网实例 `https://gateway.ai-agentic.cc`（或按
+代码库。公网实例 `https://gateway.nexo-ai.top`（或按
 [远程网关](/zh/docs/guides/remote-gateway) 自部署）。
 
 - 字段级契约：[packages/gateway-server/PROTOCOL.md](https://github.com/JS-mark/volund-code/blob/main/packages/gateway-server/PROTOCOL.md)
@@ -18,7 +18,7 @@
 向网关运维申请机器凭证（client_id / client_secret，scope 含 `chat sessions`）：
 
 ```bash
-curl -X POST https://gateway.ai-agentic.cc/oauth/token \
+curl -X POST https://gateway.nexo-ai.top/oauth/token \
   -H 'content-type: application/x-www-form-urlencoded' \
   -d 'grant_type=client_credentials&client_id=REFID_002Q&client_secret=REFID_004Q'
 # → {"access_token":"...","token_type":"Bearer","expires_in":3600,"scope":"chat sessions"}
@@ -31,7 +31,7 @@ token 是 HS256 JWT，过期前用同一凭证重取即可（401 时重取并重
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="https://gateway.ai-agentic.cc/v1", api_key="<access_token>")
+client = OpenAI(base_url="https://gateway.nexo-ai.top/v1", api_key="<access_token>")
 for chunk in client.chat.completions.create(
     model="claude-sonnet-4",   # 裸名/别名在机器侧按 [models.aliases] 解析
     messages=[{"role": "user", "content": "把 README 翻译成英文"}],
@@ -47,7 +47,7 @@ for chunk in client.chat.completions.create(
 ### 3. 交互通道（审批 / 打断 / 事件流）
 
 ```
-wss://gateway.ai-agentic.cc/v1/ws?access_token=<token>
+wss://gateway.nexo-ai.top/v1/ws?access_token=<token>
 ```
 
 客户端帧：`ping` / `session.start{cwd?}` / `session.resume{id}` / `session.end` /
@@ -67,14 +67,14 @@ Retry-After，按它退避。完整错误码表见 PROTOCOL.md。
 拨出方不暴露任何端口，NAT/防火墙友好：
 
 1. **凭证**：机器凭证 scope 须含 `uplink`。
-2. **拨出**：WebSocket 连 `wss://gateway.ai-agentic.cc/uplink?access_token=<token>`。
+2. **拨出**：WebSocket 连 `wss://gateway.nexo-ai.top/uplink?access_token=<token>`。
 3. **注册（首帧必须）**：`uplink.register`，携带
    `instance{instanceId, workspaceCwd, hostname?, version?, channels[], active,
 pendingPermissions[]}`；收到 `uplink.registered` 后进入在线态。
    同 client 重连顶替旧连接——断线后指数退避重拨（参考实现：1s 起、×2、30s 封顶）。
 4. **承接 RPC**：实现全部 20 个 hub RPC——`hub.start/resume/submit/interrupt/
 closeActive/decide/answerAsk/stageAttachment/readAttachment`、`sessions.list/delete`、
-`session.transcript`、`models.list`、`tasks.status/list/runs`、
+   `session.transcript`、`models.list`、`tasks.status/list/runs`、
    `changes.list/diff/undoPreview/undo`，应答
    `rpc.result{id, ok, result|error}`。会话面是前九个加 `sessions.list`、
    `session.transcript`；缺 `tasks.*`/`models.list`/`changes.*` 腿时，远程侧的

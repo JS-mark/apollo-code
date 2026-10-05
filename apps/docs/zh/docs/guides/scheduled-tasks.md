@@ -43,25 +43,25 @@ volund tasks runs <id> [--limit N] [--json]
 
 ### Schedule 写法
 
-| 写法 | 含义 |
-| --- | --- |
-| `interval:<n><ms\|s\|m\|h>` | 每 n 个单位一次（最小 60 秒） |
-| `daily:HH:MM` | 每天 HH:MM（24 小时制，任务时区） |
-| `weekly:<days>@HH:MM` | 星期写 `mon,wed,fri` 或 `0-6`（0 = 周日） |
+| 写法                        | 含义                                      |
+| --------------------------- | ----------------------------------------- |
+| `interval:<n><ms\|s\|m\|h>` | 每 n 个单位一次（最小 60 秒）             |
+| `daily:HH:MM`               | 每天 HH:MM（24 小时制，任务时区）         |
+| `weekly:<days>@HH:MM`       | 星期写 `mon,wed,fri` 或 `0-6`（0 = 周日） |
 
 ### add 的 flag
 
-| Flag | 用途 |
-| --- | --- |
-| `--cwd <path>` | 任务运行的工作目录（默认：当前目录） |
-| `--id <id>` | 任务 id（默认：名称 slug 化） |
-| `--tz <iana>` | IANA 时区（默认：宿主本地时区） |
-| `--missed <skip\|run_latest>` | daemon 离线期间错过的窗口如何处理 |
-| `--overlap <skip\|queue>` | 上一次运行还在跑时的重叠策略 |
-| `--model <id>` | 为该任务的运行钉住 provider/model |
-| `--timeout-ms <n>` | 单次运行的墙钟上限（超时由 daemon 击杀） |
-| `--max-retries <n>` | 失败运行的重试预算（0-10） |
-| `--disabled` | 以禁用状态创建 |
+| Flag                          | 用途                                     |
+| ----------------------------- | ---------------------------------------- |
+| `--cwd <path>`                | 任务运行的工作目录（默认：当前目录）     |
+| `--id <id>`                   | 任务 id（默认：名称 slug 化）            |
+| `--tz <iana>`                 | IANA 时区（默认：宿主本地时区）          |
+| `--missed <skip\|run_latest>` | daemon 离线期间错过的窗口如何处理        |
+| `--overlap <skip\|queue>`     | 上一次运行还在跑时的重叠策略             |
+| `--model <id>`                | 为该任务的运行钉住 provider/model        |
+| `--timeout-ms <n>`            | 单次运行的墙钟上限（超时由 daemon 击杀） |
+| `--max-retries <n>`           | 失败运行的重试预算（0-10）               |
+| `--disabled`                  | 以禁用状态创建                           |
 
 ## 运行是什么样子
 
