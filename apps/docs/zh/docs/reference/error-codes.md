@@ -254,6 +254,7 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 | `prompt_required`                  | 缺少 prompt 输入                               |
 | `proxy_alpn_not_h2`                | 代理隧道 ALPN 未协商出 h2                      |
 | `proxy_tunnel_aborted`             | 代理 CONNECT 隧道被中止                        |
+| `proxy_tunnel_closed`              | 代理 CONNECT 隧道在建立前关闭                  |
 | `proxy_tunnel_failed`              | 代理隧道建立失败                               |
 | `proxy_tunnel_rejected`            | 代理拒绝了 CONNECT 请求                        |
 | `sandbox_network_blocked`          | 沙箱内网络访问被拦截                           |

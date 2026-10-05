@@ -978,6 +978,7 @@ describe('production tool permission composition', () => {
             toolName: 'Bash',
           },
         }),
+        expect.anything(),
       )
       expect(JSON.stringify(prompt.mock.calls[0]![0])).not.toContain(rawSecret)
       expect(mutation).toEqual({
@@ -1094,6 +1095,7 @@ describe('production tool permission composition', () => {
             spec: '[permission details unavailable - deny only]',
           }),
         }),
+        undefined,
       )
       expect(seen).toEqual([
         expect.objectContaining({
@@ -1222,6 +1224,7 @@ describe('production tool permission composition', () => {
         },
         toolName: 'Bash',
       }),
+      expect.anything(),
     )
     expect(nativeExecute).toHaveBeenCalledOnce()
     expect(seen).toEqual([

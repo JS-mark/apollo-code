@@ -3,12 +3,12 @@ import { access, appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/
 import { request as httpRequest } from 'node:http'
 import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
-import { connect as netConnect, type Socket as NetSocket } from 'node:net'
+import { connect as netConnect, isIP, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
 import { delimiter as pathDelimiter, dirname, join } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
-import { connect as tlsConnect } from 'node:tls'
+import { checkServerIdentity as tlsCheckServerIdentity, connect as tlsConnect } from 'node:tls'
 
 import {
   createAppKernel,
@@ -314,7 +314,11 @@ let cachedTlsOpts: { rejectUnauthorized: boolean; ca: Buffer[] | undefined } | u
 function proxyTlsOptions(servername: string): {
   rejectUnauthorized: boolean
   ca: Buffer[] | undefined
-  servername: string
+  servername?: string
+  checkServerIdentity?: (
+    hostname: string,
+    cert: import('node:tls').PeerCertificate,
+  ) => Error | undefined
   ALPNProtocols?: string[]
 } {
   if (!cachedTlsOpts) {
@@ -337,6 +341,14 @@ function proxyTlsOptions(servername: string): {
     }
     cachedTlsOpts = { rejectUnauthorized, ca }
   }
+  // Node ≥23 起 tls.connect 的 servername 传 IP 字面量直接抛 ERR_INVALID_ARG_VALUE
+  //（此前静默忽略）——IP 目标本就无 SNI 语义，改经 checkServerIdentity 显式按该 IP
+  // 校验证书 SAN（校验语义不变：不匹配仍拒握手）。域名目标维持 servername/SNI 原路径。
+  if (isIP(servername))
+    return {
+      ...cachedTlsOpts,
+      checkServerIdentity: (_hostname, cert) => tlsCheckServerIdentity(servername, cert),
+    }
   return { ...cachedTlsOpts, servername }
 }
 // 测试用：清除缓存使环境变量变更生效。
@@ -391,6 +403,13 @@ async function openProxyTunnel(
       if (settled) return
       settled = true
       reject(new Error(`proxy_tunnel_failed: ${cause.message}`))
+    })
+    // abort 走 destroy（无 error 事件）——close 先于 settled 到达时也要拒给上层，
+    // 否则隧道中途被中断会让 openProxyTunnel 的 await 永久悬挂。
+    socket.once('close', () => {
+      if (settled) return
+      settled = true
+      reject(new Error('proxy_tunnel_closed'))
     })
   }).finally(() => {
     signal.removeEventListener('abort', onAbort)
@@ -490,6 +509,10 @@ function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {
             req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
           })
           .catch((cause) => {
+            // TLS 建立失败必须连隧道 socket 一起销毁——泄漏的 CONNECT 隧道会让
+            // 对端代理的 server.close 永久等待（Node ≥23 的 IP servername 抛错
+            // 路径即由此在测试里挂死）。
+            socket.destroy()
             input.signal.removeEventListener('abort', onAbort)
             reject(cause)
           })
@@ -508,28 +531,35 @@ export function requestHttp2(url: URL, input: HttpRequest): Promise<HttpResponse
   return new Promise((resolve, reject) => {
     let responded = false
     const establish = proxyUrl
-      ? openProxyTunnel(proxyUrl, url, input.signal).then((tunneled) => {
+      ? openProxyTunnel(proxyUrl, url, input.signal).then(async (tunneled) => {
           // ALPN 列 h2 优先、http/1.1 兜底：抓包代理（mitmproxy/Charles）通常只讲 h1，
           // h2 协商失败时 NodeHttpPort.request 回退 requestHttp1，仍经同一隧道。
-          const tlsSocket = tlsConnect({
-            socket: tunneled,
-            ...proxyTlsOptions(url.hostname),
-            ALPNProtocols: ['h2', 'http/1.1'],
-          })
-          return new Promise<NetSocket>((res, rej) => {
-            tlsSocket.once('secureConnect', () => {
-              // ALPN 未选 h2 → 目标/代理只讲 h1，立即拒绝让上层回退 requestHttp1。
-              // 必须销毁 tlsSocket + 底层隧道 socket，否则代理连接不释放、close() 挂起。
-              if ((tlsSocket.alpnProtocol ?? 'http/1.1') !== 'h2') {
-                tlsSocket.destroy()
-                tunneled.destroy()
-                rej(new Error('proxy_alpn_not_h2'))
-                return
-              }
-              res(tlsSocket)
+          try {
+            const tlsSocket = tlsConnect({
+              socket: tunneled,
+              ...proxyTlsOptions(url.hostname),
+              ALPNProtocols: ['h2', 'http/1.1'],
             })
-            tlsSocket.once('error', rej)
-          })
+            return await new Promise<NetSocket>((res, rej) => {
+              tlsSocket.once('secureConnect', () => {
+                // ALPN 未选 h2 → 目标/代理只讲 h1，立即拒绝让上层回退 requestHttp1。
+                // 必须销毁 tlsSocket + 底层隧道 socket，否则代理连接不释放、close() 挂起。
+                if ((tlsSocket.alpnProtocol ?? 'http/1.1') !== 'h2') {
+                  tlsSocket.destroy()
+                  tunneled.destroy()
+                  rej(new Error('proxy_alpn_not_h2'))
+                  return
+                }
+                res(tlsSocket)
+              })
+              tlsSocket.once('error', (cause) => rej(cause))
+            })
+          } catch (cause) {
+            // 握手失败（含 tlsConnect 同步抛错）连隧道 socket 一起销毁——泄漏的
+            // CONNECT 隧道会让对端代理的 server.close 永久等待。
+            tunneled.destroy()
+            throw cause
+          }
         })
       : Promise.resolve(undefined)
     establish
@@ -954,7 +984,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     cwd: () => process.cwd(),
     volundHome: () => home,
     loadConfigs: (input) => loadMcpServerConfigs(input),
-    onLimited: (server) => telemetry.emit('mcp.fatigue_rate_limited', 'security', { server }),
+    onLimited: (server) => {
+      void telemetry.emit('mcp.fatigue_rate_limited', 'security', { server })
+    },
     onWarning: (message) => logger.warn(message),
   })
 

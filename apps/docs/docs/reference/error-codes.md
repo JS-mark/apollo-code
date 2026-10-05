@@ -259,6 +259,7 @@ The `volund` CLI and its `--json` error protocol (`reason.code`):
 | `prompt_required`                  | Missing prompt input                                                                  |
 | `proxy_alpn_not_h2`                | The proxy tunnel's ALPN did not negotiate h2                                          |
 | `proxy_tunnel_aborted`             | The proxy CONNECT tunnel was aborted                                                  |
+| `proxy_tunnel_closed`              | The proxy CONNECT tunnel closed before it was established                             |
 | `proxy_tunnel_failed`              | Establishing the proxy tunnel failed                                                  |
 | `proxy_tunnel_rejected`            | The proxy refused the CONNECT request                                                 |
 | `sandbox_network_blocked`          | Network access blocked inside the sandbox                                             |

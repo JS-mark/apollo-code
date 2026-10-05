@@ -225,6 +225,7 @@ export const ErrorCodes = {
   promptRequired: 'prompt_required',
   proxyAlpnNotH2: 'proxy_alpn_not_h2',
   proxyTunnelAborted: 'proxy_tunnel_aborted',
+  proxyTunnelClosed: 'proxy_tunnel_closed',
   proxyTunnelFailed: 'proxy_tunnel_failed',
   proxyTunnelRejected: 'proxy_tunnel_rejected',
   sandboxNetworkBlocked: 'sandbox_network_blocked',
