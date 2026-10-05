@@ -135,6 +135,14 @@ impl ExecRequest {
             .chain(self.permissions.fs.read.iter())
         {
             if path.contains('*') {
+                // The only glob shape backends understand is a trailing "/**"
+                // subtree suffix; anything else would be embedded literally
+                // into seatbelt/bwrap policies and silently grant nothing.
+                if !path.ends_with("/**") {
+                    return Err(format!(
+                        "only a trailing \"/**\" glob suffix is supported in permission paths: {path}"
+                    ));
+                }
                 continue;
             }
             let candidate = std::path::Path::new(path);
@@ -193,6 +201,28 @@ mod tests {
             .validate()
             .unwrap_err()
             .contains("writable filesystem root"));
+    }
+
+    #[test]
+    fn glob_paths_must_use_only_a_trailing_subtree_suffix() {
+        let request = |path: &str| ExecRequest {
+            command: "true".into(),
+            cwd: "/".into(),
+            timeout_ms: 1,
+            permissions: Permissions {
+                fs: FsPermissions {
+                    read: vec![path.into()],
+                    write: vec![],
+                },
+                net: NetworkPermissions::Disabled,
+                env: EnvPermissions::default(),
+            },
+            env: BTreeMap::new(),
+        };
+        assert!(request("/workspace/**").validate().is_ok());
+        let mid_glob = request("/opt/*/share").validate().unwrap_err();
+        assert!(mid_glob.contains("trailing \"/**\" glob suffix"));
+        assert!(request("**/escape").validate().is_err());
     }
 
     #[test]

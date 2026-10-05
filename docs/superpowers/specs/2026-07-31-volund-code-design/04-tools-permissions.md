@@ -106,6 +106,8 @@ export interface ToolResultMeta {
 - Windows：PowerShell 7+ 若存在否则 cmd；`config [tools] windows_shell` 可覆盖。
 - sandbox exec 白名单含所选 shell；shell 内命令仍受 fs/net 策略约束（syscall 层正交，§4.5）。
 - env 继承**最小集**：`PATH` / `HOME` / `LANG` / `TZ` + `config [tools] pass_through_env` 显式白名单——**非全量继承**（防宿主机敏感变量泄漏进沙箱进程）。
+- **沙箱 fs 根**：默认 `read = write = [cwd]`；`config [tools] fs_read_roots` / `fs_write_roots`（string[]，`~` 展开、须绝对、可带尾部 `/**`）把额外根并入沙箱 profile——这是项目外读写在 **Bash 通道**的唯一入口（Read/Write/Edit 走各自 fs spec，permission 弹窗 / permissions.toml 即可授权，不走此键）。
+- **墙钟超时**：`config [tools] command_timeout_ms`（默认 60000）进 `ExecRequest.timeout_ms`，Rust 侧三平台强制执行（unix spawn+try_wait 轮询；Windows Job Object Wait）；超时命令以 exit 124 + `sandbox_violations:["timeout"]` **作为结果**返回，不是传输错误。
 - 强制点：tools 单测（管道 / 变量展开 / env 最小集断言）。
 
 **后台任务（G2）**——长命令（`npm install`、`cargo build`、`--watch`、`pnpm dev`）不阻塞 turn：

@@ -1,7 +1,7 @@
+use std::io::Read;
 use volund_sandbox::{
     bundled_bwrap, digest::verify_sha256, plugin::run_plugin, probe, run, ExecRequest,
 };
-use std::io::Read;
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let probe_mode = args.iter().any(|arg| arg == "--probe");

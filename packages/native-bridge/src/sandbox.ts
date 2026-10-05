@@ -17,19 +17,28 @@ const NONE: SandboxInfo = Object.freeze({
 })
 /** r13-P1: the probe must settle within its budget even if binary resolution hangs. */
 const PROBE_BUDGET_MS = 5_000
+/**
+ * Hard kill for the sandbox binary itself. Probes get PROBE_BUDGET_MS; exec
+ * gets the command's own timeout_ms (enforced inside volund-sandbox) plus a
+ * grace window for the result line — a long-running command is a normal
+ * outcome, not a transport failure.
+ */
+const EXEC_GRACE_MS = 10_000
+const DEFAULT_EXEC_TIMEOUT_MS = 60_000
 let frozenProbe: Promise<Readonly<SandboxInfo>> | undefined
 
-function invoke(
+export function invoke(
   binary: string,
   args: string[],
   input: string | undefined,
   signal?: AbortSignal,
+  timeoutMs: number = PROBE_BUDGET_MS,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'pipe'], signal })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
-    const timeout = setTimeout(() => child.kill('SIGKILL'), 5_000)
+    const timeout = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
     child.stdout.on('data', (chunk) => stdout.push(chunk))
     child.stderr.on('data', (chunk) => stderr.push(chunk))
     child.on('error', (error) => {
@@ -107,7 +116,10 @@ export async function execSandbox(options: ExecOptions, signal?: AbortSignal): P
       'native_bridge_sandbox_binary_missing',
       'sandbox binary disappeared after frozen probe; restart required',
     )
-  return JSON.parse(await invoke(binary, ['exec'], JSON.stringify(options), signal)) as ExecResult
+  const timeoutMs = (options.timeout_ms ?? DEFAULT_EXEC_TIMEOUT_MS) + EXEC_GRACE_MS
+  return JSON.parse(
+    await invoke(binary, ['exec'], JSON.stringify(options), signal, timeoutMs),
+  ) as ExecResult
 }
 
 /** The only supported plugin process entrypoint. The inherited fd 3 is an NDJSON bridge. */

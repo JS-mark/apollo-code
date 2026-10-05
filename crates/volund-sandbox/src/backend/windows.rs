@@ -95,14 +95,28 @@ pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
     let stdout = std::fs::read_to_string(&stdout_path).unwrap_or_default();
     let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&output_dir);
-    let exit_code = result?;
+    // A wall-clock timeout is a result (exit 124 + violation), matching the
+    // Unix backends, rather than a transport error the caller cannot inspect.
+    let (exit_code, mut violations) = match result {
+        Ok(exit_code) => (exit_code, Vec::new()),
+        Err(super::RunFailure::Timeout) => (super::TIMEOUT_EXIT_CODE, vec!["timeout".to_string()]),
+        Err(super::RunFailure::Other(error)) => return Err(error),
+    };
+    let stderr = if violations.contains(&"timeout".to_string()) {
+        format!(
+            "{stderr}\nsandbox command timed out after {}ms",
+            request.timeout_ms
+        )
+    } else {
+        stderr
+    };
     Ok(ExecResult {
         stdout,
         stderr,
         exit_code,
         duration_ms: started.elapsed().as_millis(),
         sandbox_tier: SandboxTier::Partial,
-        sandbox_violations: vec![],
+        sandbox_violations: violations,
     })
 }
 
@@ -111,12 +125,12 @@ unsafe fn run_restricted(
     output_dir: &Path,
     stdout_path: &Path,
     stderr_path: &Path,
-) -> Result<i32, String> {
+) -> Result<i32, super::RunFailure> {
     cleanup_orphaned_acls()?;
     let appcontainer = AppContainerLease::create(request, output_dir)?;
     let mut process_token: HANDLE = null_mut();
     if OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut process_token) == 0 {
-        return Err(last_error("open process token"));
+        return Err(last_error("open process token").into());
     }
     let process_token = OwnedHandle(process_token);
 
@@ -133,13 +147,13 @@ unsafe fn run_restricted(
         &mut restricted_token,
     ) == 0
     {
-        return Err(last_error("create restricted token"));
+        return Err(last_error("create restricted token").into());
     }
     let restricted_token = OwnedHandle(restricted_token);
 
     let job = CreateJobObjectW(null(), null());
     if job.is_null() {
-        return Err(last_error("create Job Object"));
+        return Err(last_error("create Job Object").into());
     }
     let job = OwnedHandle(job);
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
@@ -157,7 +171,7 @@ unsafe fn run_restricted(
         std::mem::size_of_val(&limits) as u32,
     ) == 0
     {
-        return Err(last_error("configure Job Object"));
+        return Err(last_error("configure Job Object").into());
     }
 
     let command_processor = std::env::var_os("COMSPEC")
@@ -185,7 +199,7 @@ unsafe fn run_restricted(
     let mut attributes = vec![0usize; attributes_size.div_ceil(std::mem::size_of::<usize>())];
     let attributes_ptr = attributes.as_mut_ptr() as *mut c_void;
     if InitializeProcThreadAttributeList(attributes_ptr, 1, 0, &mut attributes_size) == 0 {
-        return Err(last_error("initialize process attribute list"));
+        return Err(last_error("initialize process attribute list").into());
     }
     let attributes = OwnedAttributeList(attributes_ptr);
     if UpdateProcThreadAttribute(
@@ -198,7 +212,7 @@ unsafe fn run_restricted(
         null(),
     ) == 0
     {
-        return Err(last_error("attach AppContainer security capabilities"));
+        return Err(last_error("attach AppContainer security capabilities").into());
     }
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
@@ -218,15 +232,15 @@ unsafe fn run_restricted(
         &mut process,
     ) == 0
     {
-        return Err(last_error("create restricted process"));
+        return Err(last_error("create restricted process").into());
     }
     let child_process = OwnedHandle(process.hProcess);
     let child_thread = OwnedHandle(process.hThread);
     if AssignProcessToJobObject(job.0, child_process.0) == 0 {
-        return Err(last_error("assign restricted process to Job Object"));
+        return Err(last_error("assign restricted process to Job Object").into());
     }
     if ResumeThread(child_thread.0) == u32::MAX {
-        return Err(last_error("resume restricted process"));
+        return Err(last_error("resume restricted process").into());
     }
     if WaitForSingleObject(
         child_process.0,
@@ -234,14 +248,11 @@ unsafe fn run_restricted(
     ) == WAIT_TIMEOUT
     {
         TerminateJobObject(job.0, 124);
-        return Err(format!(
-            "sandbox command timed out after {}ms",
-            request.timeout_ms
-        ));
+        return Err(super::RunFailure::Timeout);
     }
     let mut exit_code = 0;
     if GetExitCodeProcess(child_process.0, &mut exit_code) == 0 {
-        return Err(last_error("read restricted process exit code"));
+        return Err(last_error("read restricted process exit code").into());
     }
     Ok(exit_code as i32)
 }

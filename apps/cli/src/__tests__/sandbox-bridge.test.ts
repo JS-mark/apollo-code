@@ -67,6 +67,48 @@ describe('createSandboxNativeBridge (§4.3.1 / r13-I11)', () => {
     expect('env' in request).toBe(false)
   })
 
+  it('merges configured external roots into the sandbox fs profile (§4.3.1)', async () => {
+    execSandbox.mockResolvedValue(settled())
+    const bridge = createSandboxNativeBridge({
+      cwd: () => '/work',
+      onViolation: vi.fn(),
+      fsReadRoots: ['/Users/mark/shared/**', '/data/read-only'],
+      fsWriteRoots: ['/Users/mark/shared/**'],
+    })
+
+    await bridge.execute(
+      '/bin/bash',
+      ['-c', "'cat /Users/mark/shared/notes.md'"],
+      new AbortController().signal,
+    )
+
+    const [request] = execSandbox.mock.calls[0]!
+    expect(request.permissions.fs).toEqual({
+      read: ['/work', '/Users/mark/shared/**', '/data/read-only'],
+      write: ['/work', '/Users/mark/shared/**'],
+    })
+  })
+
+  it('forwards command_timeout_ms as the ExecRequest timeout', async () => {
+    execSandbox.mockResolvedValue(settled())
+    const bridge = createSandboxNativeBridge({
+      cwd: () => '/work',
+      onViolation: vi.fn(),
+      timeoutMs: 120_000,
+    })
+
+    await bridge.execute('/bin/bash', ['-c', "'true'"], new AbortController().signal)
+
+    const [request] = execSandbox.mock.calls[0]!
+    expect(request.timeout_ms).toBe(120_000)
+    // 缺省时不带字段——Rust 侧默认 60s 生效
+    const bare = createSandboxNativeBridge({ cwd: () => '/work', onViolation: vi.fn() })
+    execSandbox.mockClear()
+    execSandbox.mockResolvedValue(settled())
+    await bare.execute('/bin/bash', ['-c', "'true'"], new AbortController().signal)
+    expect('timeout_ms' in execSandbox.mock.calls[0]![0]).toBe(false)
+  })
+
   it('reports every sandbox violation with the settled tier', async () => {
     execSandbox.mockResolvedValue(
       settled({ sandbox_tier: 'partial', sandbox_violations: ['net blocked', 'fs escape'] }),

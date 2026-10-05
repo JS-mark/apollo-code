@@ -5,7 +5,7 @@ import { connect as http2Connect, constants as http2Constants } from 'node:http2
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, isIP, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { delimiter as pathDelimiter, dirname, join } from 'node:path'
+import { delimiter as pathDelimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { checkServerIdentity as tlsCheckServerIdentity, connect as tlsConnect } from 'node:tls'
@@ -703,10 +703,18 @@ async function promptSecret(question: string): Promise<string> {
  * 值可含 [env] 段写入 process.env 的配置）透传进 volund-sandbox——Rust 侧
  * env_clear 后只注入 permissions.env.read 白名单内的名字，宿主其余环境不进沙箱。
  * `env` 绝不与宿主全量环境合并（tool-kit NativeBridge 契约）。
+ *
+ * 沙箱 fs 根 = cwd + `[tools] fs_read_roots` / `fs_write_roots`（~ 展开、必须
+ * 解析为绝对路径）：没有它们，沙箱面永远钉死 cwd，项目外读写对 Bash 通道
+ * 不可达（Read/Write/Edit 走各自的 fs spec，不受此限）。超时由
+ * `[tools] command_timeout_ms`（缺省 60s）进 ExecRequest，Rust 侧执行真超时。
  */
 export function createSandboxNativeBridge(options: {
   readonly cwd: () => string
   readonly onViolation: (input: { tier: SandboxTier; reason: string }) => Promise<void>
+  readonly fsReadRoots?: readonly string[]
+  readonly fsWriteRoots?: readonly string[]
+  readonly timeoutMs?: number
 }): NativeBridge {
   return {
     async execute(command, args, signal, env) {
@@ -716,10 +724,14 @@ export function createSandboxNativeBridge(options: {
           command: [command, ...args].join(' '),
           cwd,
           permissions: {
-            fs: { read: [cwd], write: [cwd] },
+            fs: {
+              read: [cwd, ...(options.fsReadRoots ?? [])],
+              write: [cwd, ...(options.fsWriteRoots ?? [])],
+            },
             net: false,
             env: { read: Object.keys(env ?? {}) },
           },
+          ...(options.timeoutMs === undefined ? {} : { timeout_ms: options.timeoutMs }),
           ...(env ? { env } : {}),
         },
         signal,
@@ -1536,6 +1548,34 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           (name): name is string => typeof name === 'string' && name !== '',
         )
       : undefined
+    // [tools] fs_read_roots / fs_write_roots / command_timeout_ms：沙箱面配置
+    // （§4.3.1）。~ 展开 + resolve 绝对化；非绝对路径告警丢弃（Rust 侧 validate
+    // 本就拒绝，提前拦下给配置者可读的错误）。
+    const expandRoot = (value: string): string =>
+      value === '~' ? homedir() : value.startsWith('~/') ? join(homedir(), value.slice(2)) : value
+    const sandboxRoots = (key: 'fs_read_roots' | 'fs_write_roots'): string[] | undefined => {
+      const raw = toolsConfig[key]
+      if (!Array.isArray(raw)) return undefined
+      const roots: string[] = []
+      for (const entry of raw) {
+        if (typeof entry !== 'string' || entry.trim() === '') continue
+        const resolved = resolve(expandRoot(entry))
+        if (!isAbsolute(resolved)) {
+          logger.warn(`ignoring non-absolute [tools] ${key} entry: ${entry}`)
+          continue
+        }
+        roots.push(resolved)
+      }
+      return roots.length > 0 ? roots : undefined
+    }
+    const sandboxReadRoots = sandboxRoots('fs_read_roots')
+    const sandboxWriteRoots = sandboxRoots('fs_write_roots')
+    const commandTimeoutMs =
+      typeof toolsConfig.command_timeout_ms === 'number' &&
+      Number.isFinite(toolsConfig.command_timeout_ms) &&
+      toolsConfig.command_timeout_ms > 0
+        ? toolsConfig.command_timeout_ms
+        : undefined
     // 内核 `tools` 服务：注册表从 Context 取（与 model 同形态，S1 批次 A）。
     kernel.plugin(ToolsService)
     liveToolServices.add(kernel.tools)
@@ -1640,6 +1680,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     let runner: Runner
     const native = createSandboxNativeBridge({
       cwd: () => runner.state.cwd,
+      ...(sandboxReadRoots ? { fsReadRoots: sandboxReadRoots } : {}),
+      ...(sandboxWriteRoots ? { fsWriteRoots: sandboxWriteRoots } : {}),
+      ...(commandTimeoutMs === undefined ? {} : { timeoutMs: commandTimeoutMs }),
       onViolation: async ({ tier, reason }) => {
         await telemetry.violation({
           mechanism: 'volund-sandbox',
