@@ -47,6 +47,10 @@ export const configKeyRegistry = {
   'tools.windows_shell': 'allowed',
   'tools.pass_through_env': 'allowed',
   'tools.ignore_dirs': 'allowed',
+  // §4.3.1 沙箱面：Bash 沙箱 fs 根（cwd 之外的项目外读写通道）与命令墙钟超时
+  'tools.fs_read_roots': 'allowed',
+  'tools.fs_write_roots': 'allowed',
+  'tools.command_timeout_ms': 'allowed',
   // [env] 段：启动时写入 process.env 的键值对；`*_api_key` 结尾的名字被
   // §8.3.1 通用模式自动拦截（项目级 forbidden）
   'env.*': 'allowed',
@@ -233,6 +237,11 @@ export const ConfigSchema = z.strictObject({
       windows_shell: z.string().optional(),
       pass_through_env: z.array(z.string()).optional(),
       ignore_dirs: z.array(z.string()).optional(),
+      // §4.3.1 沙箱面：Bash 沙箱额外 fs 根（~ 展开、须绝对、可带尾部 /**）
+      // 与命令墙钟超时；消费在 apps/cli createSandboxNativeBridge
+      fs_read_roots: z.array(z.string()).optional(),
+      fs_write_roots: z.array(z.string()).optional(),
+      command_timeout_ms: z.number().positive().optional(),
     })
     .optional(),
   // [env] 段：启动时写入 process.env 的显式环境变量（值必须是字符串）。

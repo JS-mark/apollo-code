@@ -96,7 +96,11 @@ fn plugin_host_command(node: &Path, entry: &Path, limits: &Limits) -> String {
         entry.extension().and_then(|ext| ext.to_str()),
         Some("ts") | Some("mts") | Some("cts")
     );
-    let strip_flag = if strip_types { " --experimental-strip-types" } else { "" };
+    let strip_flag = if strip_types {
+        " --experimental-strip-types"
+    } else {
+        ""
+    };
     format!(
         "ulimit -t {}; ulimit -n {}; exec {}{} --max-old-space-size={} --input-type=module -e {} -- {}",
         limits.cpu_seconds,

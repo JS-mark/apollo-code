@@ -1,5 +1,5 @@
 use super::execute;
-use crate::profile::{ExecRequest, ExecResult, ProbeInfo, SandboxTier};
+use crate::profile::{ExecRequest, ExecResult, NetworkPermissions, ProbeInfo, SandboxTier};
 use std::{collections::BTreeMap, process::Command};
 
 pub fn escape_sbpl_string(value: &str) -> String {
@@ -17,7 +17,7 @@ pub fn escape_sbpl_string(value: &str) -> String {
         .collect()
 }
 
-fn profile(request: &ExecRequest) -> String {
+fn profile(request: &ExecRequest) -> Result<String, String> {
     const UPSTREAM_BASE_POLICY: &str = include_str!(
         "../../../volund-sandbox-vendor/upstream/sandboxing/src/seatbelt_base_policy.sbpl"
     );
@@ -64,11 +64,31 @@ fn profile(request: &ExecRequest) -> String {
             escape_sbpl_string(&path)
         ));
     }
-    if request.permissions.net.allows_network() {
-        dynamic.push("(allow network*)".into());
+    // Tier 3 on macOS: an explicit allowlist becomes per-endpoint outbound
+    // rules over the pre-resolved IP:port tuples (network.rs pins DNS before
+    // the sandbox starts, closing the rebinding window). Legacy `true` keeps
+    // the historical blanket grant.
+    match &request.permissions.net {
+        NetworkPermissions::Allowlist { allowlist } => {
+            for endpoint in crate::network::resolve_allowlist(allowlist)? {
+                // Seatbelt's remote-ip grammar is host:port; IPv6 hosts the
+                // bracketed form so the port stays unambiguous.
+                let host = if endpoint.address.is_ipv6() {
+                    format!("[{}]", endpoint.address)
+                } else {
+                    endpoint.address.to_string()
+                };
+                dynamic.push(format!(
+                    "(allow network-outbound (remote ip \"{host}:{}\"))",
+                    endpoint.port
+                ));
+            }
+        }
+        net if net.allows_network() => dynamic.push("(allow network*)".into()),
+        _ => {}
     }
     rules.extend(dynamic.iter().map(String::as_str));
-    rules.join("\n")
+    Ok(rules.join("\n"))
 }
 
 fn canonical_policy_path(path: &str) -> String {
@@ -103,7 +123,7 @@ pub fn probe() -> ProbeInfo {
 }
 
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
-    execute(command(request)?, SandboxTier::Partial)
+    execute(command(request)?, SandboxTier::Partial, request.timeout_ms)
 }
 
 pub(crate) fn command(request: &ExecRequest) -> Result<Command, String> {
@@ -113,7 +133,7 @@ pub(crate) fn command(request: &ExecRequest) -> Result<Command, String> {
     let mut command = Command::new("/usr/bin/sandbox-exec");
     command
         .arg("-p")
-        .arg(profile(request))
+        .arg(profile(request)?)
         .arg("/bin/sh")
         .arg("-c")
         .arg(&request.command)
@@ -149,12 +169,33 @@ mod tests {
             permissions: Default::default(),
             env: Default::default(),
         };
-        let generated = profile(&request);
+        let generated = profile(&request).expect("default profile builds");
         assert!(generated.contains("(deny default)"));
         assert!(generated.contains("(allow signal (target same-sandbox))"));
         assert!(generated.contains("Map system frameworks + dylibs for loader"));
         assert!(!generated.contains("file-test-existence file-write* (subpath \"/tmp\")"));
         assert!(!generated.contains("file-write* (subpath \"/private/tmp\")"));
+        assert!(!generated.contains("(allow network*)"));
+    }
+
+    #[test]
+    fn network_allowlist_becomes_pinned_remote_ip_rules() {
+        let request = ExecRequest {
+            command: "true".into(),
+            cwd: "/".into(),
+            timeout_ms: 1,
+            permissions: crate::profile::Permissions {
+                fs: Default::default(),
+                net: NetworkPermissions::Allowlist {
+                    allowlist: vec!["127.0.0.1:443".into(), "[::1]:8443".into()],
+                },
+                env: Default::default(),
+            },
+            env: Default::default(),
+        };
+        let generated = profile(&request).expect("allowlist profile builds");
+        assert!(generated.contains("(allow network-outbound (remote ip \"127.0.0.1:443\"))"));
+        assert!(generated.contains("(allow network-outbound (remote ip \"[::1]:8443\"))"));
         assert!(!generated.contains("(allow network*)"));
     }
 }

@@ -43,7 +43,7 @@ pub fn probe() -> ProbeInfo {
 }
 pub fn run(request: &ExecRequest) -> Result<ExecResult, String> {
     let (command, _bundled) = command(request, false)?;
-    execute(command, SandboxTier::Full)
+    execute(command, SandboxTier::Full, request.timeout_ms)
 }
 fn command(
     request: &ExecRequest,

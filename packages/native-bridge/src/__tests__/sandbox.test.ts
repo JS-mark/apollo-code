@@ -11,7 +11,7 @@ vi.mock('../resolver', () => ({
 }))
 
 import { nativeProbes } from '../probe'
-import { execSandbox, probeSandbox } from '../sandbox'
+import { execSandbox, invoke, probeSandbox } from '../sandbox'
 import type { ExecOptions } from '../types'
 
 const execOptions: ExecOptions = {
@@ -63,5 +63,25 @@ describe('sandbox probe', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // /bin utilities do not exist on Windows; the timeout contract itself is
+  // enforced inside volund-sandbox and covered by cargo test there.
+  const itUnix = process.platform === 'win32' ? it.skip : it
+
+  itUnix(
+    'invoke kills a hung binary at its timeout budget, not a fixed 5s',
+    async () => {
+      // /bin/sleep ignores stdin and only exits after its argument: the kill at
+      // 200ms must fire well before 5s, proving exec budgets are configurable.
+      const started = Date.now()
+      await expect(invoke('/bin/sleep', ['30'], undefined, undefined, 200)).rejects.toThrow()
+      expect(Date.now() - started).toBeLessThan(5_000)
+    },
+    15_000,
+  )
+
+  itUnix('invoke resolves a fast binary and forwards stdin', async () => {
+    await expect(invoke('/bin/cat', [], 'echo hi', undefined, 5_000)).resolves.toBe('echo hi')
   })
 })
