@@ -4,7 +4,7 @@ The remote gateway is a standalone public relay process (`@volund/gateway-server
 **not a volund CLI subcommand**): the desktop volund (TUI/Web console) dials out to
 `/uplink` and registers itself, and mobile or machine clients are routed through the
 gateway to the **local** session (topology: phone → gateway(VPS) → uplink tunnel →
-local machine). Public instance: `https://gateway.ai-agentic.cc`.
+local machine). Public instance: `https://gateway.nexo-ai.top`.
 
 > Deployment (Docker; TLS via your own fronting proxy/CDN if needed) lives in
 > `deploy/gateway/README.md`.
@@ -129,7 +129,9 @@ the desktop TUI, the Web console, and paired phones at once — a decision on an
 the card everywhere. Undecided approval requests are auto-denied after
 `GATEWAY_PERMISSION_TIMEOUT_MS` (default 120s), and unanswered question (ask) cards
 are auto-closed on the same clock — the model sees `permission_timeout` /
-`ask_timeout` in the tool result instead of a bare denial.
+`ask_timeout` in the tool result instead of a bare denial. Ask cards on the Web
+console and phones also accept a custom free-form answer typed next to the
+options; it is relayed verbatim to the model (`User answered: "..."`).
 
 ## Device pairing
 

@@ -80,10 +80,13 @@ describe('createAskUserQuestionTool', () => {
     const dismissed: ChoiceFn = async () => undefined
     const skipped = await invoke(goodInput, contextWith({ requestChoice: dismissed }))
     expect(skipped.text).toContain('dismissed')
+  })
 
-    const bogus: ChoiceFn = async () => '不存在的选项'
-    const invalid = await invoke(goodInput, contextWith({ requestChoice: bogus }))
-    expect(invalid.text).toContain('dismissed')
+  it('自由文本回答（web/mobile 卡片输入行）→ 原样透传，非 error', async () => {
+    const freeText: ChoiceFn = async () => '都不选，先跑测试再说'
+    const result = await invoke(goodInput, contextWith({ requestChoice: freeText }))
+    expect(result.isError).toBeUndefined()
+    expect(result.text).toBe('User answered: "都不选，先跑测试再说"')
   })
 
   it('提问原文与选项原样透传给宿主通道', async () => {

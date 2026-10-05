@@ -28,6 +28,8 @@ export function AskStack({
   onAnswer(requestId: string, value?: string): void
 }) {
   const [activeIndex, setActiveIndex] = useState(0)
+  /** 自由文本草稿：不选选项、键入自定义答案（与 web 卡片同语义）。 */
+  const [draft, setDraft] = useState('')
   /** 在途作答（点过的选项）：锁全部按钮直到队列投影变化；超时兜底解锁。 */
   const [pendingValue, setPendingValue] = useState<string | undefined>()
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -47,9 +49,10 @@ export function AskStack({
     if (activeIndex > asks.length - 1) setActiveIndex(Math.max(0, asks.length - 1))
   }, [activeIndex, asks.length])
 
-  // 队列投影变化（作答被接受/他端处理/新提问进来）= 在途态解除。
+  // 队列投影变化（作答被接受/他端处理/新提问进来）= 在途态解除，草稿一并清空。
   useEffect(() => {
     setPendingValue(undefined)
+    setDraft('')
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
   }, [asks])
 
@@ -67,6 +70,12 @@ export function AskStack({
     if (pendingValue !== undefined) return
     setPendingValue(value ?? '')
     onAnswer(ask.id, value)
+  }
+
+  const sendFreeText = () => {
+    const text = draft.trim()
+    if (!text) return
+    answer(text)
   }
 
   return (
@@ -125,6 +134,29 @@ export function AskStack({
             )}
           </button>
         ))}
+      </div>
+
+      <div className="askstack-freetext">
+        <input
+          className="askstack-freetext-input"
+          placeholder="自定义回答（不选选项）"
+          aria-label="自定义回答"
+          value={draft}
+          disabled={pendingValue !== undefined}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') sendFreeText()
+          }}
+        />
+        <button
+          type="button"
+          className="askstack-freetext-send"
+          aria-label="发送自定义回答"
+          disabled={pendingValue !== undefined || !draft.trim()}
+          onClick={sendFreeText}
+        >
+          发送
+        </button>
       </div>
 
       <div className="perm-actions">

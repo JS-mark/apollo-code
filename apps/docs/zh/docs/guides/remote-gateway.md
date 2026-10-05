@@ -3,7 +3,7 @@
 远程网关是独立的公网中转进程（`@volund/gateway-server`，**不经 volund CLI**）：
 桌面 volund（TUI/Web 控制台）主动向网关拨出 `/uplink` 注册，手机或机器客户端经
 网关中转控制**本机**会话（拓扑：手机 → 网关(VPS) → uplink 隧道 → 本机）。
-公网实例：`https://gateway.ai-agentic.cc`。
+公网实例：`https://gateway.nexo-ai.top`。
 
 > 部署细节（Docker；TLS 需要时走你自己的前置反代/CDN）见仓库 `deploy/gateway/README.md`。
 > 网关是独立的协议面——任何实现网关协议的应用都能对接：帧协议与 REST/WS
@@ -115,7 +115,8 @@ chat/completions 共享同一个活动会话；chat/completions 在无活动会�
 审批在本机侧按桌面权限模式进行：审批卡经隧道同时推到本机 TUI、Web 控制台与手机，
 任一端决策全端清卡；审批卡无人决策超过 `GATEWAY_PERMISSION_TIMEOUT_MS`（默认
 120s）自动 deny，提问卡共用同一时钟、无人作答自动关闭——模型侧工具结果带
-`permission_timeout` / `ask_timeout` 码，不再是笼统的拒绝。
+`permission_timeout` / `ask_timeout` 码，不再是笼统的拒绝。Web 控制台与手机的
+提问卡还支持在选项之外键入自定义回答，原文透传给模型（`User answered: "…"`）。
 
 ## 设备配对
 

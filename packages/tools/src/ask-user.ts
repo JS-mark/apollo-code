@@ -38,7 +38,9 @@ export function createAskUserQuestionTool(): Tool {
       'Use this when you need the user to make a decision or pick between concrete options ' +
       '(e.g. approach, scope, trade-offs). Provide 2-6 mutually exclusive options, each with a ' +
       'short description of its consequence. The user may also dismiss the question without ' +
-      'answering — then proceed with what you consider the best default.',
+      'answering — then proceed with what you consider the best default. The user may also ' +
+      'reply with a custom free-form answer instead of choosing an option; treat that ' +
+      'answer as authoritative and work with it.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -84,7 +86,7 @@ export function createAskUserQuestionTool(): Tool {
       if (!requestChoice) return textResult(UNAVAILABLE_RESULT, true)
       let answer: string | AskChoiceDismissal | undefined
       try {
-        answer = await requestChoice({ question, options })
+        answer = await requestChoice({ question, options }, context.abortSignal)
       } catch {
         // 宿主明确拒绝（如非交互模式）：与「未接线」同语义，模型自选默认继续。
         return textResult(UNAVAILABLE_RESULT, true)
@@ -96,9 +98,11 @@ export function createAskUserQuestionTool(): Tool {
           )
         return textResult('User dismissed the question without answering.')
       }
-      if (answer === undefined || !options.some((option) => option.label === answer))
-        return textResult('User dismissed the question without answering.')
-      return textResult(`User selected: "${answer}"`)
+      if (answer === undefined) return textResult('User dismissed the question without answering.')
+      if (options.some((option) => option.label === answer))
+        return textResult(`User selected: "${answer}"`)
+      // 非选项自由文本 = 用户自定义回答（web/mobile 卡片的输入行）：原样透传给模型。
+      return textResult(`User answered: "${answer}"`)
     },
   }
 }

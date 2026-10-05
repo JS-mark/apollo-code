@@ -20,11 +20,12 @@ import {
   RightOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
+  SendOutlined,
   StopOutlined,
   ThunderboltOutlined,
   ToolOutlined,
 } from '@ant-design/icons'
-import { Alert, Button, Dropdown, Popover, Tooltip, Typography } from 'antd'
+import { Alert, Button, Dropdown, Input, Popover, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ModelsView, SessionSummary, StagedAttachment, WebApi } from '../lib/api'
@@ -41,13 +42,12 @@ import {
   historyUp,
   historyValue,
   initialInputHistory,
-  pushHistory,
   resetHistoryNavigation,
   type InputHistoryState,
 } from '../lib/input-history'
 import type { ChatImage, ChatMessage, SubagentActivity, ToolCard } from '../lib/session-stream'
 import { chatImageSrc, chatFeed, toolLabel, useSessionStream } from '../lib/session-stream'
-import { slashCandidates, slashQueryAt, WEB_SLASH_COMMANDS } from '../lib/slash-commands'
+import { slashCandidates, slashQueryAt } from '../lib/slash-commands'
 import { BrandMark } from './BrandMark'
 import { ChangesCard } from './ChangesCard'
 import { Markdown } from './Markdown'
@@ -490,10 +490,6 @@ export function ChatPanel({
   const mentionOpen = mentionList.length > 0
   const slashOpen = slashList.length > 0
 
-  const replaceDraftToken = (replacement: string) => {
-    setDraft((current) => replaceMentionToken(current, mentionQuery?.query ?? '') + replacement)
-  }
-
   const historyPut = (state: InputHistoryState) => {
     setInputHistory(state)
     const value = historyValue(state)
@@ -796,6 +792,19 @@ export function ChatPanel({
     },
     [api, chat.ask, stream],
   )
+
+  // 自由文本回答：不选选项、直接键入答案原样透传（工具侧 User answered 语义）。
+  const [askDraft, setAskDraft] = useState('')
+  const askId = chat.ask?.id
+  useEffect(() => {
+    setAskDraft('')
+  }, [askId])
+  const sendAskFreeText = useCallback(() => {
+    const text = askDraft.trim()
+    if (!text || !chat.ask) return
+    setAskDraft('')
+    void answerAsk(text)
+  }, [askDraft, chat.ask, answerAsk])
 
   const end = useCallback(async () => {
     setBusy(true)
@@ -1360,6 +1369,26 @@ export function ChatPanel({
                       ) : null}
                     </button>
                   ))}
+                </div>
+                <div className="ask-free">
+                  <Input
+                    size="small"
+                    placeholder="自定义回答（不选选项）"
+                    aria-label="自定义回答"
+                    value={askDraft}
+                    onChange={(event) => setAskDraft(event.target.value)}
+                    onPressEnter={sendAskFreeText}
+                  />
+                  <Tooltip title="发送自定义回答">
+                    <Button
+                      size="small"
+                      type="text"
+                      aria-label="发送自定义回答"
+                      icon={<SendOutlined />}
+                      disabled={!askDraft.trim()}
+                      onClick={sendAskFreeText}
+                    />
+                  </Tooltip>
                 </div>
                 <div className="perm-actions">
                   <Button size="small" type="text" onClick={() => void answerAsk()}>

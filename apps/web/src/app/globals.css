@@ -473,6 +473,16 @@ div.tool-row:hover {
 .ask-option-desc {
   color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
 }
+/* 自由文本回答行：选项之外键入自定义答案，与跳过同排级弱样式。 */
+.ask-free {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0 8px;
+}
+.ask-free .ant-input {
+  font-size: 12px;
+}
 .chat-usage {
   margin-top: 6px;
   font-size: 12px;

@@ -261,33 +261,125 @@ body[data-theme='dark'] {
   border-color: rgba(255, 255, 255, 0.14);
 }
 
-/* 发送排队区（composer 上方）：触摸拖拽排序 + 移出。 */
+/* 发送排队区（composer 上方）：触摸拖拽排序 + 移出。
+   行几何与 ChatView 的 SEND_QUEUE_ROW_* 常量成对，改须两处同步；
+   行距用 margin-top 而非容器 gap，是为了移出行能塌缩到位不留空档。 */
 .send-queue {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   margin-bottom: 8px;
+  padding: 0 10px; /* 与 .composer/.chips 的水平留白对齐 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .send-queue-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px; /* SEND_QUEUE_ROW_HEIGHT 依赖此值，改须同步 */
-  padding: 0 10px;
-  border: 1px solid var(--ant-color-border, #d9d9d9);
-  border-radius: 10px;
+  box-sizing: border-box;
+  height: 44px; /* SEND_QUEUE_ROW_HEIGHT 依赖此值 */
+  margin-top: 6px; /* SEND_QUEUE_ROW_GAP 依赖此值 */
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-radius: 12px;
   background: var(--ant-color-bg-container, #fff);
-  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  font-size: 13px;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.3, 1),
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    opacity 200ms ease,
+    height 200ms ease,
+    margin-top 200ms ease;
+  animation: send-queue-row-in 240ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.send-queue-row:first-child {
+  margin-top: 0;
+}
+
+@keyframes send-queue-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+/* 拖拽中：抬升起浮；transform 跟手（内联样式），不做过渡。 */
+.send-queue-row.dragging {
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+  z-index: 2;
+  border-color: var(--ant-color-primary-border, #91caff);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+}
+
+/* 松手：滑入目标槽位的同时收起抬升，落位后组件才提交重排。 */
+.send-queue-row.settling {
+  transition:
+    transform 170ms cubic-bezier(0.25, 0.8, 0.35, 1),
+    /* SEND_QUEUE_SETTLE_MS */ box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+/* 移出：右滑淡出 + 高度塌缩，动画播完组件才真正出队。 */
+.send-queue-row.removing {
+  height: 0;
+  margin-top: 0;
+  border-color: transparent;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(28px);
 }
 
 .send-queue-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 34px;
+  margin-left: -6px;
+  border-radius: 8px;
   cursor: grab;
   touch-action: none; /* 拖手柄时不滚动页面 */
   color: var(--ant-color-text-quaternary, #999);
-  font-size: 14px;
-  line-height: 1;
-  padding: 4px 2px;
+  font-size: 13px;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.send-queue-handle:active {
+  color: var(--ant-color-primary, #1677ff);
+  background: var(--ant-color-fill-tertiary, #f5f5f5);
+}
+
+.send-queue-index {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--ant-color-primary-bg, #e6f4ff);
+  color: var(--ant-color-primary, #1677ff);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.send-queue-row.dragging .send-queue-index {
+  background: var(--ant-color-primary, #1677ff);
+  color: #fff;
 }
 
 .send-queue-text {
@@ -300,16 +392,49 @@ body[data-theme='dark'] {
 }
 
 .send-queue-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
   border: none;
+  border-radius: 50%;
   background: none;
-  padding: 4px;
+  padding: 0;
   color: var(--ant-color-text-quaternary, #999);
   cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.send-queue-remove:active {
+  background: var(--ant-color-error-bg, #fff1f0);
+  color: var(--ant-color-error, #ff4d4f);
+  transform: scale(0.9);
 }
 
 [data-theme='dark'] .send-queue-row {
   border-color: var(--ant-color-border, #333);
   background: var(--ant-color-bg-container, #1f1f1f);
+  box-shadow: none;
+}
+
+[data-theme='dark'] .send-queue-row.dragging {
+  border-color: var(--ant-color-primary-border, #153450);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .send-queue-row,
+  .send-queue-handle,
+  .send-queue-index,
+  .send-queue-remove {
+    transition-duration: 0s;
+    animation: none;
+  }
 }
 
 .composer-wrap {
@@ -921,6 +1046,42 @@ body[data-theme='dark'] {
 .askstack-skip {
   margin-top: 2px;
   align-self: center;
+}
+
+/* 自由文本回答行：选项之外键入自定义答案（与 web 卡片同语义）。 */
+.askstack-freetext {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.askstack-freetext-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--ant-color-info-border, #91caff);
+  border-radius: 10px;
+  background: var(--ant-color-bg-container, #fff);
+  color: inherit;
+  font-size: 12px;
+}
+
+.askstack-freetext-input:disabled {
+  opacity: 0.55;
+}
+
+.askstack-freetext-send {
+  padding: 7px 12px;
+  border: 1px solid var(--ant-color-info-border, #91caff);
+  border-radius: 10px;
+  background: var(--ant-color-info-bg, #e6f4ff);
+  color: inherit;
+  font-size: 12px;
+}
+
+.askstack-freetext-send:disabled {
+  opacity: 0.55;
 }
 
 .perm-denonly-hint {
