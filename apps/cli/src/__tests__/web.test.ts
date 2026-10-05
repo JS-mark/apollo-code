@@ -34,14 +34,14 @@ function fakeInteractive(id: string) {
   }
 }
 
-function fakePorts() {
+function fakePorts(options: { noActive?: boolean } = {}) {
   const active = fakeInteractive('sess-embedded-1')
   const permissionPrompts = new PermissionPromptController()
   const ports = {
     identity: { version: '0.0.0-test', name: 'volund-test' },
     version: '0.0.0-test',
     session: {
-      getActive: () => active,
+      getActive: options.noActive ? () => undefined : () => active as typeof active | undefined,
       onActivate: () => () => {},
       async startInteractive() {
         return active
@@ -179,6 +179,69 @@ describe('web startEmbedded（§22 W-01）', () => {
     } finally {
       if (prevHome === undefined) delete process.env.VOLUND_HOME
       else process.env.VOLUND_HOME = prevHome
+    }
+  })
+})
+
+describe('workbench 保存走全闸 mutation 管线（SAG-12 入口 C）', () => {
+  async function bootstrapAuth(base: string) {
+    const boot = await fetch(`${base}/api/v1/bootstrap`)
+    const cookie = (boot.headers.get('set-cookie') ?? '').split(';')[0]!
+    const body = (await boot.json()) as { data: { session: { csrfToken: string } } }
+    return { Cookie: cookie, Origin: base, 'X-Volund-Csrf': body.data.session.csrfToken }
+  }
+
+  it('有活动会话：保存成功并真实落盘（mutateFiles 管线）', async () => {
+    const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const cwd = await mkdtemp(join(tmpdir(), 'volund-web-wb-'))
+    try {
+      await (await import('node:fs/promises')).writeFile(join(cwd, 'notes.md'), 'old\n', 'utf8')
+      const { ports } = fakePorts()
+      const web = createWebPort(ports)
+      const handle = await web.startEmbedded?.({ cwd })
+      close = handle!.close
+      const { hostname, port } = new URL(handle!.url)
+      const base = `http://${hostname}:${port}`
+      const auth = await bootstrapAuth(base)
+      const saved = await fetch(`${base}/api/v1/workbench/fs/write`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: 'notes.md', content: 'saved via workbench\n' }),
+      })
+      expect(saved.status).toBe(200)
+      expect(await readFile(join(cwd, 'notes.md'), 'utf8')).toBe('saved via workbench\n')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('无活动会话：保存拒绝（web_session_invalid → 409）', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const cwd = await mkdtemp(join(tmpdir(), 'volund-web-wb2-'))
+    try {
+      await (await import('node:fs/promises')).writeFile(join(cwd, 'notes.md'), 'old\n', 'utf8')
+      const { ports } = fakePorts({ noActive: true })
+      const web = createWebPort(ports)
+      const handle = await web.startEmbedded?.({ cwd })
+      close = handle!.close
+      const { hostname, port } = new URL(handle!.url)
+      const base = `http://${hostname}:${port}`
+      const auth = await bootstrapAuth(base)
+      const saved = await fetch(`${base}/api/v1/workbench/fs/write`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: 'notes.md', content: 'x' }),
+      })
+      expect(saved.status).toBe(409)
+      const body = (await saved.json()) as { error?: { code?: string; message?: string } }
+      expect(body.error?.code).toBe('web_session_invalid')
+      expect(body.error?.message).toContain('no active session')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
     }
   })
 })

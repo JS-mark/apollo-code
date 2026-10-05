@@ -99,6 +99,18 @@ export interface WorkbenchPort {
   rename(from: string, to: string): Promise<{ from: string; to: string }>
 }
 
+/**
+ * SAG-12 全闸 mutation 端口：宿主实现（apps/cli web.ts）用 tools 的
+ * mutateFiles 落盘——`.volundlock` 串行化 + BackupStore 备份 + CAS/回滚事务，
+ * 会话归属 = hub.active?.id（与 changes/undo 端点同源）；无活动会话时宿主
+ * 以 web_session_invalid 拒绝。
+ */
+export interface WorkbenchMutationPort {
+  write(
+    updates: readonly { readonly path: string; readonly content: string | Uint8Array }[],
+  ): Promise<void>
+}
+
 /** fs/stat 返回面。 */
 export interface WorkbenchStat {
   path: string
@@ -188,6 +200,14 @@ export function createWorkbenchPort(
      * 记警告不阻塞保存（编辑器保存是用户显式动作，不能因审计面失败而丢失）。
      */
     onWrite?: (path: string) => Promise<void>
+    /**
+     * SAG-12（spec §2.7bis.3 入口 C）：全闸 mutation 管线（锁+CAS+备份+undo）。
+     * 提供时 writeText/writeBytes 的实际落盘整体交给宿主实现（tools 的
+     * mutateFiles：`.volundlock` 串行化 + BackupStore 备份 + 回滚事务），写与
+     * agent 工具链同锁同备份同 undo；错误（无活动会话/锁冲突）原样上抛由
+     * failFrom 映射状态码。缺省时走旧路径（onWrite 备份 + 直写），测试/降级用。
+     */
+    mutation?: WorkbenchMutationPort
   } = {},
 ): WorkbenchPort {
   const root = resolve(rootInput)
@@ -307,6 +327,11 @@ export function createWorkbenchPort(
       const abs = resolveWithin(rel)
       const info = await stat(abs).catch(() => fail('web_schema_invalid', `not found: ${rel}`))
       if (!info.isFile()) fail('web_schema_invalid', `not a file: ${rel}`)
+      if (options.mutation) {
+        // SAG-12 入口 C：与 agent 工具同锁同备份同 undo；错误原样上抛。
+        await options.mutation.write([{ path: abs, content }])
+        return { path: rel, size: Buffer.byteLength(content, 'utf8') }
+      }
       await backupBeforeWrite(abs)
       await writeFile(abs, content, 'utf8')
       return { path: rel, size: Buffer.byteLength(content, 'utf8') }
@@ -351,6 +376,12 @@ export function createWorkbenchPort(
       // 与 writeText 不同:允许新建(vscode 新建文件/粘贴图片走这里),父目录必须已存在。
       const info = await stat(abs).catch(() => undefined)
       if (info?.isDirectory()) fail('web_schema_invalid', `is a directory: ${rel}`)
+      if (options.mutation) {
+        // SAG-12：二进制同样走全闸管线（mutateFiles 对不存在路径按新建放行，
+        // BackupStore 把 ENOENT 记为 existed:false）。
+        await options.mutation.write([{ path: abs, content: new Uint8Array(buffer) }])
+        return { path: rel, size: buffer.byteLength }
+      }
       // 只备份已存在的文件（新建无 before 快照，BackupStore 本就把 ENOENT 记为
       // existed:false，但此处省一次调用）。
       if (info?.isFile()) await backupBeforeWrite(abs)

@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { createMemoryPanelController, projectMemoryScope } from '@volund/app-runtime'
 import { standaloneArtifactDir } from '@volund/native-bridge'
 import { TaskStore } from '@volund/storage'
+import { mutateFiles } from '@volund/tools'
 import { createWebServer } from '@volund/web-server'
 import type { TasksPortLike, WebServerOptions } from '@volund/web-server'
 import { createSessionGroupStore } from '@volund/web-server/session-groups'
@@ -208,15 +209,28 @@ function buildServerOptions(
       // 侧栏会话分组：与端口记忆同目录（<home>/web/），跨重启保留。
       sessionGroups: createSessionGroupStore(join(input.home, 'web', 'session-groups.json')),
       // 工作台（右侧栏）：文件树/搜索/git 锚定本工作区 cwd；终端是交互式 shell（WS）。
-      // W-08 SAG 条款：编辑器保存先经活动会话 BackupStore 备份（before 快照 +
-      // SessionChanges 归因），保存不再绕过 undo 管线；无活动会话/文件不在会话
-      // 备份面时跳过，备份失败只警告不阻塞用户保存。
+      // SAG-12（spec §2.7bis.3 入口 C）：保存走全闸 mutation 管线（tools 的
+      // mutateFiles：.volundlock 串行化 + BackupStore 备份 + CAS/回滚），与
+      // agent 写同一管线——Web 编辑与 agent 并发改同文件串行化、changes/undo
+      // 双向可见。会话归属钉死 = hub.active?.id（与 changes/undo 端点同源）；
+      // 无活动会话保存拒绝（web_session_invalid）并提示。
       workbench: createWorkbenchPort(cwd, {
-        onWrite: async (absolutePath) => {
-          const sessionId = sessionHub.getActiveSessionId?.()
-          if (!sessionId || !ports.backups) return
-          const pending = await ports.backups.prepare(sessionId, [absolutePath])
-          await pending.commit()
+        mutation: {
+          write: async (updates) => {
+            const sessionId = sessionHub.getActiveSessionId?.()
+            if (!sessionId)
+              throw Object.assign(
+                new Error(
+                  'no active session to attribute this save; start or resume a session first',
+                ),
+                { code: 'web_session_invalid' },
+              )
+            await mutateFiles(
+              { id: sessionId },
+              updates.map((update) => ({ path: update.path, content: update.content })),
+              ports.backups,
+            )
+          },
         },
       }),
       terminal: createTerminalPort(cwd, {

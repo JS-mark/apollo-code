@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { EditTool, ReadTool, WriteTool, contentHash, sessionReadHash } from '../index'
+import { mutateFiles, EditTool, ReadTool, WriteTool, contentHash, sessionReadHash } from '../index'
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -271,5 +271,28 @@ describe('stale .volundlock reaping (spec §4.3.4, SAG-05)', () => {
     const result = await new WriteTool().invoke({ path: 'garbled.txt', content: 'x' }, context(cwd))
     expect(result.isError).toBe(true)
     expect(textOf(result)).toContain('file locked by another volund session')
+  }, 10_000)
+})
+
+describe('mutateFiles 公共端口（SAG-12：二进制内容 + 锁集成）', () => {
+  it('Uint8Array 内容原样落盘（workbench writeBytes 同管线）', async () => {
+    const cwd = await fixture()
+    const bytes = new Uint8Array([0x00, 0x89, 0x50, 0x4e, 0x47, 0xff])
+    await mutateFiles({ id: 'session-1' }, [{ path: resolve(cwd, 'img.bin'), content: bytes }])
+    expect(new Uint8Array(await readFile(resolve(cwd, 'img.bin')))).toEqual(bytes)
+  })
+
+  it('workbench/宿主持同一 .volundlock 时与 mutateFiles 串行化（stale 回收后成功）', async () => {
+    const cwd = await fixture()
+    const target = resolve(cwd, 'shared.txt')
+    await writeFile(target, 'old', 'utf8')
+    const lockPath = `${target}.volundlock`
+    // 模拟一个 stale 持有者（死 pid + 锁龄超阈值）——公共锁原语应回收并放行。
+    await writeFile(lockPath, `${await deadPid()} web-save\n`)
+    await ageLock(lockPath)
+    await mutateFiles({ id: 'session-1' }, [{ path: target, content: 'new' }])
+    expect(await readFile(target, 'utf8')).toBe('new')
+    // 落盘后锁文件已释放。
+    await expect(readFile(lockPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   }, 10_000)
 })

@@ -10,8 +10,6 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { PluginError } from '@volund/plugin-runtime'
-
 import {
   installFromGithub,
   isNewerVersion,

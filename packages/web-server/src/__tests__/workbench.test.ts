@@ -513,3 +513,78 @@ describe('terminal websocket route', () => {
     20_000,
   )
 })
+
+describe('workbench mutation 端口（SAG-12 入口 C：全闸管线委托）', () => {
+  it('writeText 委托 mutation.write（绝对路径 + 内容），自身不再落盘', async () => {
+    const root = await workspace()
+    const writes: { path: string; content: string | Uint8Array }[] = []
+    const port = createWorkbenchPort(root, {
+      mutation: {
+        write: async (updates) => {
+          writes.push(...updates)
+        },
+      },
+    })
+    const result = await port.writeText('src/hello.ts', 'export const hello = "mutated"\n')
+    expect(result).toEqual({
+      path: 'src/hello.ts',
+      size: Buffer.byteLength('export const hello = "mutated"\n', 'utf8'),
+    })
+    expect(writes).toEqual([
+      { path: join(root, 'src', 'hello.ts'), content: 'export const hello = "mutated"\n' },
+    ])
+    // 端口 mock 未落盘 → 文件保持原内容（写 wholly owned by 宿主管线）。
+    expect(await readFile(join(root, 'src', 'hello.ts'), 'utf8')).toBe(
+      'export const hello = "world"\n',
+    )
+  })
+
+  it('writeBytes 走同一端口（二进制 Uint8Array）', async () => {
+    const root = await workspace()
+    const writes: { path: string; content: string | Uint8Array }[] = []
+    const port = createWorkbenchPort(root, {
+      mutation: {
+        write: async (updates) => {
+          writes.push(...updates)
+        },
+      },
+    })
+    await port.writeBytes('blob.bin', Buffer.from([0x01, 0x02, 0x03]).toString('base64'))
+    expect(writes).toHaveLength(1)
+    expect(writes[0]!.path).toBe(join(root, 'blob.bin'))
+    expect(Buffer.from(writes[0]!.content as Uint8Array)).toEqual(Buffer.from([0x01, 0x02, 0x03]))
+  })
+
+  it('宿主端口错误（无活动会话/锁冲突）原样上抛由路由层映射', async () => {
+    const root = await workspace()
+    const port = createWorkbenchPort(root, {
+      mutation: {
+        write: async () => {
+          throw Object.assign(new Error('no active session to attribute this save'), {
+            code: 'web_session_invalid',
+          })
+        },
+      },
+    })
+    await expect(port.writeText('src/hello.ts', 'x')).rejects.toMatchObject({
+      code: 'web_session_invalid',
+    })
+    await expect(port.writeBytes('blob.bin', 'AQID')).rejects.toMatchObject({
+      code: 'web_session_invalid',
+    })
+  })
+
+  it('无 mutation 端口时保持旧路径（onWrite 备份 + 直写），行为不变', async () => {
+    const root = await workspace()
+    const backedUp: string[] = []
+    const port = createWorkbenchPort(root, {
+      onWrite: async (path) => {
+        backedUp.push(path)
+      },
+    })
+    const result = await port.writeText('src/hello.ts', 'fallback\n')
+    expect(result.size).toBe(Buffer.byteLength('fallback\n', 'utf8'))
+    expect(await readFile(join(root, 'src', 'hello.ts'), 'utf8')).toBe('fallback\n')
+    expect(backedUp).toEqual([join(root, 'src', 'hello.ts')])
+  })
+})

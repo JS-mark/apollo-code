@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  open,
   lstat,
   mkdir,
   readFile,
@@ -8,13 +7,13 @@ import {
   realpath,
   rename,
   rm,
-  stat,
   writeFile,
 } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 
 import type { PermissionManager, PermissionSpec } from '@volund/permission'
 import type { ContentPart } from '@volund/provider-kit'
+import { acquireFileLock } from '@volund/shared'
 import type { DispatchParent, SubagentBudget, SubagentDispatcher } from '@volund/subagent'
 import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
@@ -86,11 +85,11 @@ async function safeMutationPath(cwd: string, input: string): Promise<string> {
   return path
 }
 
-async function atomicWrite(path: string, content: string): Promise<void> {
+async function atomicWrite(path: string, content: string | Uint8Array): Promise<void> {
   await mkdir(resolve(path, '..'), { recursive: true })
   const temporary = resolve(path, '..', `.${randomUUID()}.volund-tmp`)
   try {
-    await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+    await writeFile(temporary, content, { flag: 'wx', mode: 0o600 })
     await rename(temporary, path)
   } finally {
     await rm(temporary, { force: true })
@@ -175,11 +174,11 @@ export function diffLineCounts(
   return { linesAdded, linesRemoved }
 }
 
-async function mutateFiles(
+export async function mutateFiles(
   session: { id: string; rootSessionId?: string },
   updates: Array<{
     path: string
-    content: string
+    content: string | Uint8Array
     expect?: FileSnapshot
     /**
      * SAG-05 (spec §4.3.4): admission gate evaluated AFTER the mutation locks
@@ -201,7 +200,7 @@ async function mutateFiles(
   const backupSessionId = session.rootSessionId ?? session.id
   let transaction: FileMutationTransaction | undefined
   try {
-    for (const path of paths) releases.push(await acquireMutationLock(path, session.id))
+    for (const path of paths) releases.push(await acquireFileLock(`${path}.volundlock`, session.id))
     for (const update of updates) await update.guard?.()
     transaction = backups
       ? await backups.prepare(backupSessionId, paths)
@@ -211,7 +210,7 @@ async function mutateFiles(
         throw new Error(changedSinceReadError(update.path))
     for (const update of updates) await atomicWrite(update.path, update.content)
     for (const update of updates)
-      if ((await snapshotOf(update.path)).hash !== contentHash(update.content))
+      if ((await snapshotOf(update.path)).hash !== contentHash(Buffer.from(update.content)))
         throw new Error(changedAfterWriteError(update.path))
     await transaction?.commit()
   } catch (error) {
@@ -247,67 +246,6 @@ async function prepareEphemeralTransaction(paths: string[]): Promise<FileMutatio
       }
       settled = true
     },
-  }
-}
-
-async function lockConflictMessage(lockPath: string): Promise<string> {
-  const holder = await readFile(lockPath, 'utf8').catch(() => '')
-  const pid = /^\s*(\d+)/.exec(holder)?.[1]
-  return `file locked by another volund session${pid ? ` (pid ${pid})` : ''}, retry later`
-}
-
-/**
- * SAG-05 (spec §4.3.4, design §3.2 step 4): a `.volundlock` is reaped only when
- * BOTH conditions hold — the recorded holder pid is dead (ESRCH; EPERM counts
- * as alive) and the lock is older than this threshold. A live pid is never
- * preempted, and an unparseable lock file is left alone (conservative).
- */
-const MUTATION_LOCK_REAP_AGE_MS = 60_000
-
-/** Removes the lock file when it is provably stale; returns true when removed. */
-async function reapStaleMutationLock(lockPath: string): Promise<boolean> {
-  const holder = await readFile(lockPath, 'utf8').catch(() => undefined)
-  if (holder === undefined) return false
-  const pidText = /^\s*(\d+)/.exec(holder)?.[1]
-  const pid = pidText ? Number(pidText) : Number.NaN
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return false // holder alive — never preempt a live process
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false
-  }
-  const ageMs = await stat(lockPath)
-    .then((info) => Date.now() - info.mtimeMs)
-    .catch(() => Number.NaN)
-  if (!Number.isFinite(ageMs) || ageMs < MUTATION_LOCK_REAP_AGE_MS) return false
-  await rm(lockPath, { force: true })
-  return true
-}
-
-async function acquireMutationLock(path: string, sessionId: string): Promise<() => Promise<void>> {
-  const lockPath = `${path}.volundlock`
-  let attempt = 0
-  let reapsLeft = 2
-  for (;;) {
-    try {
-      const handle = await open(lockPath, 'wx', 0o600)
-      await handle.writeFile(`${process.pid} ${sessionId}\n`)
-      return async () => {
-        await handle.close()
-        await rm(lockPath, { force: true })
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      // Stale-lock reaping (SAG-05): retry immediately without burning an attempt.
-      if (reapsLeft > 0 && (await reapStaleMutationLock(lockPath))) {
-        reapsLeft--
-        continue
-      }
-      if (attempt === 3) throw new Error(await lockConflictMessage(lockPath), { cause: error })
-      attempt++
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
-    }
   }
 }
 

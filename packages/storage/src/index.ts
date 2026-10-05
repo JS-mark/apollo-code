@@ -20,6 +20,7 @@ import { createInterface } from 'node:readline'
 
 import type { CoreEvent, EventBus, PromptComposer } from '@volund/core'
 import type { PermissionDecision, PermissionRequest } from '@volund/permission'
+import { acquireFileLock } from '@volund/shared'
 import { sanitize, unifiedDiff, formatUnifiedDiff, type JsonValue } from '@volund/shared'
 
 import type { MemoryRecordAttachment } from './memory-runtime'
@@ -1062,24 +1063,4 @@ async function directorySize(path: string): Promise<number> {
     total += entry.isDirectory() ? await directorySize(child) : (await stat(child)).size
   }
   return total
-}
-
-async function acquireFileLock(lockPath: string, owner: string): Promise<() => Promise<void>> {
-  let lastError: unknown
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      const handle = await open(lockPath, 'wx', 0o600)
-      await handle.writeFile(`${process.pid} ${owner}\n`)
-      return async () => {
-        await handle.close()
-        await rm(lockPath, { force: true })
-      }
-    } catch (error) {
-      lastError = error
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      if (attempt === 3) throw new Error(`File lock unavailable: ${lockPath}`, { cause: error })
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50))
-    }
-  }
-  throw new Error(`File lock unavailable: ${lockPath}`, { cause: lastError })
 }
