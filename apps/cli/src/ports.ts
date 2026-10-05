@@ -21,6 +21,7 @@ import type {
   StatusValue,
   StatusViewModel,
   SessionCandidate,
+  SubagentsPanelController,
 } from '@volund/ui'
 
 import type { AppIdentity } from './shared/app-identity'
@@ -237,6 +238,11 @@ export interface VolundPorts {
       paths: readonly string[],
     ): Promise<{ commit(): Promise<void>; rollback(): Promise<void> }>
   }
+  /**
+   * SAG-13：subagent 运行注册表面（dispatcher #runs 导出 + 取消）。web 控制台
+   * Subagents 页 / 移动站运行行 / 网关 RPC 腿共用同一控制器实例。
+   */
+  subagents?: SubagentsPanelController
   /** §22 W-01：Web 控制台随 TUI 静默自启（无独立 web 子命令）。 */
   web?: {
     /**

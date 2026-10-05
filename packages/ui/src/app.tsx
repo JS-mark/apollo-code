@@ -454,6 +454,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         attachmentChipLabels.current.set(attachment.handle.slice(0, 8), attachment.chip)
   }, [])
 
+  // SAG-13（§6.2）：后台 subagent 的 settled 通知行——dispatched 时记 agentType
+  // （settled payload 不带），settled 时以系统行披露终态。注册表事件本身仍不进
+  // 交互态（运行中进度走 /subagents 面板），这里只取终态一行。
+  const subagentAgentTypes = useRef(new Map<string, string>())
+
   const flushPendingToTranscript = useCallback(
     (state: InteractiveAppState, id: string): InteractiveAppState => {
       if (!state.pendingAssistantText) return state
@@ -503,6 +508,60 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         // SUBAGENTS-UI-r1：subagent 冒泡事件（附录 D.3 tag）不进交互态——
         // 子会话在后台静默执行，进度走 /subagents 面板；主转录只保留 Task 的
         // 最终 tool_result。持久化由 runtime 层订阅负责，不受此过滤影响。
+        // SAG-13 例外：注册表事件的 dispatched/settled 在过滤前被截获——前者记
+        // agentType 供后者用，后者转一条系统通知行（§6.2 v2 通知的 TUI 腿）。
+        if (event.type === 'subagent.dispatched') {
+          const payload = event.payload as { sessionId?: unknown; agentType?: unknown } | undefined
+          if (typeof payload?.sessionId === 'string' && typeof payload.agentType === 'string')
+            subagentAgentTypes.current.set(payload.sessionId, payload.agentType)
+          return
+        }
+        if (event.type === 'subagent.settled') {
+          const payload = event.payload as
+            | {
+                sessionId?: unknown
+                status?: unknown
+                toolCalls?: unknown
+                durationMs?: unknown
+                usage?: { costUSD?: unknown }
+                detail?: unknown
+              }
+            | undefined
+          if (payload && typeof payload.sessionId === 'string') {
+            const settledId = payload.sessionId
+            const agentType = subagentAgentTypes.current.get(settledId) ?? 'task-agent'
+            subagentAgentTypes.current.delete(settledId)
+            const status =
+              payload.status === 'failed'
+                ? '失败'
+                : payload.status === 'cancelled'
+                  ? '已取消'
+                  : '完成'
+            const seconds = Math.max(0, Math.round(Number(payload.durationMs ?? 0) / 1000))
+            const durationText =
+              seconds >= 60
+                ? `${Math.floor(seconds / 60)}m${(seconds % 60).toString().padStart(2, '0')}s`
+                : `${seconds}s`
+            const cost = Number(payload.usage?.costUSD ?? 0)
+            const notice =
+              `${agentType} subagent ${status} · ${durationText}` +
+              ` · ${Number(payload.toolCalls ?? 0)} tool calls` +
+              (cost > 0 ? ` · $${cost.toFixed(4)}` : '') +
+              (typeof payload.detail === 'string' && payload.detail ? ` — ${payload.detail}` : '')
+            setState((current) => ({
+              ...current,
+              transcript: [
+                ...current.transcript,
+                {
+                  id: `subagent-settled-${settledId}`,
+                  role: 'system' as const,
+                  text: notice,
+                },
+              ],
+            }))
+          }
+          return
+        }
         if ('parentTurnId' in event || (event.parentDepth ?? 0) > 0) return
         if (event.type === 'stream.started') {
           streamBuffer.reset()

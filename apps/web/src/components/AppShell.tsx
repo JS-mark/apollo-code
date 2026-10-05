@@ -34,6 +34,7 @@ import { SettingsPage } from './SettingsPage'
 import { ShortcutsPage } from './ShortcutsPage'
 import { StatsPage } from './StatsPage'
 import { StatusPage } from './StatusPage'
+import { SubagentsPage } from './SubagentsPage'
 import { TasksPage } from './TasksPage'
 import { WorkbenchPanel } from './WorkbenchPanel'
 
@@ -43,6 +44,7 @@ type Route =
   | 'status'
   | 'manage'
   | 'tasks'
+  | 'subagents'
   | 'settings'
   | 'shortcuts'
   | 'changes'
@@ -156,6 +158,7 @@ export function AppShell() {
           status: '状态',
           manage: '管理',
           tasks: '定时任务',
+          subagents: 'Subagents',
           settings: '设置',
           shortcuts: '快捷键',
           changes: '变更',
@@ -172,6 +175,7 @@ export function AppShell() {
       go('status'),
       go('manage'),
       go('tasks'),
+      go('subagents'),
       go('remote'),
       go('changes'),
       go('stats'),
@@ -456,6 +460,8 @@ export function AppShell() {
           <AppstoreOutlined />,
         )}
         {tasksAvailable && railButton('tasks', '任务', <ClockCircleOutlined />)}
+        {bootstrap.capabilities.subagents === true &&
+          railButton('subagents', 'Subagents（子代理运行）', <ForkOutlined />)}
         {railButton('status', '状态', <ApiOutlined />)}
         {railButton('remote', '远程控制', <CloudServerOutlined />)}
         <span style={{ flex: 1 }} />
@@ -549,6 +555,8 @@ export function AppShell() {
               <ManagePage api={loaded.api} capabilities={bootstrap.capabilities} />
             ) : route === 'tasks' ? (
               <TasksPage api={loaded.api} />
+            ) : route === 'subagents' ? (
+              <SubagentsPage api={loaded.api} />
             ) : route === 'status' ? (
               <StatusPage status={status} />
             ) : route === 'remote' ? (

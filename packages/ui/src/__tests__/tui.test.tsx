@@ -744,6 +744,72 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('turns subagent.dispatched/settled into a settled notice line (SAG-13 §6.2 TUI leg)', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        sessionId: 'session-notice',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    // dispatched（父总线归属，payload.sessionId 是子）：不进转录，只记 agentType。
+    await events.emit({
+      type: 'subagent.dispatched',
+      version: 1,
+      sessionId: 'session-notice',
+      turnId: 'turn-1',
+      payload: {
+        sessionId: 'sub-notice-1',
+        parentSessionId: 'session-notice',
+        parentTurnId: 'turn-1',
+        agentType: 'explore',
+        depth: 1,
+        isolationTier: 0,
+        fork: false,
+        budget: {},
+        promptDigest: 'scan the repo',
+        ctxIn: 1200,
+      },
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).not.toContain('scan the repo')
+    // settled：转一条系统通知行（状态 · 时长 · 工具调用数）。
+    await events.emit({
+      type: 'subagent.settled',
+      version: 1,
+      sessionId: 'session-notice',
+      turnId: 'turn-1',
+      payload: {
+        sessionId: 'sub-notice-1',
+        status: 'completed',
+        usage: { input: 10, output: 5, costUSD: 0.0123 },
+        ctxOut: 100,
+        toolCalls: 4,
+        durationMs: 65_000,
+      },
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('explore subagent 完成')
+    expect(stdout.output).toContain('1m05s')
+    expect(stdout.output).toContain('4 tool calls')
+    expect(stdout.output).toContain('$0.0123')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('renders ◆ tool activity lines from tool.requested/tool.completed', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()

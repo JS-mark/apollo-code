@@ -522,6 +522,21 @@ export class RemoteLink {
       if (!undo) throw new Error('changes undo is not supported by this hub')
       return undo.call(this.options.hub)
     }
+    // SAG-13：subagent 运行注册表（移动站只读运行行 + 取消；经本机面板控制器）。
+    if (method === 'subagents.list') {
+      const list = this.options.hub.subagentsList
+      return list ? list.call(this.options.hub) : { runs: [] }
+    }
+    if (method === 'subagents.cancel') {
+      const cancel = this.options.hub.subagentsCancel
+      if (!cancel) throw new Error('subagent cancel is not supported by this hub')
+      return cancel.call(this.options.hub, String(params.sessionId ?? ''))
+    }
+    if (method === 'subagents.cancelAll') {
+      const cancelAll = this.options.hub.subagentsCancelAll
+      if (!cancelAll) throw new Error('subagent cancel is not supported by this hub')
+      return cancelAll.call(this.options.hub)
+    }
     throw new Error(`unknown uplink rpc method: ${method}`)
   }
 

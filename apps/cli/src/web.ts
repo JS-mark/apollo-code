@@ -203,6 +203,8 @@ function buildServerOptions(
       embedded: true,
       management,
       ...(ports.changes ? { changes: ports.changes } : {}),
+      // SAG-13：subagent 运行注册表面（dispatcher #runs 导出 + 取消）。
+      ...(ports.subagents ? { subagents: ports.subagents } : {}),
       // W-17：任务调度只读面（TaskStore 背书；daemon 在场性经 daemon.lock 探测）。
       tasks: createTasksPort(input.home, ports, cwd),
       models: { list: () => listModels(ports, cwd) },

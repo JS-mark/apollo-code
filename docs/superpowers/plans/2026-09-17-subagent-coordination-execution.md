@@ -46,8 +46,8 @@
 | 1 | SAG-09 | G3：agent 定义 allowedTools 超父集拒绝接线 | subagent/agent-registry | 波 A |
 | 2 | SAG-10 | §1.2：ctxUsagePct 压力信号 + follow 模式 | subagent/ui | ✅ |
 | 2 | SAG-11 | §3.5：锁表视图（持有者=lock 扫描 + 等待者=dispatcher 注册表） | subagent/ui | ✅ |
-| 2 | SAG-12 | U2：mutation 公共端口提炼 + workbench 统一入口（归属 hub.active） | storage/tools/web-server | 独波（双大文件） |
-| 2 | SAG-13 | §6.2：Web SubagentsPage + 数据面 + TUI 通知行接线 + Mobile 只读运行行/取消 | web-server/web/ui/mobile | 依赖 SAG-03 |
+| 2 | SAG-12 | U2：mutation 公共端口提炼 + workbench 统一入口（归属 hub.active） | storage/tools/web-server | ✅ |
+| 2 | SAG-13 | §6.2：Web SubagentsPage + 数据面 + TUI 通知行接线 + Mobile 只读运行行/取消 | web-server/web/ui/mobile | ✅ |
 | 2 | SAG-14 | B4：MachineEvent 血统字段 + `volund agents list/runs` | core/cli | ✅ |
 | 2 | SAG-15 | N7 前半：内置只读 agentType explore/plan | subagent | ✅ |
 | 2 | SAG-16 | /agents 管理面 + r 键热重载 | ui/subagent | ✅ |

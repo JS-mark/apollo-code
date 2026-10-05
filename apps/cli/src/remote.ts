@@ -179,6 +179,22 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
         if (!activeId || !ports.changes) return Promise.reject(new Error('no active session'))
         return ports.changes.undoStep(activeId)
       },
+      // SAG-13：subagent 运行注册表（移动站只读运行行 + 取消的隧道终点）。
+      // 进程本地注册表不挂会话——无控制器时按空视图/显式错误回。
+      subagentsList: () =>
+        ports.subagents
+          ? ports.subagents.list().then((runs) => ({ runs }))
+          : Promise.resolve({ runs: [] }),
+      subagentsCancel: (sessionId) => {
+        if (!ports.subagents)
+          return Promise.reject(new Error('subagents surface is not supported by this hub'))
+        return ports.subagents.cancel(sessionId).then((message) => ({ message }))
+      },
+      subagentsCancelAll: () => {
+        if (!ports.subagents)
+          return Promise.reject(new Error('subagents surface is not supported by this hub'))
+        return ports.subagents.cancelAll().then((stopped) => ({ stopped }))
+      },
     }
     link = createRemoteLink({
       // 拨号瞬间取 cachedConfig；缓存由 start() 与 refreshConfig()（web 写 [remote]

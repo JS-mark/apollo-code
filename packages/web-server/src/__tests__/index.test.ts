@@ -1431,4 +1431,82 @@ describe('workbench raw preview endpoint', () => {
     const anonymous = await fetch(`${base}api/v1/workbench/raw/doc.md`)
     expect(anonymous.status).toBe(401)
   })
+
+  it('subagents registry endpoints: list/cancel/cancel-all + 503 when unwired (SAG-13)', async () => {
+    // 未装配端口 → 503。
+    const bare = await start()
+    const bareBase = baseOf(bare.url)
+    const bareBoot = await fetch(`${bareBase}api/v1/bootstrap`)
+    const bareCookie = (bareBoot.headers.get('set-cookie') ?? '').split(';')[0]!
+    const bareDenied = await fetch(`${bareBase}api/v1/subagents`, {
+      headers: { Cookie: bareCookie },
+    })
+    expect(bareDenied.status).toBe(503)
+    await handle?.close()
+    handle = undefined
+
+    // 装配端口 → 三端点闭环。
+    const runs = [
+      {
+        sessionId: 'sub-1',
+        depth: 1,
+        status: 'running' as const,
+        startedAt: 1,
+        promptPreview: 'scan the repo',
+        prompt: 'scan the repo',
+      },
+      {
+        sessionId: 'sub-2',
+        depth: 1,
+        status: 'completed' as const,
+        startedAt: 1,
+        endedAt: 2,
+        promptPreview: 'summarize',
+        prompt: 'summarize',
+      },
+    ]
+    const cancelled: string[] = []
+    const { url } = await start({
+      subagents: {
+        list: async () => runs,
+        cancel: async (sessionId) => {
+          cancelled.push(sessionId)
+          return 'Subagent cancelled'
+        },
+        cancelAll: async () => {
+          cancelled.push('*')
+          return 2
+        },
+      },
+    })
+    const base = baseOf(url)
+    const auth = await authed(url)
+    void base
+    const listRes = await fetch(`${baseOf(url)}api/v1/subagents`, {
+      headers: { Cookie: auth.cookie },
+    })
+    expect(listRes.status).toBe(200)
+    expect(((await listRes.json()) as { data: { runs: unknown } }).data).toEqual({ runs })
+    const badBody = await fetch(`${baseOf(url)}api/v1/subagents/cancel`, {
+      method: 'POST',
+      headers: auth.headers,
+    })
+    expect(badBody.status).toBe(400)
+    const cancelRes = await fetch(`${baseOf(url)}api/v1/subagents/cancel`, {
+      method: 'POST',
+      headers: auth.headers,
+      body: JSON.stringify({ sessionId: 'sub-1' }),
+    })
+    expect(cancelRes.status).toBe(200)
+    expect(((await cancelRes.json()) as { data: unknown }).data).toEqual({
+      message: 'Subagent cancelled',
+    })
+    const cancelAllRes = await fetch(`${baseOf(url)}api/v1/subagents/cancel-all`, {
+      method: 'POST',
+      headers: auth.headers,
+    })
+    expect(cancelAllRes.status).toBe(200)
+    expect(((await cancelAllRes.json()) as { data: unknown }).data).toEqual({ stopped: 2 })
+    expect(cancelled).toEqual(['sub-1', '*'])
+  })
 })

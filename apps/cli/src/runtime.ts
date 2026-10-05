@@ -1857,6 +1857,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     trust,
     // W-08 SAG 条款：工作台写路径的 pre-write 备份源（web.ts 经 ports 消费）。
     backups,
+    // SAG-13：subagent 运行注册表面（web Subagents 页 / 移动站运行行 / 网关腿）。
+    subagents: subagentsPanelController,
     // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
     // §22 W-07：进程级共享审批队列（TUI/Web 多路订阅；权限链 prompt 源）。
     permissionPrompts,

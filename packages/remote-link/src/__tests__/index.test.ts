@@ -144,6 +144,35 @@ class FakeHub implements GatewayHubLike {
     return { undone: true, paths: ['src/a.ts'], warnings: [] }
   }
 
+  /** SAG-13 subagent 隧道腿：注册表 + 取消计数器供用例断言。 */
+  cancelledSubagents: string[] = []
+
+  async subagentsList() {
+    return {
+      runs: [
+        {
+          sessionId: 'sub-1',
+          agentType: 'explore',
+          depth: 1,
+          status: 'running' as const,
+          startedAt: 1,
+          promptPreview: 'scan the repo',
+          prompt: 'scan the repo',
+        },
+      ],
+    }
+  }
+
+  async subagentsCancel(sessionId: string) {
+    this.cancelledSubagents.push(sessionId)
+    return { message: `Subagent cancelled` }
+  }
+
+  async subagentsCancelAll() {
+    this.cancelledSubagents.push('*')
+    return { stopped: 2 }
+  }
+
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -736,5 +765,58 @@ describe('RemoteLink', () => {
     link.start()
     await waitOnline(link)
     expect(tokenRequests).toBe(afterFirstDial + 1)
+  })
+
+  it('serves the SAG-13 subagent registry + cancel through the tunnel', async () => {
+    await startGateway()
+    link = createLink()
+    link.start()
+    await waitOnline(link)
+
+    const tokenRes = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      }),
+    })
+    const token = ((await tokenRes.json()) as { access_token: string }).access_token
+    const auth = { Authorization: `Bearer ${token}` }
+
+    // 列表经 uplink rpc 落到本机 hub.subagentsList。
+    const listRes = await fetch(`${base}/v1/sessions/active/subagents`, { headers: auth })
+    expect(listRes.status).toBe(200)
+    const listView = (await listRes.json()) as {
+      runs: { sessionId: string; agentType: string; status: string }[]
+    }
+    expect(listView.runs).toEqual([
+      expect.objectContaining({ sessionId: 'sub-1', agentType: 'explore', status: 'running' }),
+    ])
+
+    // 取消单个（网关 schema 校验 + 隧道透传）。
+    const noBody = await fetch(`${base}/v1/sessions/active/subagents/cancel`, {
+      method: 'POST',
+      headers: auth,
+    })
+    expect(noBody.status).toBe(400)
+    const cancelRes = await fetch(`${base}/v1/sessions/active/subagents/cancel`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'sub-1' }),
+    })
+    expect(cancelRes.status).toBe(200)
+    expect(await cancelRes.json()).toEqual({ message: 'Subagent cancelled' })
+    expect(hub.cancelledSubagents).toEqual(['sub-1'])
+
+    // 全停。
+    const cancelAllRes = await fetch(`${base}/v1/sessions/active/subagents/cancel-all`, {
+      method: 'POST',
+      headers: auth,
+    })
+    expect(cancelAllRes.status).toBe(200)
+    expect(await cancelAllRes.json()).toEqual({ stopped: 2 })
+    expect(hub.cancelledSubagents).toEqual(['sub-1', '*'])
   })
 })

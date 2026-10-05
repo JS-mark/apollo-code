@@ -34,6 +34,7 @@ import type {
   GatewayModelsView,
   GatewayStagedAttachment,
   GatewaySubmitAttachment,
+  GatewaySubagentRun,
   GatewayUndoPreview,
   GatewayUndoResult,
 } from './hub'
@@ -226,6 +227,21 @@ export class RemoteHub implements GatewayHubLike {
 
   changesUndo(): Promise<GatewayUndoResult> {
     return this.call('changes.undo', {}) as Promise<GatewayUndoResult>
+  }
+
+  /** SAG-13：subagent 运行注册表（GET .../subagents 的隧道腿）。 */
+  subagentsList(): Promise<{ readonly runs: readonly GatewaySubagentRun[] }> {
+    return this.call('subagents.list', {}) as Promise<{
+      readonly runs: readonly GatewaySubagentRun[]
+    }>
+  }
+
+  subagentsCancel(sessionId: string): Promise<{ readonly message: string }> {
+    return this.call('subagents.cancel', { sessionId }) as Promise<{ readonly message: string }>
+  }
+
+  subagentsCancelAll(): Promise<{ readonly stopped: number }> {
+    return this.call('subagents.cancelAll', {}) as Promise<{ readonly stopped: number }>
   }
 
   subscribe(listener: (envelope: GatewayEnvelope) => void): () => void {

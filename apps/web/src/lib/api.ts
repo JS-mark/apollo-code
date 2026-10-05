@@ -183,6 +183,21 @@ export function formatSchedule(schedule: TaskScheduleView): string {
   return `每周 ${(schedule.weekdays ?? []).join(',')} ${schedule.at ?? ''}`
 }
 
+// ── SAG-13 subagent 运行注册表 ─────────────────────────────────────────
+export interface SubagentRunRow {
+  sessionId: string
+  agentType?: string
+  depth: number
+  status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted'
+  startedAt: number
+  endedAt?: number
+  promptPreview: string
+  prompt: string
+  usage?: { input: number; output: number; costUSD: number }
+  toolCalls?: number
+  detail?: string
+}
+
 // ── REM-r1 远程控制 ────────────────────────────────────────────────────
 export interface RemoteStatusView {
   state: 'off' | 'connecting' | 'online'
@@ -460,6 +475,25 @@ export class WebApi {
   }> {
     return parseResponse(
       await fetch(`/api/v1/sessions/active/changes${opts?.stats ? '?stats=1' : ''}`),
+    )
+  }
+  // ── SAG-13 subagent 运行注册表 ────────────────────────────────────
+  /** subagent 运行列表（dispatcher #runs 投影；503 = 服务端未装配）。 */
+  async subagents(): Promise<{ runs: SubagentRunRow[] }> {
+    return parseResponse(await fetch('/api/v1/subagents'))
+  }
+  async cancelSubagent(sessionId: string): Promise<{ message: string }> {
+    return parseResponse(
+      await fetch('/api/v1/subagents/cancel', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ sessionId }),
+      }),
+    )
+  }
+  async cancelAllSubagents(): Promise<{ stopped: number }> {
+    return parseResponse(
+      await fetch('/api/v1/subagents/cancel-all', { method: 'POST', headers: this.headers() }),
     )
   }
   async undoPreview(): Promise<{

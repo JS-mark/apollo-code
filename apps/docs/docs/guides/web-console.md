@@ -24,6 +24,7 @@ Volund ships a local web console that starts **automatically and silently** when
 | Status   | Session status panel, `/status` tabs contributed by plugins                                                                                                |
 | Manage   | MCP servers (add/inspect/enable/**Authenticate** via OAuth), skills (install/market), memory editor, plugin manager                                        |
 | Tasks    | Scheduled task definitions and run journal (read-only over the remote gateway)                                                                             |
+| Subagents | Subagent run registry (status/usage/duration); running entries can be cancelled (tunneled over the remote gateway)                                        |
 | Remote   | Gateway pairing, device management, remote-control status                                                                                                  |
 | Settings | Config view/edit, shortcuts, session statistics                                                                                                            |
 

@@ -47,6 +47,7 @@ export type {
   GatewayModelsView,
   GatewayStagedAttachment,
   GatewaySubmitAttachment,
+  GatewaySubagentRun,
 } from './hub'
 export type {
   GatewayOAuthClient,
@@ -1102,6 +1103,55 @@ export async function createGatewayServer(
           )
         try {
           ok(res, await hubForAuth.changesUndo())
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      // ── SAG-13：subagent 运行注册表（移动站只读运行行 + 取消；relay 经隧道）──
+      if (path === '/v1/sessions/active/subagents' && req.method === 'GET') {
+        const hubForAuth = resolveHub(auth)
+        try {
+          ok(res, hubForAuth.subagentsList ? await hubForAuth.subagentsList() : { runs: [] })
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      if (path === '/v1/sessions/active/subagents/cancel' && req.method === 'POST') {
+        const body = (await readJsonBody(req, maxBodyBytes).catch(() => undefined)) as
+          | { sessionId?: unknown }
+          | undefined
+        if (typeof body?.sessionId !== 'string' || body.sessionId === '')
+          return fail(
+            res,
+            new GatewayError('gateway_schema_invalid', 400, 'missing body field: sessionId'),
+          )
+        const hubForAuth = resolveHub(auth)
+        if (!hubForAuth.subagentsCancel)
+          return fail(
+            res,
+            new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+          )
+        try {
+          ok(res, await hubForAuth.subagentsCancel(body.sessionId))
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
+        return
+      }
+
+      if (path === '/v1/sessions/active/subagents/cancel-all' && req.method === 'POST') {
+        const hubForAuth = resolveHub(auth)
+        if (!hubForAuth.subagentsCancelAll)
+          return fail(
+            res,
+            new GatewayError('gateway_uplink_offline', 503, 'machine uplink disconnected'),
+          )
+        try {
+          ok(res, await hubForAuth.subagentsCancelAll())
         } catch (cause) {
           return fail(res, cause instanceof GatewayError ? cause : offline())
         }

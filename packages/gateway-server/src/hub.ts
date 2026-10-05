@@ -85,6 +85,12 @@ export interface GatewayHubLike {
   /** undo 预览/执行（POST .../changes/undo 的隧道腿）：本机侧消费最近备份批次。 */
   changesUndoPreview?(): Promise<GatewayUndoPreview>
   changesUndo?(): Promise<GatewayUndoResult>
+  /** SAG-13：subagent 运行注册表（GET .../subagents 的隧道腿）。 */
+  subagentsList?(): Promise<{ readonly runs: readonly GatewaySubagentRun[] }>
+  /** 取消一个运行中的 subagent（POST .../subagents/cancel）。 */
+  subagentsCancel?(sessionId: string): Promise<{ readonly message: string }>
+  /** 全停当前运行（POST .../subagents/cancel-all）。 */
+  subagentsCancelAll?(): Promise<{ readonly stopped: number }>
 }
 
 /** 附件字节（uplink 回程的 base64 载荷 + 回放用的 Content-Type）。 */
@@ -138,6 +144,21 @@ export interface GatewayChangeRow {
 export interface GatewayChangesView {
   readonly paths: readonly GatewayChangeRow[]
   readonly missing?: boolean
+}
+
+/** SAG-13：subagent 运行行（本机 SubagentsPanelController 契约的 JSON 投影，网关不解释）。 */
+export interface GatewaySubagentRun {
+  readonly sessionId: string
+  readonly agentType?: string
+  readonly depth: number
+  readonly status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted'
+  readonly startedAt: number
+  readonly endedAt?: number
+  readonly promptPreview: string
+  readonly prompt: string
+  readonly usage?: { input: number; output: number; costUSD: number }
+  readonly toolCalls?: number
+  readonly detail?: string
 }
 
 /** 单文件净效果 diff（结构对齐 @volund/storage SessionFileDiff）。 */

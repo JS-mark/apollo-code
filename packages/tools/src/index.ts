@@ -1,14 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import {
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  writeFile,
-} from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 
 import type { PermissionManager, PermissionSpec } from '@volund/permission'

@@ -40,6 +40,30 @@ export interface ChangesPortLike {
   undoPath?(sessionId: string, path: string): Promise<unknown>
 }
 
+/** SAG-13：subagent 运行行（SubagentsPanelController 契约的 JSON 投影）。 */
+export interface SubagentRunView {
+  readonly sessionId: string
+  readonly agentType?: string
+  readonly depth: number
+  readonly status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted'
+  readonly startedAt: number
+  readonly endedAt?: number
+  readonly promptPreview: string
+  readonly prompt: string
+  readonly usage?: { input: number; output: number; costUSD: number }
+  readonly toolCalls?: number
+  readonly detail?: string
+}
+
+/** SAG-13：subagent 运行注册表面（dispatcher #runs 导出 + 取消）。 */
+export interface SubagentsPortLike {
+  list(): Promise<readonly SubagentRunView[]>
+  /** 取消一个运行中的 subagent；不在运行中抛错（错误码随 failFrom 映射）。 */
+  cancel(sessionId: string): Promise<string>
+  /** 全停当前运行；返回停止个数。 */
+  cancelAll(): Promise<number>
+}
+
 /**
  * W-17 批次 3：任务调度只读面（TaskStore 背书，apps/cli 装配）。
  * 只读是所有权铁律的镜像（F1-01）：触发与写操作只在 daemon/CLI，web/mobile
@@ -152,6 +176,11 @@ export interface WebServerOptions {
   readonly management?: ManagementPorts
   /** W-08：会话变更与 undo。 */
   readonly changes?: ChangesPortLike
+  /**
+   * SAG-13：subagent 运行注册表面（dispatcher #runs 导出 + 取消）。缺失时端点
+   * 503、前端隐藏 Subagents 入口。
+   */
+  readonly subagents?: SubagentsPortLike
   /** W-17：任务调度只读面（TaskStore 背书；缺端口=前端隐藏任务入口）。 */
   readonly tasks?: TasksPortLike
   /** W-06：模型列表（当前生效模型 + config 别名解析后的 provider/model 候选）。 */
@@ -612,6 +641,8 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             terminal: options.terminal !== undefined,
             // REM-r1 远程控制 tab。
             remote: options.remote !== undefined,
+            // SAG-13：subagent 运行注册表面（Subagents 页 + 取消）。
+            subagents: options.subagents !== undefined,
             // W-13：设置页全量 config（读合并视图 + 写/清用户级）。
             config:
               options.ports.config?.listMerged !== undefined &&
@@ -1452,6 +1483,50 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       try {
         ok(res, await options.changes.undoPath(activeId, body.path))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    // ── SAG-13：subagent 运行注册表（列表 + 取消）──────────────────────────
+    if (path === '/api/v1/subagents' && req.method === 'GET') {
+      if (!options.subagents) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: 'subagents is not wired' })
+        return
+      }
+      try {
+        ok(res, { runs: await options.subagents.list() })
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (path === '/api/v1/subagents/cancel' && req.method === 'POST') {
+      if (!options.subagents) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: 'subagents is not wired' })
+        return
+      }
+      const body = (await readJsonBody(req).catch(() => undefined)) as
+        | { sessionId?: unknown }
+        | undefined
+      if (typeof body?.sessionId !== 'string' || body.sessionId === '') {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'missing body field: sessionId' })
+        return
+      }
+      try {
+        ok(res, { message: await options.subagents.cancel(body.sessionId) })
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (path === '/api/v1/subagents/cancel-all' && req.method === 'POST') {
+      if (!options.subagents) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: 'subagents is not wired' })
+        return
+      }
+      try {
+        ok(res, { stopped: await options.subagents.cancelAll() })
       } catch (cause) {
         failFrom(res, cause)
       }

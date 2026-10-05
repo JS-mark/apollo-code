@@ -121,6 +121,9 @@ export type HubRpcMethod =
   | 'changes.diff'
   | 'changes.undoPreview'
   | 'changes.undo'
+  | 'subagents.list'
+  | 'subagents.cancel'
+  | 'subagents.cancelAll'
 
 export interface UplinkRpcFrame {
   readonly type: 'rpc'

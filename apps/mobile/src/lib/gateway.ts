@@ -215,6 +215,21 @@ export interface UndoPreview {
   warnings: { path: string; kind: string }[]
 }
 
+/** SAG-13：subagent 运行行（GET /v1/sessions/active/subagents 返回面）。 */
+export interface SubagentRunRow {
+  sessionId: string
+  agentType?: string
+  depth: number
+  status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted'
+  startedAt: number
+  endedAt?: number
+  promptPreview: string
+  prompt: string
+  usage?: { input: number; output: number; costUSD: number }
+  toolCalls?: number
+  detail?: string
+}
+
 /**
  * 附件字节缓存：transcript 图片随滚动反复挂载/卸载，字节内容寻址不可变——
  * 缓存 Blob（非 objectURL，挂载方自行 create/revoke），失败不留缓存允许重试。
@@ -348,6 +363,26 @@ export class GatewayApi {
     }
     if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
     return (await res.json()) as { undone: boolean; reason?: string }
+  }
+
+  /** SAG-13：subagent 运行注册表（只读运行行数据源；relay 经隧道取自本机）。 */
+  subagents(): Promise<{ runs: SubagentRunRow[] }> {
+    return this.get('/v1/sessions/active/subagents')
+  }
+
+  /** 取消一个运行中的 subagent（运行行上的取消按钮）。 */
+  async cancelSubagent(sessionId: string): Promise<{ message: string }> {
+    const res = await fetch(`${gatewayBase()}/v1/sessions/active/subagents/cancel`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}` },
+      body: JSON.stringify({ sessionId }),
+    })
+    if (res.status === 401) {
+      notifyUnauthorized()
+      throw new Error('凭证已失效，请重新配对')
+    }
+    if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
+    return (await res.json()) as { message: string }
   }
 
   /** 附件上传：原始字节直传（Content-Type = 图片 mime），回本机 AttachmentStore 引用。 */

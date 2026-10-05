@@ -21,6 +21,7 @@ import { ChatView, type SubmitImage } from '../components/ChatView'
 import { MineView } from '../components/MineView'
 import { PairView } from '../components/PairView'
 import { SessionsView } from '../components/SessionsView'
+import { SubagentsRow } from '../components/SubagentsRow'
 import { TasksView } from '../components/TasksView'
 import { WelcomeView } from '../components/WelcomeView'
 import {
@@ -96,6 +97,8 @@ function MobileApp() {
   sessionRef.current = session
   // 会话级网关 REST 面（变更卡片等直取）；token 维度 memoize，随配对/解绑重建。
   const gateway = useMemo(() => (session ? new GatewayApi(session.token) : undefined), [session])
+  // SAG-13：subagent 只读运行行的刷新信号——subagent.* 事件帧到达时递增。
+  const [subagentsTick, setSubagentsTick] = useState(0)
   // onEvent 的事件过滤须读最新 activeSessionId（WS 闭包只在 token 变化时重建）。
   const activeSessionRef = useRef(activeSessionId)
   activeSessionRef.current = activeSessionId
@@ -223,6 +226,8 @@ function MobileApp() {
         // 单活动会话模型：过滤非当前会话的残留信封（activeSessionId 读 ref，避免陈旧闭包）。
         const active = activeSessionRef.current
         if (active && envelope.sessionId && envelope.sessionId !== active) return
+        // subagent 注册表有变化：通知运行行刷新（事件帧即增量信号，行内自拉列表）。
+        if (viewEvent?.type?.startsWith('subagent.')) setSubagentsTick((value) => value + 1)
         dispatch({ type: 'envelope', envelope })
       },
       onFrame: (frame) => {
@@ -508,6 +513,7 @@ function MobileApp() {
     <div className="app">
       {header}
       <div className="app-body">
+        {tab === 'chat' ? <SubagentsRow gateway={gateway} tick={subagentsTick} /> : null}
         {tab === 'chat' ? (
           <ChatView
             state={state}
