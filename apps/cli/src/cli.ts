@@ -1256,6 +1256,11 @@ export async function runCli(
         // §7.5.3：@ picker 的文件候选源。
         ...(interactive.listFiles ? { listFiles: () => interactive.listFiles!() } : {}),
         onSubmit: interactive.submit,
+        // 队列补发等锁：turn 终态事件先于互斥释放出站，补发先 whenTurnSettled 再
+        // submit（缺省 = 旧宿主 facade，TUI 按直接提交回退）。
+        ...(interactive.whenTurnSettled
+          ? { whenTurnSettled: () => interactive.whenTurnSettled!() }
+          : {}),
         // /model 选择落盘：钉住会话级模型（session.model_changed 事件进 jsonl），
         // resume 时由 replay 还原——模型选择不再只活在 TUI 内存里。
         onModelSelect: (model) => ports.session.setModel?.(model),
@@ -1300,6 +1305,9 @@ export async function runCli(
                   : {}),
                 ...(resumed.listFiles ? { listFiles: () => resumed.listFiles!() } : {}),
                 onSubmit: resumed.submit,
+                ...(resumed.whenTurnSettled
+                  ? { whenTurnSettled: () => resumed.whenTurnSettled!() }
+                  : {}),
                 ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
               })
               return {

@@ -150,7 +150,7 @@ export interface GatewayServerOptions {
   }
   /** 移动端静态站目录（Next 静态导出产物）；GET 非保留路径由此托管。 */
   readonly staticDir?: string
-  /** 配对 URL 的公网基地址（https://gateway.ai-agentic.cc）；缺省按请求 Host 推断。 */
+  /** 配对 URL 的公网基地址（https://gateway.nexo-ai.top）；缺省按请求 Host 推断。 */
   readonly publicUrl?: string
   /**
    * 移动站单独部署时的站点公网基地址（https://m.example.com）。缺省 = publicUrl
