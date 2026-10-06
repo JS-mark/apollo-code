@@ -52,7 +52,7 @@ import {
 } from '@volund/core'
 import type { RunnerToolPort } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
-import { execSandbox, probeSandbox } from '@volund/native-bridge'
+import { countTokens, execSandbox, probeSandbox } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
 import type { PermissionSessionMode, PermissionSpec } from '@volund/permission'
 import {} from '@volund/plugin-runtime'
@@ -1265,11 +1265,16 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         ? anthropicEntry.model
         : undefined
     const configuredModel = preferencesModel ?? providerModel
-    const contextPolicy = new SlidingWindowPolicy({
-      compactionThreshold: tuned.compaction_threshold,
-      targetRatio: tuned.target_ratio,
-      keepRecent: tuned.keep_recent,
-    })
+    const contextPolicy = new SlidingWindowPolicy(
+      {
+        compactionThreshold: tuned.compaction_threshold,
+        targetRatio: tuned.target_ratio,
+        keepRecent: tuned.keep_recent,
+      },
+      // Real BPE counts (native fs worker, gpt-tokenizer fallback) instead of
+      // the chars/3.5 estimate; the policy caches by content hash.
+      { countTokens: (text, model) => countTokens(text, model) },
+    )
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
     // H3：已激活插件的 prompt fragments 注册进本会话 composer（id 加插件命名

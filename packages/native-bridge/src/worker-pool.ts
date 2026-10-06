@@ -15,6 +15,8 @@ type SpawnLike = (
 interface Options {
   idleMs?: number
   handshakeMs?: number
+  /** A worker alive this long clears the consecutive-crash breaker (default 10s). */
+  crashResetMs?: number
   ipcMaxLineBytes?: number
   telemetry?: IpcTelemetry
   resolve?: typeof resolveBinary
@@ -29,8 +31,11 @@ interface Handle {
 export class WorkerPool {
   private readonly workers = new Map<WorkerKind, Handle>()
   private readonly restarts = new Map<WorkerKind, number>()
+  /** In-flight spawns per kind: ensureWorker is single-flight, never double-spawns. */
+  private readonly ensuring = new Map<WorkerKind, Promise<ChildProcessWithoutNullStreams | null>>()
   private readonly idleMs: number
   private readonly handshakeMs: number
+  private readonly crashResetMs: number
   private readonly ipcMaxLineBytes: number | undefined
   private readonly telemetry: IpcTelemetry | undefined
   private readonly resolve: typeof resolveBinary
@@ -39,6 +44,7 @@ export class WorkerPool {
   constructor(options: Options = {}) {
     this.idleMs = options.idleMs ?? 30_000
     this.handshakeMs = options.handshakeMs ?? 5_000
+    this.crashResetMs = options.crashResetMs ?? 10_000
     this.ipcMaxLineBytes = options.ipcMaxLineBytes
     this.telemetry = options.telemetry
     this.resolve = options.resolve ?? resolveBinary
@@ -51,6 +57,18 @@ export class WorkerPool {
       this.touch(kind, existing)
       return existing.child
     }
+    // Single-flight: a probe and a first call racing on a cold kind share one
+    // spawn instead of orphaning the loser's worker process.
+    const pending = this.ensuring.get(kind)
+    if (pending) return pending
+    const flight = this.spawnWorker(kind).finally(() => {
+      this.ensuring.delete(kind)
+    })
+    this.ensuring.set(kind, flight)
+    return flight
+  }
+
+  private async spawnWorker(kind: WorkerKind): Promise<ChildProcessWithoutNullStreams | null> {
     if ((this.restarts.get(kind) ?? 0) >= 3) return null
     const binary = await this.resolve(kind)
     if (!binary) return null
@@ -90,6 +108,13 @@ export class WorkerPool {
     })
     this.workers.set(kind, handle)
     this.touch(kind, handle)
+    // The three-crash breaker counts consecutive failures: a worker that stays
+    // up through the stability window re-arms the breaker so a flaky morning
+    // never permanently disables the native path for the whole session.
+    const stability = setTimeout(() => {
+      if (this.workers.get(kind) === handle) this.restarts.delete(kind)
+    }, this.crashResetMs)
+    stability.unref?.()
     return child
   }
 

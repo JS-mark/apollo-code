@@ -147,7 +147,6 @@ fn execute(mut command: Command, tier: SandboxTier, timeout_ms: u64) -> Result<E
     let stdout_rx = child.stdout.take().map(|p| spawn_reader(Box::new(p)));
     let stderr_rx = child.stderr.take().map(|p| spawn_reader(Box::new(p)));
     let deadline = started + Duration::from_millis(timeout_ms.max(1));
-    let mut timed_out = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
@@ -155,7 +154,6 @@ fn execute(mut command: Command, tier: SandboxTier, timeout_ms: u64) -> Result<E
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    timed_out = true;
                     break None;
                 }
                 thread::sleep(Duration::from_millis(20));

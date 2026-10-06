@@ -30,9 +30,15 @@ export { execSandbox, probeSandbox, startPluginHost } from './sandbox'
 export { computeDiff, countTokens, readLarge } from './fs'
 export { NativeProbeCoordinator, nativeProbes } from './probe'
 export type { NativeAvailability, NativeProbeSources, ProbeAvailability, ProbeKind } from './probe'
-export { astQuery, search } from './search'
+export { astQuery, globFiles, search } from './search'
 export { WorkerPool, workerPool } from './worker-pool'
-export type { AstMatch, AstQueryOptions, SearchMatch, SearchOptions } from './search'
+export type {
+  AstMatch,
+  AstQueryOptions,
+  GlobFilesOptions,
+  SearchMatch,
+  SearchOptions,
+} from './search'
 export type {
   ExecOptions,
   ExecResult,

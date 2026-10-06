@@ -27,6 +27,8 @@ export interface AstQueryOptions {
   path?: string
   cwd?: string
   maxMatches?: number
+  /** Extra ignore patterns applied on top of gitignore/.volundignore. */
+  ignore?: string[]
 }
 export interface AstMatch {
   path: string
@@ -35,6 +37,13 @@ export interface AstMatch {
   span: { start: number; end: number }
   start: { line: number; column: number }
   end: { line: number; column: number }
+}
+export interface GlobFilesOptions {
+  pattern: string
+  path?: string
+  cwd?: string
+  maxMatches?: number
+  ignore?: string[]
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -62,7 +71,10 @@ async function fallbackSearch(
     if (bytes.subarray(0, 8192).includes(0)) continue
     const text = bytes.toString('utf8')
     let offset = 0
-    for (const [index, line] of text.split(/\r?\n/u).entries()) {
+    // Byte offsets must count the raw line including a trailing \r, while
+    // matching runs on the stripped line (CRLF files would drift).
+    for (const [index, rawLine] of text.split('\n').entries()) {
+      const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
       expression.lastIndex = 0
       for (const found of line.matchAll(expression)) {
         matches.push({
@@ -73,7 +85,7 @@ async function fallbackSearch(
         })
         if (matches.length >= limit) return matches
       }
-      offset += Buffer.byteLength(line) + 1
+      offset += Buffer.byteLength(rawLine) + 1
     }
   }
   return matches
@@ -135,4 +147,33 @@ export async function* astQuery(
     throwIfAborted(signal)
     yield match
   }
+}
+
+/** Gitignore/.volundignore-aware file listing for a single include glob. */
+export async function globFiles(
+  options: GlobFilesOptions,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  throwIfAborted(signal)
+  const root = options.path ?? options.cwd ?? '.'
+  if (nativeSearchReady()) {
+    try {
+      const result = (await workerPool.call('search', 'search.glob_files', options)) as {
+        matches?: string[]
+      }
+      return result.matches ?? []
+    } catch {
+      // fall through to the JS implementation
+    }
+  }
+  const files = await fg(options.pattern, {
+    cwd: root,
+    absolute: false,
+    dot: true,
+    onlyFiles: true,
+    followSymbolicLinks: false,
+    ignore: ['**/.git/**', '**/node_modules/**', '**/target/**', ...(options.ignore ?? [])],
+    suppressErrors: true,
+  })
+  return files.slice(0, Math.min(options.maxMatches ?? 10_000, 10_000))
 }
