@@ -14,6 +14,10 @@ export interface DiffOptions {
 export interface ReadLargeOptions {
   encoding?: string
   maxBytes?: number
+  /** Byte offset into the file; the native worker reads a window, not the head. */
+  offset?: number
+  /** Byte length of the window; omitted reads to end of file. */
+  limit?: number
 }
 
 /**
@@ -64,12 +68,18 @@ export async function readLarge(path: string, options: ReadLargeOptions = {}): P
   }
   const bytes = await fs.readFile(path)
   const maxBytes = options.maxBytes ?? 100 * 1024 * 1024
-  if (bytes.byteLength > maxBytes)
+  const start = Math.min(options.offset ?? 0, bytes.byteLength)
+  const end =
+    options.limit === undefined
+      ? bytes.byteLength
+      : Math.min(start + options.limit, bytes.byteLength)
+  const window = bytes.subarray(start, end)
+  if (window.byteLength > maxBytes)
     throw new VolundError(
       'native_bridge_read_limit_exceeded',
       `file exceeds read limit of ${maxBytes} bytes`,
     )
-  if (bytes.subarray(0, 8192).includes(0))
+  if (window.subarray(0, 8192).includes(0))
     throw new VolundError('native_bridge_binary_file_unsupported', 'binary file is not supported')
-  return iconv.decode(bytes, options.encoding ?? 'utf8')
+  return iconv.decode(window, options.encoding ?? 'utf8')
 }

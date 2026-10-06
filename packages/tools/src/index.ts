@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 
+import { globFiles, search } from '@volund/native-bridge'
 import type { PermissionManager, PermissionSpec } from '@volund/permission'
 import type { ContentPart } from '@volund/provider-kit'
 import { acquireFileLock, VolundError } from '@volund/shared'
@@ -626,15 +627,6 @@ export class KillShellTool implements Tool<{ shellId: string }> {
   }
 }
 
-async function walk(root: string, base = root, out: string[] = []): Promise<string[]> {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const p = resolve(root, entry.name)
-    if (entry.name === '.git' || entry.name === 'node_modules') continue
-    if (entry.isDirectory()) await walk(p, base, out)
-    else out.push(relative(base, p))
-  }
-  return out
-}
 export class GlobTool implements Tool<{ pattern: string; path?: string }> {
   readonly name = 'Glob'
   readonly description = 'Find files using a glob'
@@ -648,14 +640,10 @@ export class GlobTool implements Tool<{ pattern: string; path?: string }> {
   async invoke(i: { pattern: string; path?: string }, c: ToolContext) {
     const s = Date.now()
     try {
-      const root = pathInCwd(c.session.cwd, i.path ?? '.'),
-        escaped = i.pattern
-          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-          .replace(/\*\*/g, '.*')
-          .replace(/\*/g, '[^/]*')
-          .replace(/\?/g, '.'),
-        re = new RegExp(`^${escaped}$`),
-        files = (await walk(root)).filter((x) => re.test(x))
+      // Native-first listing (search.glob_files / fast-glob fallback): honors
+      // gitignore/.volundignore instead of the naive skip-two-dirs walk.
+      const root = pathInCwd(c.session.cwd, i.path ?? '.')
+      const files = await globFiles({ pattern: i.pattern, path: root })
       return result(files.join('\n'), { durationMs: Date.now() - s })
     } catch (e) {
       return failure(e, s)
@@ -675,19 +663,13 @@ export class GrepTool implements Tool<{ pattern: string; path?: string }> {
   async invoke(i: { pattern: string; path?: string }, c: ToolContext) {
     const s = Date.now()
     try {
-      const root = pathInCwd(c.session.cwd, i.path ?? '.'),
-        re = new RegExp(i.pattern),
-        matches: string[] = []
-      for (const file of await walk(root)) {
-        let text: string
-        try {
-          text = await readFile(resolve(root, file), 'utf8')
-        } catch {
-          continue
-        }
-        text.split('\n').forEach((line, n) => {
-          if (re.test(line)) matches.push(`${file}:${n + 1}:${line}`)
-        })
+      // Native-first search (volund-search worker, JS fallback inside the
+      // bridge): honors gitignore/.volundignore, caps at 10k matches. Output
+      // stays `relative:line:text` per line for prompt compatibility.
+      const root = pathInCwd(c.session.cwd, i.path ?? '.')
+      const matches: string[] = []
+      for await (const match of search({ pattern: i.pattern, path: root })) {
+        matches.push(`${relative(root, match.path)}:${match.lineNumber}:${match.line}`)
       }
       return result(matches.join('\n'), { durationMs: Date.now() - s })
     } catch (e) {

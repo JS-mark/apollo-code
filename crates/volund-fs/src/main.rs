@@ -2,11 +2,13 @@ use encoding_rs::{Encoding, UTF_8};
 use serde_json::{json, Value};
 use similar::{Algorithm, TextDiff};
 use std::{
+    collections::HashMap,
     fs,
-    io::{self, BufRead, Write},
+    io::{self, BufRead, Read, Seek, SeekFrom, Write},
     path::Path,
+    sync::{Arc, Mutex, OnceLock},
 };
-use tiktoken_rs::{cl100k_base, get_bpe_from_model};
+use tiktoken_rs::{cl100k_base, get_bpe_from_model, CoreBPE};
 
 const MAX_READ_BYTES: u64 = 100 * 1024 * 1024;
 
@@ -30,19 +32,52 @@ fn unified_diff(before: &str, after: &str, context: usize) -> String {
         .to_string()
 }
 
+// Building a BPE costs tens of milliseconds; cache one tokenizer per model
+// (the cl100k fallback cached under the requested name once it is used).
+fn bpe_for(model: &str) -> Result<Arc<CoreBPE>, String> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<CoreBPE>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().map_err(|_| "tokenizer cache poisoned")?;
+    if let Some(bpe) = guard.get(model) {
+        return Ok(Arc::clone(bpe));
+    }
+    let bpe = Arc::new(
+        get_bpe_from_model(model)
+            .or_else(|_| cl100k_base())
+            .map_err(|e| e.to_string())?,
+    );
+    guard.insert(model.to_owned(), Arc::clone(&bpe));
+    Ok(bpe)
+}
+
 fn count_tokens(text: &str, model: &str) -> Result<usize, String> {
-    let bpe = get_bpe_from_model(model)
-        .or_else(|_| cl100k_base())
-        .map_err(|e| e.to_string())?;
+    let bpe = bpe_for(model)?;
     Ok(bpe.encode_with_special_tokens(text).len())
 }
 
-fn read_large(path: &Path, label: Option<&str>, max_bytes: u64) -> Result<String, String> {
-    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
-    if metadata.len() > max_bytes {
-        return Err(format!("file exceeds read limit of {max_bytes} bytes"));
+/// Byte-range read: `offset`/`limit` (bytes) select a window of the file; the
+/// limit is enforced on the range, and a range boundary may split a multibyte
+/// character (callers align ranges).
+fn read_large(
+    path: &Path,
+    label: Option<&str>,
+    max_bytes: u64,
+    offset: u64,
+    limit: Option<u64>,
+) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let file_len = file.metadata().map_err(|e| e.to_string())?.len();
+    if offset > file_len {
+        return Ok(String::new());
     }
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let requested = limit.unwrap_or(u64::MAX).min(file_len - offset);
+    if requested > max_bytes {
+        return Err(format!("read range exceeds limit of {max_bytes} bytes"));
+    }
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| e.to_string())?;
+    let mut bytes = vec![0_u8; requested as usize];
+    file.read_exact(&mut bytes).map_err(|e| e.to_string())?;
     if bytes.iter().take(8192).any(|byte| *byte == 0) {
         return Err("binary file is not supported".into());
     }
@@ -80,7 +115,9 @@ fn dispatch(request: &Value) -> Value {
                 params
                     .get("maxBytes")
                     .and_then(Value::as_u64)
-                    .unwrap_or(MAX_READ_BYTES)
+                    .unwrap_or(MAX_READ_BYTES),
+                params.get("offset").and_then(Value::as_u64).unwrap_or(0),
+                params.get("limit").and_then(Value::as_u64),
             )?))
         })(),
         _ => {
@@ -120,6 +157,35 @@ mod tests {
     fn tokenizer_is_bpe_not_whitespace() {
         assert_eq!(count_tokens("hello world", "gpt-4o").unwrap(), 2);
         assert!(count_tokens("hello-world", "gpt-4o").unwrap() > 1);
+    }
+    #[test]
+    fn tokenizer_cache_reuses_one_bpe_per_model() {
+        let first = bpe_for("gpt-4o").unwrap();
+        let second = bpe_for("gpt-4o").unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+    #[test]
+    fn read_large_supports_byte_ranges() {
+        let path = std::env::temp_dir().join(format!(
+            "volund-fs-range-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, b"hello volund range").unwrap();
+        assert_eq!(
+            read_large(&path, None, MAX_READ_BYTES, 6, Some(6)).unwrap(),
+            "volund"
+        );
+        assert_eq!(
+            read_large(&path, None, MAX_READ_BYTES, 999, None).unwrap(),
+            ""
+        );
+        assert!(read_large(&path, None, 4, 0, None)
+            .unwrap_err()
+            .contains("read range exceeds limit"));
+        fs::remove_file(path).unwrap();
     }
     #[test]
     fn unknown_method_is_rejected() {
