@@ -18,7 +18,7 @@ catalog:
   '@xterm/addon-fit': ^0.11.0
   '@changesets/cli': ^2.31.1
   '@cordisjs/core': ^3.18.1
-  '@modelcontextprotocol/sdk': ^1.30.0
+  '@modelcontextprotocol/sdk': ^1.31.0
   '@noble/curves': 1.9.7
   '@types/node': ^26.1.2
   '@types/react': ^19.2.18
