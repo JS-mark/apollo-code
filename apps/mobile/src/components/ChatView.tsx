@@ -926,7 +926,7 @@ export function SendQueueList({
           }
           const className = [
             'send-queue-row',
-            isDragged ? (drag!.settling ? 'settling' : 'dragging') : '',
+            isDragged ? (drag.settling ? 'settling' : 'dragging') : '',
             isRemoving ? 'removing' : '',
           ]
             .filter(Boolean)
@@ -938,9 +938,9 @@ export function SendQueueList({
               style={
                 isDragged
                   ? {
-                      transform: `translate3d(0, ${offset}px, 0)${drag!.settling ? '' : ' scale(1.03)'}`,
-                      zIndex: 2,
-                    }
+                    transform: `translate3d(0, ${offset}px, 0)${drag.settling ? '' : ' scale(1.03)'}`,
+                    zIndex: 2,
+                  }
                   : offset !== 0
                     ? { transform: `translate3d(0, ${offset}px, 0)` }
                     : undefined

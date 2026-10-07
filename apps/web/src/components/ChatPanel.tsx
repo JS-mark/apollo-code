@@ -85,7 +85,7 @@ function toolRowText(
 ): { name: string; status: string } {
   const base = tool.status === 'running' ? '运行中…' : tool.status === 'error' ? '失败' : '完成'
   if (tool.tool !== 'Task') return { name: tool.tool, status: base }
-  const name = `🤖 ${tool.task?.agentType ?? 'subagent'}`
+  const name = `🤖 ${tool.task?.agentType ?? '子代理'}`
   const activity = tool.turnId ? subagents[tool.turnId] : undefined
   if (!activity) return { name, status: base }
   if (tool.status === 'running' && activity.lastTool)
