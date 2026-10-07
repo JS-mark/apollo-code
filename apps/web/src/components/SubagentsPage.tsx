@@ -11,6 +11,8 @@ import type { ColumnsType } from 'antd/es/table'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { SubagentRunRow, WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
+import type { ManageKeys } from '../lib/i18n/dict/manage'
 
 const STATUS_COLOR: Record<SubagentRunRow['status'], string> = {
   running: 'processing',
@@ -21,13 +23,14 @@ const STATUS_COLOR: Record<SubagentRunRow['status'], string> = {
   interrupted: 'default',
 }
 
-const STATUS_LABEL: Record<SubagentRunRow['status'], string> = {
-  running: '运行中',
-  completed: '已完成',
-  partial: '部分结果',
-  failed: '失败',
-  cancelled: '已取消',
-  interrupted: '已中断',
+// 状态 → 字典 key（渲染期 t 解析；模块顶层拿不到 React 上下文）。
+const STATUS_KEY: Record<SubagentRunRow['status'], ManageKeys> = {
+  running: 'manage.subRunning',
+  completed: 'manage.subCompleted',
+  partial: 'manage.subPartial',
+  failed: 'manage.stateFailed',
+  cancelled: 'manage.subCancelled',
+  interrupted: 'manage.subInterrupted',
 }
 
 function duration(row: SubagentRunRow): string {
@@ -40,6 +43,7 @@ function duration(row: SubagentRunRow): string {
 }
 
 export function SubagentsPage({ api }: { api: WebApi }) {
+  const { t } = useI18n()
   const [runs, setRuns] = useState<readonly SubagentRunRow[]>([])
   const [available, setAvailable] = useState(true)
   const [cancelling, setCancelling] = useState<string | undefined>()
@@ -91,10 +95,10 @@ export function SubagentsPage({ api }: { api: WebApi }) {
       render: (_, row) => row.agentType ?? 'task-agent',
     },
     {
-      title: '状态',
+      title: t('manage.status'),
       key: 'status',
       width: 100,
-      render: (_, row) => <Tag color={STATUS_COLOR[row.status]}>{STATUS_LABEL[row.status]}</Tag>,
+      render: (_, row) => <Tag color={STATUS_COLOR[row.status]}>{t(STATUS_KEY[row.status])}</Tag>,
     },
     {
       title: 'Prompt',
@@ -106,10 +110,15 @@ export function SubagentsPage({ api }: { api: WebApi }) {
         </Tooltip>
       ),
     },
-    { title: '层级', dataIndex: 'depth', key: 'depth', width: 64 },
-    { title: '时长', key: 'duration', width: 90, render: (_, row) => duration(row) },
+    { title: t('manage.colDepth'), dataIndex: 'depth', key: 'depth', width: 64 },
     {
-      title: '用量',
+      title: t('manage.colDuration'),
+      key: 'duration',
+      width: 90,
+      render: (_, row) => duration(row),
+    },
+    {
+      title: t('manage.colUsage'),
       key: 'usage',
       width: 150,
       render: (_, row) =>
@@ -119,20 +128,20 @@ export function SubagentsPage({ api }: { api: WebApi }) {
           : '—',
     },
     {
-      title: '工具调用',
+      title: t('manage.colToolCalls'),
       dataIndex: 'toolCalls',
       key: 'toolCalls',
       width: 90,
       render: (value: number | undefined) => value ?? '—',
     },
     {
-      title: '操作',
+      title: t('manage.colActions'),
       key: 'actions',
       width: 90,
       render: (_, row) =>
         row.status === 'running' ? (
           <Popconfirm
-            title="取消该 subagent？"
+            title={t('manage.cancelSubConfirm')}
             onConfirm={() => void cancel(row.sessionId)}
             disabled={cancelling !== undefined}
           >
@@ -141,7 +150,7 @@ export function SubagentsPage({ api }: { api: WebApi }) {
               type="text"
               danger
               icon={<StopOutlined />}
-              aria-label={`取消 ${row.agentType ?? 'task-agent'}`}
+              aria-label={t('manage.cancelSubAria', { name: row.agentType ?? 'task-agent' })}
               loading={cancelling === row.sessionId}
               disabled={cancelling !== undefined}
             />
@@ -158,19 +167,19 @@ export function SubagentsPage({ api }: { api: WebApi }) {
     <section className="page" style={{ padding: 24, overflow: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Typography.Title level={4} style={{ marginTop: 0, flex: 1 }}>
-          Subagents{runningCount > 0 ? `（${runningCount} 运行中）` : ''}
+          Subagents{runningCount > 0 ? t('manage.runningSuffix', { count: runningCount }) : ''}
         </Typography.Title>
-        <Tooltip title="刷新">
+        <Tooltip title={t('manage.refresh')}>
           <Button
             size="small"
             type="text"
             icon={<ReloadOutlined />}
-            aria-label="刷新 subagent 列表"
+            aria-label={t('manage.refreshSubsAria')}
             onClick={() => void refresh()}
           />
         </Tooltip>
         <Popconfirm
-          title="停止全部运行中的 subagent？"
+          title={t('manage.stopAllConfirm')}
           onConfirm={() => void cancelAll()}
           disabled={runningCount === 0 || cancelling !== undefined}
         >
@@ -181,18 +190,17 @@ export function SubagentsPage({ api }: { api: WebApi }) {
             disabled={runningCount === 0 || cancelling !== undefined}
             loading={cancelling === '*'}
           >
-            全部停止
+            {t('manage.stopAll')}
           </Button>
         </Popconfirm>
       </div>
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        子代理运行注册表（本机进程视角）。运行由 Task 工具派发；取消走中断语义，结果以 cancelled
-        回传。
+        {t('manage.subagentsDesc')}
       </Typography.Text>
       {!available ? (
-        <Empty description="subagents 端口不可用（服务端未装配）" />
+        <Empty description={t('manage.subsUnavailable')} />
       ) : runs.length === 0 ? (
-        <Empty description="暂无 subagent 运行" />
+        <Empty description={t('manage.noSubRuns')} />
       ) : (
         <Table
           size="small"

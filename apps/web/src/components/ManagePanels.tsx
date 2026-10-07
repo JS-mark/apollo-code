@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { TaskRunView, TaskSchedulerStatusView, TaskView, WebApi } from '../lib/api'
 import { formatSchedule } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import {
   CountBadge,
   ItemCard,
@@ -53,6 +54,7 @@ import { MarkdownMemoEditor } from './MarkdownMemoEditor'
 /** 任务调度面板：调度器状态 + 任务定义 + 运行 journal。写操作只在 daemon/CLI。 */
 export function TasksPanel({ api }: { api: WebApi }) {
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [status, setStatus] = useState<TaskSchedulerStatusView>()
   const [tasks, setTasks] = useState<TaskView[]>([])
   const [runs, setRuns] = useState<TaskRunView[]>([])
@@ -88,7 +90,7 @@ export function TasksPanel({ api }: { api: WebApi }) {
     async (id: string, enabled: boolean) => {
       try {
         await api.taskSetEnabled(id, enabled)
-        message.success(enabled ? '已启用' : '已停用（daemon 下一 tick 不再触发）')
+        message.success(enabled ? t('manage.taskEnabled') : t('manage.taskDisabled'))
         reload()
       } catch (cause) {
         message.error(cause instanceof Error ? cause.message : String(cause))
@@ -100,7 +102,7 @@ export function TasksPanel({ api }: { api: WebApi }) {
     async (id: string) => {
       try {
         await api.taskRemove(id)
-        message.success('已删除')
+        message.success(t('manage.taskDeleted'))
         if (taskFilter === id) setTaskFilter(undefined)
         reload()
       } catch (cause) {
@@ -117,12 +119,12 @@ export function TasksPanel({ api }: { api: WebApi }) {
         ? 'green'
         : 'orange'
   const statusText = !status
-    ? '加载中'
+    ? t('manage.statusLoading')
     : !status.enabled
-      ? '未启用（[tasks].enabled）'
+      ? t('manage.taskNotEnabled')
       : status.daemonRunning
-        ? `daemon 运行中（pid ${status.pid ?? '?'}）`
-        : '已启用但 daemon 未运行——任务不会触发（volund daemon 启动）'
+        ? t('manage.daemonRunning', { pid: status.pid ?? '?' })
+        : t('manage.daemonNotRunning')
 
   const runStatusColor = (run: TaskRunView): string =>
     run.status === 'completed'
@@ -137,7 +139,7 @@ export function TasksPanel({ api }: { api: WebApi }) {
     <div>
       <PanelToolbar>
         <StatusDot color={statusColor} text={statusText} />
-        <Button icon={<ReloadOutlined />} aria-label="刷新任务" onClick={reload} />
+        <Button icon={<ReloadOutlined />} aria-label={t('manage.refreshTasks')} onClick={reload} />
       </PanelToolbar>
       <Notice message={error} />
       <Table<TaskView>
@@ -145,10 +147,10 @@ export function TasksPanel({ api }: { api: WebApi }) {
         rowKey="id"
         dataSource={tasks}
         pagination={false}
-        locale={{ emptyText: <Empty description="没有任务定义（volund tasks add 创建）" /> }}
+        locale={{ emptyText: <Empty description={t('manage.noTaskDefs')} /> }}
         columns={[
           {
-            title: '任务',
+            title: t('manage.colTask'),
             dataIndex: 'name',
             render: (_, task) => (
               <Space size={6}>
@@ -159,17 +161,17 @@ export function TasksPanel({ api }: { api: WebApi }) {
               </Space>
             ),
           },
-          { title: '调度', render: (_, task) => formatSchedule(task.schedule) },
+          { title: t('manage.colSchedule'), render: (_, task) => formatSchedule(task.schedule) },
           {
-            title: '状态',
+            title: t('manage.status'),
             dataIndex: 'enabled',
             width: 90,
             render: (enabled: boolean, task) => (
               <Switch
                 size="small"
                 checked={enabled}
-                checkedChildren="启用"
-                unCheckedChildren="停用"
+                checkedChildren={t('manage.enable')}
+                unCheckedChildren={t('manage.deactivate')}
                 onChange={(checked) => void setEnabled(task.id, checked)}
               />
             ),
@@ -180,17 +182,17 @@ export function TasksPanel({ api }: { api: WebApi }) {
             width: 48,
             render: (_, task) => (
               <Popconfirm
-                title={`删除任务 ${task.name}？`}
-                description="运行记录一并移除游标；已触发的会话档案保留。"
+                title={t('manage.deleteTaskConfirm', { name: task.name })}
+                description={t('manage.deleteTaskDesc')}
                 okButtonProps={{ danger: true }}
                 onConfirm={() => void removeTask(task.id)}
               >
-                <Tooltip title="删除任务">
+                <Tooltip title={t('manage.deleteTask')}>
                   <Button
                     size="small"
                     danger
                     type="text"
-                    aria-label={`删除任务 ${task.name}`}
+                    aria-label={t('manage.deleteTaskAria', { name: task.name })}
                     icon={<DeleteOutlined />}
                   />
                 </Tooltip>
@@ -200,12 +202,12 @@ export function TasksPanel({ api }: { api: WebApi }) {
         ]}
       />
       <Typography.Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>
-        运行记录
+        {t('manage.runHistory')}
       </Typography.Title>
       <Space style={{ marginBottom: 8 }}>
         <Select
           allowClear
-          placeholder="全部任务"
+          placeholder={t('manage.allTasks')}
           style={{ minWidth: 200 }}
           value={taskFilter}
           onChange={(value) => setTaskFilter(value)}
@@ -217,16 +219,16 @@ export function TasksPanel({ api }: { api: WebApi }) {
         rowKey="runId"
         dataSource={runs}
         pagination={false}
-        locale={{ emptyText: <Empty description="没有运行记录" /> }}
+        locale={{ emptyText: <Empty description={t('manage.noRuns')} /> }}
         columns={[
           {
-            title: '计划时刻',
+            title: t('manage.colScheduledFor'),
             dataIndex: 'scheduledFor',
             width: 150,
             render: (ms: number) => formatEpoch(ms),
           },
           {
-            title: '结果',
+            title: t('manage.colResult'),
             dataIndex: 'status',
             width: 110,
             render: (_, run) => (
@@ -240,9 +242,13 @@ export function TasksPanel({ api }: { api: WebApi }) {
               </Space>
             ),
           },
-          { title: '错误', render: (_, run) => run.error?.message ?? '', ellipsis: true },
           {
-            title: '会话',
+            title: t('manage.colError'),
+            render: (_, run) => run.error?.message ?? '',
+            ellipsis: true,
+          },
+          {
+            title: t('manage.colSession'),
             dataIndex: 'sessionId',
             width: 140,
             render: (sessionId: string | undefined) =>
@@ -292,6 +298,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
     items: { items: MemoryRecord[] }
   }>(api, 'memory')
   const { notice, setNotice, run } = useAction(api, 'memory')
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<MemoryRecord[]>()
   const [editor, setEditor] = useState<MemoryEditorState>()
@@ -306,7 +313,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
     const result = await run({ action: 'search', query }, (value) => {
       setResults((value as { items: MemoryRecord[] }).items)
     })
-    if (result === undefined) setNotice('搜索失败')
+    if (result === undefined) setNotice(t('manage.searchFailed'))
   }, [query, run])
 
   const saveEditor = useCallback(async () => {
@@ -337,7 +344,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
       if (message.includes('memory_conflict') || message.includes('changed concurrently')) {
         setEditor(undefined)
         reload()
-        setNotice('内容已被他端修改，已刷新列表，请重新打开编辑。')
+        setNotice(t('manage.memoryConflictRefreshed'))
       } else {
         setNotice(message)
       }
@@ -358,7 +365,12 @@ function MemoryPanel({ api }: { api: WebApi }) {
         (value) => {
           const report = value as { applied: number; total: number; dryRun: boolean }
           setImportReport(
-            `${report.dryRun ? '预览' : '导入'}：${report.applied}/${report.total} 条适用${report.dryRun ? '（未落盘）' : ''}`,
+            t('manage.importReport', {
+              mode: t(report.dryRun ? 'manage.importPreview' : 'manage.import'),
+              applied: report.applied,
+              total: report.total,
+              dry: report.dryRun ? t('manage.importDryNote') : '',
+            }),
           )
           if (!report.dryRun) reload()
         },
@@ -379,16 +391,15 @@ function MemoryPanel({ api }: { api: WebApi }) {
           gap: 8,
         }}
       >
-        <PanelIntro
-          title="Memory 记忆库"
-          description="本项目的长期记忆：agent 会话内自动召回；新建/编辑即时生效，换项目互不可见。"
-        />
+        <PanelIntro title={t('manage.memoryTitle')} description={t('manage.memoryDesc')} />
         <CountBadge scopeLabel={data?.scopeLabel ?? '…'} count={items.length} />
       </div>
       <PanelToolbar>
         <Space wrap>
           <Input.Search
-            placeholder={data?.searchAvailable ? '搜索 Memory…' : '搜索不可用（recall 未装配）'}
+            placeholder={
+              data?.searchAvailable ? t('manage.searchMemory') : t('manage.searchUnavailable')
+            }
             value={query}
             disabled={!data?.searchAvailable}
             allowClear
@@ -398,7 +409,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
           />
           {results && (
             <Button size="small" onClick={() => setResults(undefined)}>
-              清除搜索
+              {t('manage.clearSearch')}
             </Button>
           )}
         </Space>
@@ -408,23 +419,23 @@ function MemoryPanel({ api }: { api: WebApi }) {
             icon={<PlusOutlined />}
             onClick={() => setEditor({ content: '', tags: [], pinned: false })}
           >
-            新建
+            {t('manage.create')}
           </Button>
-          <Button onClick={() => setImportOpen(true)}>导入</Button>
-          <Button onClick={() => void exportAll()}>导出</Button>
+          <Button onClick={() => setImportOpen(true)}>{t('manage.import')}</Button>
+          <Button onClick={() => void exportAll()}>{t('manage.export')}</Button>
         </Space>
       </PanelToolbar>
       <Notice message={notice} />
       <div style={{ display: 'grid', gap: 8 }}>
         {items.length === 0 && (
           <div style={{ padding: '36px 0' }}>
-            <Empty description={query ? '没有匹配的记忆' : '还没有记忆——点「新建」写第一条'}>
+            <Empty description={query ? t('manage.noMemoryMatch') : t('manage.noMemoryYet')}>
               {!query && (
                 <Button
                   type="primary"
                   onClick={() => setEditor({ content: '', tags: [], pinned: false })}
                 >
-                  新建记忆
+                  {t('manage.createMemory')}
                 </Button>
               )}
             </Empty>
@@ -446,7 +457,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
                   ellipsis={{ rows: 3 }}
                 >
                   {record.pinned && '📌 '}
-                  {record.content.slice(0, 240) || '（空）'}
+                  {record.content.slice(0, 240) || t('manage.emptyContent')}
                 </Typography.Paragraph>
                 <Space size={6} wrap>
                   {record.tags.map((tag) => (
@@ -472,7 +483,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
                     })
                   }
                 >
-                  编辑
+                  {t('manage.edit')}
                 </Button>
                 <Button
                   type="text"
@@ -488,10 +499,10 @@ function MemoryPanel({ api }: { api: WebApi }) {
                     )
                   }
                 >
-                  {record.pinned ? '取消置顶' : '置顶'}
+                  {record.pinned ? t('manage.unpin') : t('manage.pin')}
                 </Button>
                 <Popconfirm
-                  title="删除这条记忆？"
+                  title={t('manage.deleteMemoryConfirm')}
                   onConfirm={() =>
                     void run(
                       { action: 'delete', id: record.id, expectedUpdatedAt: record.updatedAt },
@@ -500,7 +511,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
                   }
                 >
                   <Button type="text" size="small" danger>
-                    删除
+                    {t('manage.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -509,11 +520,11 @@ function MemoryPanel({ api }: { api: WebApi }) {
         ))}
       </div>
       <Modal
-        title={editor?.record ? '编辑记忆' : '新建记忆'}
+        title={editor?.record ? t('manage.editMemory') : t('manage.createMemory')}
         open={editor !== undefined}
         onCancel={() => setEditor(undefined)}
         width={860}
-        okText="保存"
+        okText={t('manage.save')}
         okButtonProps={{ loading: saving }}
         onOk={() => void saveEditor()}
       >
@@ -527,7 +538,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
               <Select
                 mode="tags"
                 tokenSeparators={[',']}
-                placeholder="标签（回车添加）"
+                placeholder={t('manage.tagsPlaceholder')}
                 style={{ minWidth: 320 }}
                 value={editor.tags}
                 onChange={(tags) => setEditor({ ...editor, tags })}
@@ -538,14 +549,14 @@ function MemoryPanel({ api }: { api: WebApi }) {
                   checked={editor.pinned}
                   onChange={(pinned) => setEditor({ ...editor, pinned })}
                 />
-                <Typography.Text>置顶</Typography.Text>
+                <Typography.Text>{t('manage.pin')}</Typography.Text>
               </Space>
             </Space>
           </div>
         )}
       </Modal>
       <Modal
-        title="导入记忆"
+        title={t('manage.importMemory')}
         open={importOpen}
         onCancel={() => {
           setImportOpen(false)
@@ -557,7 +568,7 @@ function MemoryPanel({ api }: { api: WebApi }) {
         <div style={{ display: 'grid', gap: 12 }}>
           <Input.TextArea
             rows={8}
-            placeholder="粘贴 volund.memory.export.v1 JSON，或选择文件…"
+            placeholder={t('manage.importMemoryPlaceholder')}
             value={importText}
             onChange={(event) => setImportText(event.target.value)}
             style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
@@ -576,20 +587,20 @@ function MemoryPanel({ api }: { api: WebApi }) {
               value={importStrategy}
               onChange={setImportStrategy}
               options={[
-                { value: 'skip', label: '冲突跳过' },
-                { value: 'overwrite', label: '冲突覆盖' },
-                { value: 'rename', label: '冲突重命名' },
+                { value: 'skip', label: t('manage.importSkip') },
+                { value: 'overwrite', label: t('manage.importOverwrite') },
+                { value: 'rename', label: t('manage.importRename') },
               ]}
             />
             <Button disabled={!importText.trim()} onClick={() => void doImport(true)}>
-              预览（不落盘）
+              {t('manage.previewDryRun')}
             </Button>
             <Button
               type="primary"
               disabled={!importText.trim()}
               onClick={() => void doImport(false)}
             >
-              导入
+              {t('manage.import')}
             </Button>
             {importReport && <Typography.Text type="secondary">{importReport}</Typography.Text>}
           </Space>
@@ -620,6 +631,7 @@ function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
 function SkillsPanel({ api }: { api: WebApi }) {
   const { data, error, reload } = useInventory<{ items: SkillItem[] }>(api, 'skill')
   const { notice, setNotice, run } = useAction(api, 'skill')
+  const { t } = useI18n()
   const [spec, setSpec] = useState('')
   const [scope, setScope] = useState<'user' | 'project'>('user')
   const [detail, setDetail] = useState<{ name: string; raw: string }>()
@@ -627,12 +639,15 @@ function SkillsPanel({ api }: { api: WebApi }) {
     const result = await run({ action: 'install', spec, scope }, (value) => {
       const { items } = value as { items: SkillItem[] }
       setNotice(
-        `已安装 ${items.length} 个 skill：${items.map((item) => item.name).join(', ') || '无（部分失败见服务日志）'}`,
+        t('manage.skillsInstalled', {
+          count: items.length,
+          names: items.map((item) => item.name).join(', ') || t('manage.installNone'),
+        }),
       )
       setSpec('')
       reload()
     })
-    if (result === undefined) setNotice((current) => current ?? '安装失败')
+    if (result === undefined) setNotice((current) => current ?? t('manage.installFailed'))
   }, [reload, run, scope, spec])
 
   if (error) return <Notice message={error} />
@@ -648,17 +663,14 @@ function SkillsPanel({ api }: { api: WebApi }) {
           gap: 8,
         }}
       >
-        <PanelIntro
-          title="Skills 技能"
-          description="目录 + SKILL.md 的渐进披露技能：安装后自动热重扫，会话内 /斜杠命令或模型自动触发。"
-        />
-        <CountBadge scopeLabel="skills" count={skills.length} unit="个" />
+        <PanelIntro title={t('manage.skillsTitle')} description={t('manage.skillsDesc')} />
+        <CountBadge scopeLabel="skills" count={skills.length} unit={t('manage.unitSkills')} />
       </div>
       <PanelToolbar>
         <Space wrap>
           <Input
             style={{ width: 360 }}
-            placeholder="安装来源：本地目录 | git URL | github:owner/repo"
+            placeholder={t('manage.installSourcePlaceholder')}
             value={spec}
             onChange={(event) => setSpec(event.target.value)}
           />
@@ -666,23 +678,23 @@ function SkillsPanel({ api }: { api: WebApi }) {
             value={scope}
             onChange={(next) => setScope(next as 'user' | 'project')}
             options={[
-              { value: 'user', label: '用户级' },
-              { value: 'project', label: '项目级' },
+              { value: 'user', label: t('manage.scopeUser') },
+              { value: 'project', label: t('manage.scopeProject') },
             ]}
           />
           <Button type="primary" disabled={!spec.trim()} onClick={() => void install()}>
-            安装
+            {t('manage.install')}
           </Button>
         </Space>
         <Button icon={<ReloadOutlined />} onClick={() => void run({ action: 'reload' }, reload)}>
-          重扫描
+          {t('manage.rescan')}
         </Button>
       </PanelToolbar>
       <Notice message={notice} />
       <div style={{ display: 'grid', gap: 8 }}>
         {skills.length === 0 && (
           <div style={{ padding: '36px 0' }}>
-            <Empty description="没有已发现的 skill——从上方输入来源安装，或放入 ~/.volund/skills/" />
+            <Empty description={t('manage.noSkills')} />
           </div>
         )}
         {skills.map((skill) => (
@@ -704,14 +716,18 @@ function SkillsPanel({ api }: { api: WebApi }) {
                     }
                   >
                     {skill.scope === 'user'
-                      ? '用户级'
+                      ? t('manage.scopeUser')
                       : skill.scope === 'plugin'
-                        ? '插件'
-                        : '项目级'}
+                        ? t('manage.scopePlugin')
+                        : t('manage.scopeProject')}
                   </Tag>
-                  {skill.status === 'disabled' && <Tag color="warning">已禁用</Tag>}
-                  {skill.status === 'broken' && <Tag color="error">损坏</Tag>}
-                  {skill.status === 'shadowed' && <Tag color="default">被覆盖</Tag>}
+                  {skill.status === 'disabled' && (
+                    <Tag color="warning">{t('manage.stateDisabled')}</Tag>
+                  )}
+                  {skill.status === 'broken' && <Tag color="error">{t('manage.tagBroken')}</Tag>}
+                  {skill.status === 'shadowed' && (
+                    <Tag color="default">{t('manage.tagShadowed')}</Tag>
+                  )}
                   {skill.version && <Tag color="default">v{skill.version}</Tag>}
                 </Space>
                 <Typography.Paragraph
@@ -732,7 +748,7 @@ function SkillsPanel({ api }: { api: WebApi }) {
                     })
                   }
                 >
-                  详情
+                  {t('manage.details')}
                 </Button>
                 <Button
                   type="text"
@@ -748,11 +764,11 @@ function SkillsPanel({ api }: { api: WebApi }) {
                     )
                   }
                 >
-                  {skill.status === 'disabled' ? '启用' : '禁用'}
+                  {skill.status === 'disabled' ? t('manage.enable') : t('manage.disable')}
                 </Button>
                 {(skill.scope === 'user' || skill.scope === 'project') && (
                   <Popconfirm
-                    title={`卸载 ${skill.name}？`}
+                    title={t('manage.uninstallConfirm', { name: skill.name })}
                     onConfirm={() =>
                       void run(
                         { action: 'uninstall', name: skill.name, scope: skill.scope },
@@ -761,7 +777,7 @@ function SkillsPanel({ api }: { api: WebApi }) {
                     }
                   >
                     <Button type="text" size="small" danger>
-                      卸载
+                      {t('manage.uninstall')}
                     </Button>
                   </Popconfirm>
                 )}
@@ -855,6 +871,7 @@ export function McpServerFormModal({
   const [form, setForm] = useState<McpFormState>({ ...emptyMcpForm(), ...initial })
   const [notice, setNotice] = useState<string>()
   const [saving, setSaving] = useState(false)
+  const { t } = useI18n()
   const save = useCallback(async () => {
     setSaving(true)
     setNotice(undefined)
@@ -878,11 +895,13 @@ export function McpServerFormModal({
   }, [api, form, onClose, onSaved])
   return (
     <Modal
-      title={initial?.name ? `编辑 MCP server：${initial.name}` : '添加 MCP server'}
+      title={
+        initial?.name ? t('manage.editMcpServer', { name: initial.name }) : t('manage.addMcpServer')
+      }
       open={open}
       onCancel={onClose}
       onOk={() => void save()}
-      okText="保存并重载"
+      okText={t('manage.saveAndReload')}
       okButtonProps={{
         loading: saving,
         disabled:
@@ -893,7 +912,7 @@ export function McpServerFormModal({
       <Notice message={notice} />
       <Form layout="vertical">
         <Space wrap>
-          <Form.Item label="名称">
+          <Form.Item label={t('manage.labelName')}>
             <Input
               style={{ width: 200 }}
               value={form.name}
@@ -902,40 +921,40 @@ export function McpServerFormModal({
               placeholder="my-server"
             />
           </Form.Item>
-          <Form.Item label="作用域">
+          <Form.Item label={t('manage.labelScope')}>
             <Segmented
               value={form.scope}
               onChange={(next) => setForm({ ...form, scope: next as 'user' | 'project' })}
               options={[
-                { value: 'user', label: '用户级' },
-                { value: 'project', label: '项目级' },
+                { value: 'user', label: t('manage.scopeUser') },
+                { value: 'project', label: t('manage.scopeProject') },
               ]}
             />
           </Form.Item>
-          <Form.Item label="传输">
+          <Form.Item label={t('manage.labelTransport')}>
             <Select
               style={{ width: 180 }}
               value={form.kind}
               onChange={(kind) => setForm({ ...form, kind })}
               options={[
-                { value: 'stdio', label: 'stdio（本地命令）' },
+                { value: 'stdio', label: t('manage.transportStdio') },
                 { value: 'http', label: 'Streamable HTTP' },
-                { value: 'sse', label: 'HTTP + SSE（旧）' },
-                { value: 'streamable-http', label: 'Streamable HTTP（别名）' },
+                { value: 'sse', label: t('manage.transportSse') },
+                { value: 'streamable-http', label: t('manage.transportStreamableAlias') },
               ]}
             />
           </Form.Item>
         </Space>
         {form.kind === 'stdio' ? (
           <>
-            <Form.Item label="命令">
+            <Form.Item label={t('manage.labelCommand')}>
               <Input
                 value={form.command}
                 onChange={(event) => setForm({ ...form, command: event.target.value })}
                 placeholder="npx"
               />
             </Form.Item>
-            <Form.Item label="参数">
+            <Form.Item label={t('manage.labelArgs')}>
               <Select
                 mode="tags"
                 tokenSeparators={[' ']}
@@ -946,7 +965,7 @@ export function McpServerFormModal({
                 open={false}
               />
             </Form.Item>
-            <Form.Item label="环境变量">
+            <Form.Item label={t('manage.labelEnv')}>
               <KeyValueEditor value={form.env} onChange={(env) => setForm({ ...form, env })} />
             </Form.Item>
           </>
@@ -962,8 +981,8 @@ export function McpServerFormModal({
             <Form.Item
               label={
                 <>
-                  请求头（secret 用 <code>keyref://mcp.&lt;name&gt;.&lt;field&gt;</code>{' '}
-                  引用凭据存储）
+                  {t('manage.labelHeadersPre')} <code>keyref://mcp.&lt;name&gt;.&lt;field&gt;</code>{' '}
+                  {t('manage.labelHeadersPost')}
                 </>
               }
             >
@@ -983,6 +1002,7 @@ export function McpServerFormModal({
 function McpPanel({ api }: { api: WebApi }) {
   const { data, error, reload } = useInventory<{ items: McpEntry[] }>(api, 'mcp')
   const { notice, setNotice, run } = useAction(api, 'mcp')
+  const { t } = useI18n()
   const [formOpen, setFormOpen] = useState(false)
   const [editEntry, setEditEntry] = useState<McpEntry>()
   // OAuth 认证是长pending请求（阻塞到浏览器回调完成，最长 5min）：按 server 名
@@ -1005,11 +1025,8 @@ function McpPanel({ api }: { api: WebApi }) {
           gap: 8,
         }}
       >
-        <PanelIntro
-          title="MCP servers"
-          description="外部工具服务器：定义落 mcp.toml / .mcp.json，重载后 `mcp__server__tool` 即时进运行会话。"
-        />
-        <CountBadge scopeLabel="mcp" count={entries.length} unit="个 server" />
+        <PanelIntro title="MCP servers" description={t('manage.mcpDesc')} />
+        <CountBadge scopeLabel="mcp" count={entries.length} unit={t('manage.unitServers')} />
       </div>
       <PanelToolbar>
         <Button
@@ -1020,17 +1037,17 @@ function McpPanel({ api }: { api: WebApi }) {
             setFormOpen(true)
           }}
         >
-          添加 server
+          {t('manage.addServer')}
         </Button>
         <Button icon={<ReloadOutlined />} onClick={() => void run({ action: 'reload' }, reload)}>
-          重载（重读 mcp.toml）
+          {t('manage.reloadMcp')}
         </Button>
       </PanelToolbar>
       <Notice message={notice} />
       <div style={{ display: 'grid', gap: 8 }}>
         {entries.length === 0 && (
           <div style={{ padding: '36px 0' }}>
-            <Empty description="还没有配置 MCP server——点「添加 server」或粘贴 mcpServers JSON" />
+            <Empty description={t('manage.noMcp')} />
           </div>
         )}
         {entries.map((entry) => (
@@ -1052,8 +1069,8 @@ function McpPanel({ api }: { api: WebApi }) {
                   <McpStatusDot status={entry.status} />
                 </Space>
                 <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                  {entry.scope === 'project' ? '项目级' : '用户级'}
-                  {entry.tools !== undefined ? ` · ${entry.tools} 个工具` : ''}
+                  {entry.scope === 'project' ? t('manage.scopeProject') : t('manage.scopeUser')}
+                  {entry.tools !== undefined ? t('manage.toolCount', { count: entry.tools }) : ''}
                   {entry.detail ? ` · ${entry.detail}` : ''}
                 </Typography.Text>
               </div>
@@ -1067,10 +1084,10 @@ function McpPanel({ api }: { api: WebApi }) {
                     )
                   }
                 >
-                  详情
+                  {t('manage.details')}
                 </Button>
                 <Button type="text" size="small" onClick={() => setEditEntry(entry)}>
-                  编辑
+                  {t('manage.edit')}
                 </Button>
                 {!entry.transport.startsWith('stdio') && (
                   <>
@@ -1080,22 +1097,22 @@ function McpPanel({ api }: { api: WebApi }) {
                       loading={authing === entry.name}
                       onClick={() => {
                         setAuthing(entry.name)
-                        setNotice('已打开浏览器授权页，完成后状态自动刷新（最长等待 5 分钟）')
+                        setNotice(t('manage.oauthBrowserOpened'))
                         void run({ action: 'login', name: entry.name }, () => reload()).finally(
                           () => setAuthing(undefined),
                         )
                       }}
                     >
-                      认证
+                      {t('manage.authenticate')}
                     </Button>
                     <Popconfirm
-                      title={`清除 ${entry.name} 已保存的 OAuth 凭据？`}
+                      title={t('manage.clearOAuthConfirm', { name: entry.name })}
                       onConfirm={() =>
                         void run({ action: 'logout', name: entry.name }, () => reload())
                       }
                     >
                       <Button type="text" size="small">
-                        登出
+                        {t('manage.logout')}
                       </Button>
                     </Popconfirm>
                   </>
@@ -1119,16 +1136,16 @@ function McpPanel({ api }: { api: WebApi }) {
                     )
                   }
                 >
-                  {entry.status === 'disabled' ? '启用' : '禁用'}
+                  {entry.status === 'disabled' ? t('manage.enable') : t('manage.disable')}
                 </Button>
                 <Popconfirm
-                  title={`移除 ${entry.name}（${entry.scope ?? '?'} 作用域）？`}
+                  title={t('manage.removeConfirm', { name: entry.name, scope: entry.scope ?? '?' })}
                   onConfirm={() =>
                     void run({ action: 'remove', name: entry.name, scope: entry.scope }, reload)
                   }
                 >
                   <Button type="text" size="small" danger>
-                    移除
+                    {t('manage.remove')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -1156,7 +1173,7 @@ function McpPanel({ api }: { api: WebApi }) {
         />
       )}
       <Modal
-        title={`MCP server：${inspect?.entry.name ?? ''}`}
+        title={t('manage.mcpServerDetailTitle', { name: inspect?.entry.name ?? '' })}
         open={inspect !== undefined}
         onCancel={() => setInspect(undefined)}
         footer={null}
@@ -1173,8 +1190,8 @@ function McpPanel({ api }: { api: WebApi }) {
               pagination={false}
               dataSource={inspect.tools.map((tool) => ({ key: tool.name, ...tool }))}
               columns={[
-                { dataIndex: 'name', title: '工具（mcp__server__tool）', width: 240 },
-                { dataIndex: 'description', title: '描述' },
+                { dataIndex: 'name', title: t('manage.colTools'), width: 240 },
+                { dataIndex: 'description', title: t('manage.labelDescription') },
               ]}
             />
           </div>
@@ -1185,14 +1202,15 @@ function McpPanel({ api }: { api: WebApi }) {
 }
 
 function McpStatusDot({ status }: { status: string | undefined }) {
+  const { t } = useI18n()
   const map: Record<string, { color: string; text: string }> = {
-    connected: { color: '#52c41a', text: '已连接' },
-    connecting: { color: '#faad14', text: '连接中' },
-    'needs-auth': { color: '#fa8c16', text: '需要认证' },
-    failed: { color: '#ff4d4f', text: '失败' },
-    disabled: { color: '#bfbfbf', text: '已禁用' },
+    connected: { color: '#52c41a', text: t('manage.stateConnected') },
+    connecting: { color: '#faad14', text: t('manage.stateConnecting') },
+    'needs-auth': { color: '#fa8c16', text: t('manage.stateNeedsAuth') },
+    failed: { color: '#ff4d4f', text: t('manage.stateFailed') },
+    disabled: { color: '#bfbfbf', text: t('manage.stateDisabled') },
   }
-  const state = map[status ?? ''] ?? { color: '#bfbfbf', text: status ?? '未知' }
+  const state = map[status ?? ''] ?? { color: '#bfbfbf', text: status ?? t('manage.stateUnknown') }
   return <StatusDot color={state.color} text={state.text} />
 }
 
@@ -1230,6 +1248,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
     items: { id: string; label: string; description: string; enabled: boolean }[]
   }>(api, 'plugins')
   const { notice, setNotice, run } = useAction(api, 'plugins')
+  const { t } = useI18n()
   const [inventory, setInventory] = useState<PluginInventory>()
   const [approve, setApprove] = useState<PluginEntry>()
   const [installing, setInstalling] = useState<string>()
@@ -1257,7 +1276,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
       try {
         await api.managementAction('plugins', { action: 'install', name })
       } catch (cause) {
-        setNotice(marketErrorMessage(cause))
+        setNotice(marketErrorMessage(cause, t))
       } finally {
         setInstalling(undefined)
       }
@@ -1271,7 +1290,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
     if (entry.source === 'market' && entry.lifecycle && !entry.lifecycle.approved)
       actions.push(
         <Button key="approve" size="small" type="primary" onClick={() => setApprove(entry)}>
-          批准
+          {t('manage.approve')}
         </Button>,
       )
     if (entry.lifecycle?.enabled)
@@ -1282,7 +1301,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
           type="text"
           onClick={() => void run({ action: 'disable', name: entry.name }, () => void combined())}
         >
-          禁用
+          {t('manage.disable')}
         </Button>,
       )
     else if (entry.lifecycle?.approved)
@@ -1293,20 +1312,20 @@ function PluginsPanel({ api }: { api: WebApi }) {
           type="primary"
           onClick={() => void run({ action: 'enable', name: entry.name }, () => void combined())}
         >
-          启用
+          {t('manage.enable')}
         </Button>,
       )
     if (entry.source === 'market')
       actions.push(
         <Popconfirm
           key="uninstall"
-          title={`卸载 ${entry.name}？`}
+          title={t('manage.uninstallConfirm', { name: entry.name })}
           onConfirm={() =>
             void run({ action: 'uninstall', name: entry.name }, () => void combined())
           }
         >
           <Button type="text" size="small" danger>
-            卸载
+            {t('manage.uninstall')}
           </Button>
         </Popconfirm>,
       )
@@ -1315,7 +1334,9 @@ function PluginsPanel({ api }: { api: WebApi }) {
 
   const renderEntries = (entries: PluginEntry[], onDetail?: (entry: PluginEntry) => void) => (
     <div style={{ display: 'grid', gap: 8 }}>
-      {entries.length === 0 && <Empty description="无" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+      {entries.length === 0 && (
+        <Empty description={t('manage.none')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      )}
       {entries.map((entry) => (
         <ItemCard key={entry.name}>
           <div
@@ -1329,7 +1350,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
             <div
               style={{ minWidth: 0, cursor: onDetail ? 'pointer' : undefined }}
               onClick={() => onDetail?.(entry)}
-              title={onDetail ? '查看详情' : undefined}
+              title={onDetail ? t('manage.viewDetails') : undefined}
             >
               <Space size={8} wrap>
                 <Typography.Text strong>{entry.name}</Typography.Text>
@@ -1361,18 +1382,15 @@ function PluginsPanel({ api }: { api: WebApi }) {
           gap: 8,
         }}
       >
-        <PanelIntro
-          title="Plugins 插件"
-          description="沙箱子进程插件：市场安装 → 批准（权限清单前置）→ 启用 三段状态机，激活前逐文件 digest 重验。"
-        />
-        <CountBadge scopeLabel="plugins" count={total} unit="个插件" />
+        <PanelIntro title={t('manage.pluginsTitle')} description={t('manage.pluginsDesc')} />
+        <CountBadge scopeLabel="plugins" count={total} unit={t('manage.unitPlugins')} />
       </div>
       <PanelToolbar>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          legacy catalog（deny-only）通道已关闭；管理走下方 v2 状态机
+          {t('manage.legacyCatalogNote')}
         </Typography.Text>
         <Button icon={<ReloadOutlined />} onClick={() => void combined()}>
-          刷新 inventory
+          {t('manage.refreshInventory')}
         </Button>
       </PanelToolbar>
       <Notice message={notice} />
@@ -1381,7 +1399,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
         items={[
           {
             key: 'domains',
-            label: '第一方域',
+            label: t('manage.tabDomains'),
             children: (
               <div style={{ display: 'grid', gap: 8 }}>
                 {(data?.items ?? []).map((domain) => (
@@ -1408,7 +1426,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
                         size="small"
                         onClick={() => void toggleDomain(domain.id, !domain.enabled)}
                       >
-                        {domain.enabled ? '禁用' : '启用'}
+                        {domain.enabled ? t('manage.disable') : t('manage.enable')}
                       </Button>
                     </div>
                   </ItemCard>
@@ -1416,23 +1434,29 @@ function PluginsPanel({ api }: { api: WebApi }) {
               </div>
             ),
           },
-          { key: 'builtin', label: '内置插件', children: renderEntries(inventory?.builtin ?? []) },
-          { key: 'dev', label: 'Dev 插件', children: renderEntries(inventory?.dev ?? []) },
+          {
+            key: 'builtin',
+            label: t('manage.tabBuiltin'),
+            children: renderEntries(inventory?.builtin ?? []),
+          },
+          { key: 'dev', label: t('manage.tabDev'), children: renderEntries(inventory?.dev ?? []) },
           {
             key: 'market',
-            label: '市场插件',
+            label: t('manage.tabMarketPlugins'),
             children: (
               <div style={{ display: 'grid', gap: 16 }}>
                 <div>
                   <Typography.Title level={5} style={{ marginTop: 0 }}>
-                    已安装
+                    {t('manage.installedTitle')}
                   </Typography.Title>
                   {renderEntries(inventory?.market.installed ?? [], setEntryDetail)}
                 </div>
                 <div>
-                  <Typography.Title level={5}>市场源</Typography.Title>
+                  <Typography.Title level={5}>{t('manage.marketSourceTitle')}</Typography.Title>
                   {!registry && (
-                    <Typography.Text type="secondary">点「刷新 inventory」加载…</Typography.Text>
+                    <Typography.Text type="secondary">
+                      {t('manage.clickRefreshInventory')}
+                    </Typography.Text>
                   )}
                   {registry && 'error' in registry && (
                     <Typography.Text type="warning">{registry.error}</Typography.Text>
@@ -1440,7 +1464,10 @@ function PluginsPanel({ api }: { api: WebApi }) {
                   {registry && 'plugins' in registry && (
                     <div style={{ display: 'grid', gap: 8 }}>
                       {registry.plugins.length === 0 && (
-                        <Empty description="市场源没有条目" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        <Empty
+                          description={t('manage.marketEmpty')}
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        />
                       )}
                       {registry.plugins.map((listing) => {
                         const installed = inventory?.market.installed.some(
@@ -1459,7 +1486,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
                               <div
                                 style={{ minWidth: 0, cursor: 'pointer' }}
                                 onClick={() => setListingDetail(listing)}
-                                title="查看详情"
+                                title={t('manage.viewDetails')}
                               >
                                 <Space size={8} wrap>
                                   <Typography.Text strong>{listing.name}</Typography.Text>
@@ -1482,7 +1509,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
                                 loading={installing === listing.name}
                                 onClick={() => void install(listing.name)}
                               >
-                                {installed ? '已安装' : '安装'}
+                                {installed ? t('manage.installedTitle') : t('manage.install')}
                               </Button>
                             </div>
                           </ItemCard>
@@ -1507,26 +1534,32 @@ function PluginsPanel({ api }: { api: WebApi }) {
         {listingDetail && (
           <>
             <Descriptions size="small" column={1} bordered>
-              <Descriptions.Item label="版本">{listingDetail.version}</Descriptions.Item>
-              <Descriptions.Item label="发布者">{listingDetail.publisher ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="描述">{listingDetail.description ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="索引源">
+              <Descriptions.Item label={t('manage.labelVersion')}>
+                {listingDetail.version}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelPublisher')}>
+                {listingDetail.publisher ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelDescription')}>
+                {listingDetail.description ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelIndexSource')}>
                 <Typography.Text copyable code style={{ fontSize: 12 }}>
                   {registry && 'source' in registry ? registry.source : ''}
                 </Typography.Text>
               </Descriptions.Item>
-              <Descriptions.Item label="安装资格">
+              <Descriptions.Item label={t('manage.labelInstallEligibility')}>
                 {registry && 'source' in registry && installableMarketSource(registry.source)
-                  ? '本地源，可安装'
-                  : '远程 HTTPS 安装需签名信任根（§19a）'}
+                  ? t('manage.localSourceInstallable')
+                  : t('manage.remoteNeedsTrustRoot')}
               </Descriptions.Item>
             </Descriptions>
             <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-              安装由宿主逐文件下载并做 sha256 完整性校验，落盘 ~/.volund/plugins/ 后等待权限批准。
+              {t('manage.installShaNote')}
             </Typography.Paragraph>
             {inventory?.market.installed.some((entry) => entry.name === listingDetail.name) ? (
               <Typography.Text type="secondary">
-                已安装（上方「已安装」列表管理生命周期）
+                {t('manage.installedLifecycleNote')}
               </Typography.Text>
             ) : (
               <Button
@@ -1538,7 +1571,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
                 loading={installing === listingDetail.name}
                 onClick={() => void install(listingDetail.name)}
               >
-                安装 v{listingDetail.version}
+                {t('manage.installVersion', { version: listingDetail.version })}
               </Button>
             )}
           </>
@@ -1554,22 +1587,28 @@ function PluginsPanel({ api }: { api: WebApi }) {
       >
         {entryDetail && (
           <Descriptions size="small" column={1} bordered>
-            <Descriptions.Item label="来源">{entryDetail.source}</Descriptions.Item>
-            <Descriptions.Item label="安装目录">
+            <Descriptions.Item label={t('manage.labelSource')}>
+              {entryDetail.source}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('manage.labelInstallDir')}>
               <Typography.Text copyable code style={{ fontSize: 12 }}>
                 {entryDetail.dir}
               </Typography.Text>
             </Descriptions.Item>
-            <Descriptions.Item label="注册命令数">{entryDetail.commands}</Descriptions.Item>
-            <Descriptions.Item label="状态页签数">{entryDetail.statusTabs}</Descriptions.Item>
-            <Descriptions.Item label="已批准">
-              {entryDetail.lifecycle?.approved ? '是' : '否'}
+            <Descriptions.Item label={t('manage.labelCommands')}>
+              {entryDetail.commands}
             </Descriptions.Item>
-            <Descriptions.Item label="已启用">
-              {entryDetail.lifecycle?.enabled ? '是' : '否'}
+            <Descriptions.Item label={t('manage.labelStatusTabs')}>
+              {entryDetail.statusTabs}
             </Descriptions.Item>
-            <Descriptions.Item label="已加载">
-              {entryDetail.lifecycle?.loaded ? '是' : '否'}
+            <Descriptions.Item label={t('manage.stateApproved')}>
+              {entryDetail.lifecycle?.approved ? t('manage.yes') : t('manage.no')}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('manage.stateEnabled')}>
+              {entryDetail.lifecycle?.enabled ? t('manage.yes') : t('manage.no')}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('manage.stateLoaded')}>
+              {entryDetail.lifecycle?.loaded ? t('manage.yes') : t('manage.no')}
             </Descriptions.Item>
           </Descriptions>
         )}
@@ -1590,12 +1629,13 @@ function PluginsPanel({ api }: { api: WebApi }) {
 }
 
 function PluginLifecycleTag({ entry }: { entry: PluginEntry }) {
+  const { t } = useI18n()
   if (!entry.lifecycle) return <Tag color="default">{entry.source}</Tag>
   const { approved, enabled, loaded } = entry.lifecycle
-  if (loaded) return <StatusDot color="#52c41a" text="已加载" />
-  if (enabled) return <StatusDot color="#52c41a" text="已启用" />
-  if (approved) return <StatusDot color="#1677ff" text="待启用" />
-  return <StatusDot color="#faad14" text="待批准" />
+  if (loaded) return <StatusDot color="#52c41a" text={t('manage.stateLoaded')} />
+  if (enabled) return <StatusDot color="#52c41a" text={t('manage.stateEnabled')} />
+  if (approved) return <StatusDot color="#1677ff" text={t('manage.statePendingEnable')} />
+  return <StatusDot color="#faad14" text={t('manage.statePendingApprove')} />
 }
 
 /** 批准前强制展示权限清单（§S3.5 不变量：未展示前批准不可用；hash 变更高亮）。 */
@@ -1612,6 +1652,7 @@ function ApproveModal({
 }) {
   const [detail, setDetail] = useState<PluginEntry & { permissions?: Record<string, unknown> }>()
   const [notice, setNotice] = useState<string>()
+  const { t } = useI18n()
   useEffect(() => {
     void api
       .managementAction('plugins', { action: 'inspect', name: entry.name })
@@ -1621,12 +1662,12 @@ function ApproveModal({
   const permissions = detail?.permissions
   return (
     <Modal
-      title={`批准插件：${entry.name}`}
+      title={t('manage.approvePlugin', { name: entry.name })}
       open
       onCancel={onClose}
       footer={[
         <Button key="cancel" onClick={onClose}>
-          取消
+          {t('manage.cancel')}
         </Button>,
         <Button
           key="approve"
@@ -1644,13 +1685,13 @@ function ApproveModal({
               .catch((cause) => setNotice(cause instanceof Error ? cause.message : String(cause)))
           }}
         >
-          确认批准
+          {t('manage.confirmApprove')}
         </Button>,
       ]}
       width={640}
     >
       <Notice message={notice} />
-      {!detail && <Typography.Text type="secondary">读取 manifest…</Typography.Text>}
+      {!detail && <Typography.Text type="secondary">{t('manage.readingManifest')}</Typography.Text>}
       {detail && (
         <div style={{ display: 'grid', gap: 8 }}>
           <Typography.Text>
@@ -1668,9 +1709,7 @@ function ApproveModal({
           >
             {JSON.stringify(permissions ?? {}, null, 2)}
           </pre>
-          <Typography.Text type="secondary">
-            批准即允许插件以以上权限运行（市场安装需 批准 → 启用 两步；激活前逐文件 digest 重验）。
-          </Typography.Text>
+          <Typography.Text type="secondary">{t('manage.approveNote')}</Typography.Text>
         </div>
       )}
     </Modal>

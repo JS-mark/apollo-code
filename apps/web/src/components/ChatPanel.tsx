@@ -35,6 +35,7 @@ import {
   mentionChipLabel,
   replaceMentionToken,
 } from '../lib/composer-mention'
+import { useI18n, type Translate } from '../lib/i18n'
 import {
   arrowDownNavigatesHistory,
   arrowUpOpensHistory,
@@ -65,11 +66,11 @@ interface PendingImage {
 
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
 
-/** 三档权限模式：label/desc 全产品统一口径（SettingsPage 同步引用此处文案）。 */
+/** 三档权限模式：文案走字典 key（chat.mode*），渲染时经 t 解析（SettingsPage 同步引用此处）。 */
 export const PERMISSION_MODES = [
-  { id: 'ask', label: '询问', desc: '每次操作都需确认' },
-  { id: 'auto', label: '自动', desc: '自动放行低风险操作，高风险仍确认' },
-  { id: 'full', label: '放行', desc: '不再询问任何操作（慎用）' },
+  { id: 'ask', labelKey: 'chat.modeAsk', descKey: 'chat.modeAskDesc' },
+  { id: 'auto', labelKey: 'chat.modeAuto', descKey: 'chat.modeAutoDesc' },
+  { id: 'full', labelKey: 'chat.modeFull', descKey: 'chat.modeFullDesc' },
 ] as const
 
 /** 时间分隔行：相邻消息间隔超过该阈值才再出一次（对齐 IM 惯例）。 */
@@ -82,8 +83,14 @@ const TIME_GAP_MS = 5 * 60_000
 function toolRowText(
   tool: ToolCard,
   subagents: Record<string, SubagentActivity>,
+  t: Translate,
 ): { name: string; status: string } {
-  const base = tool.status === 'running' ? '运行中…' : tool.status === 'error' ? '失败' : '完成'
+  const base =
+    tool.status === 'running'
+      ? t('chat.toolRunning')
+      : tool.status === 'error'
+        ? t('chat.toolError')
+        : t('chat.toolDone')
   if (tool.tool !== 'Task') return { name: tool.tool, status: base }
   const name = `🤖 ${tool.task?.agentType ?? '子代理'}`
   const activity = tool.turnId ? subagents[tool.turnId] : undefined
@@ -91,7 +98,7 @@ function toolRowText(
   if (tool.status === 'running' && activity.lastTool)
     return { name, status: `${base} · ${activity.lastTool}` }
   if (tool.status !== 'running' && activity.toolCalls > 0)
-    return { name, status: `${base} · ${activity.toolCalls} 次工具调用` }
+    return { name, status: `${base} · ${t('chat.toolCalls', { n: activity.toolCalls })}` }
   return { name, status: base }
 }
 
@@ -160,13 +167,14 @@ function ToolGlyph({ tool }: { tool: string }) {
 /** 展开卡头部的复制按钮：Copy→Check +「已复制」（全产品统一惯例）。 */
 function ToolCopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const { t } = useI18n()
   return (
-    <Tooltip title={copied ? '已复制' : '复制'}>
+    <Tooltip title={copied ? t('chat.copied') : t('chat.copy')}>
       <Button
         size="small"
         type="text"
         icon={copied ? <CheckOutlined /> : <CopyOutlined />}
-        aria-label={copied ? '已复制' : '复制'}
+        aria-label={copied ? t('chat.copied') : t('chat.copy')}
         onClick={(event) => {
           event.stopPropagation()
           void navigator.clipboard.writeText(text).then(() => {
@@ -191,9 +199,10 @@ function ToolRowCard({
   tool: ToolCard
   subagents: Record<string, SubagentActivity>
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const isTask = tool.tool === 'Task'
-  const row = toolRowText(tool, subagents)
+  const row = toolRowText(tool, subagents, t)
   const expandable = tool.body !== undefined
   const head = (
     <>
@@ -220,7 +229,7 @@ function ToolRowCard({
           <LoadingOutlined className="tool-spin" />
         )
       ) : tool.status === 'error' ? (
-        <span className="tool-status error">失败</span>
+        <span className="tool-status error">{t('chat.toolError')}</span>
       ) : isTask ? (
         <span className="tool-status">{row.status}</span>
       ) : null}
@@ -246,9 +255,11 @@ function ToolRowCard({
           <div className="tool-card">
             <div className="tool-card-head">
               <span className="tool-card-title">{tool.tool.toLowerCase()}</span>
-              {tool.status === 'running' ? <span className="tool-card-status">运行中…</span> : null}
+              {tool.status === 'running' ? (
+                <span className="tool-card-status">{t('chat.toolRunning')}</span>
+              ) : null}
               {tool.status === 'error' ? (
-                <span className="tool-card-status error">失败</span>
+                <span className="tool-card-status error">{t('chat.toolError')}</span>
               ) : null}
               <ToolCopyButton text={tool.body} />
             </div>
@@ -361,6 +372,7 @@ export function ChatPanel({
   const chat = stream.state
   const [draft, setDraft] = useState(() => localStorage.getItem(`volund-web-draft:${cwd}`) ?? '')
   // W-05：@-picker / slash 面板 / 历史输入。键序（对齐 TUI）：mention > slash > history > Enter。
+  const { t } = useI18n()
   const [mention, setMention] = useState<{
     query: string
     files: readonly string[]
@@ -668,7 +680,7 @@ export function ChatPanel({
       // 带图片的消息不排队（staged handle 有时效），提示等空闲再发。
       if (chat.turn === 'running' && !options?.queued) {
         if (ready.length > 0 || images.some((item) => item.status === 'uploading')) {
-          stream.setNotice('当前回合进行中：带图片的消息请等回合结束后再发送')
+          stream.setNotice(t('chat.queueImagesNotice'))
           return
         }
         stream.queuePush(`q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, trimmed)
@@ -725,7 +737,7 @@ export function ChatPanel({
         textareaRef.current?.focus()
       }
     },
-    [api, chat.turn, ensureSession, images, modelOverride, stream],
+    [api, chat.turn, ensureSession, images, modelOverride, stream, t],
   )
 
   // 排队补发：回合终态边沿（running → idle）逐条发出队首。submit 失败时乐观
@@ -756,7 +768,7 @@ export function ChatPanel({
   pendingFileAttachmentsRef.current = pendingFileAttachments
   const queueBlock =
     chat.sendQueue.length > 0 ? (
-      <div className="send-queue" aria-label="发送队列">
+      <div className="send-queue" aria-label={t('chat.sendQueueAria')}>
         {chat.sendQueue.map((item, index) => (
           <div
             key={item.id}
@@ -788,12 +800,12 @@ export function ChatPanel({
             <span className="send-queue-text" title={item.text}>
               {index + 1}. {item.text}
             </span>
-            <Tooltip title="移出队列">
+            <Tooltip title={t('chat.removeFromQueue')}>
               <Button
                 type="text"
                 size="small"
                 icon={<CloseOutlined />}
-                aria-label="移出队列"
+                aria-label={t('chat.removeFromQueue')}
                 onClick={() => stream.queueRemove(item.id)}
               />
             </Tooltip>
@@ -872,7 +884,7 @@ export function ChatPanel({
   const runningTool = running ? chat.tools.findLast((tool) => tool.status === 'running') : undefined
   const runningToolLabel = runningTool
     ? runningTool.tool === 'Task'
-      ? '子代理'
+      ? t('chat.subagent')
       : toolLabel(runningTool.tool)
     : undefined
   const streamedTokens = Math.round(chat.streamedChars / 4)
@@ -913,7 +925,7 @@ export function ChatPanel({
     )
     const statsRow = message.id === turnReplyId && showTurnStats && turnStats !== undefined && (
       <div key={`${message.id}-stats`} className="think-row settled">
-        已思考 · {turnStats.seconds} 秒 · {turnStats.steps} 个步骤
+        {t('chat.thoughtStats', { seconds: turnStats.seconds, steps: turnStats.steps })}
       </div>
     )
     if (message.role === 'user')
@@ -954,14 +966,16 @@ export function ChatPanel({
     const date = new Date(time)
     const hhmm = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
     const today = date.toDateString() === new Date().toDateString()
-    return today ? hhmm : `${date.getMonth() + 1}月${date.getDate()}日 ${hhmm}`
+    return today
+      ? hhmm
+      : t('chat.recentDate', { month: date.getMonth() + 1, day: date.getDate(), time: hhmm })
   }
 
   // 最近会话弹层（对齐 CodeBuddy web：标题带项目名 + X；空态；底部管理入口）。
   const recentPanel = (
     <div className="recent-panel">
       <div className="recent-head">
-        <Typography.Text strong>最近会话 · {projectName}</Typography.Text>
+        <Typography.Text strong>{t('chat.recentTitle', { name: projectName })}</Typography.Text>
         <Button
           size="small"
           type="text"
@@ -973,9 +987,9 @@ export function ChatPanel({
         {recentSessions.length === 0 ? (
           <div className="recent-empty">
             <HistoryOutlined style={{ fontSize: 32 }} />
-            <Typography.Text strong>没有历史对话</Typography.Text>
+            <Typography.Text strong>{t('chat.recentEmptyTitle')}</Typography.Text>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              当前项目还没有可继续的对话
+              {t('chat.recentEmptyDesc')}
             </Typography.Text>
           </div>
         ) : (
@@ -1007,7 +1021,7 @@ export function ChatPanel({
         }}
       >
         <SearchOutlined style={{ marginRight: 8 }} />
-        搜索并管理全部对话
+        {t('chat.recentManageAll')}
       </button>
     </div>
   )
@@ -1061,7 +1075,7 @@ export function ChatPanel({
               <button
                 type="button"
                 className="composer-thumb-x"
-                aria-label={`移除 ${image.chip}`}
+                aria-label={t('chat.removeImage', { chip: image.chip })}
                 onClick={(event) => {
                   event.stopPropagation()
                   setImages((current) => current.filter((_, i) => i !== index))
@@ -1075,7 +1089,7 @@ export function ChatPanel({
       )}
       {/* W-05：@-mention / slash 补全面板（textarea 上方绝对定位） */}
       {mentionOpen && (
-        <div className="composer-popup" role="listbox" aria-label="文件引用候选">
+        <div className="composer-popup" role="listbox" aria-label={t('chat.mentionListAria')}>
           {mentionList.map((candidate, index) => (
             <button
               key={candidate.path}
@@ -1091,7 +1105,7 @@ export function ChatPanel({
         </div>
       )}
       {!mentionOpen && slashOpen && (
-        <div className="composer-popup" role="listbox" aria-label="命令候选">
+        <div className="composer-popup" role="listbox" aria-label={t('chat.slashListAria')}>
           {slashList.map((command, index) => (
             <button
               key={command.name}
@@ -1127,8 +1141,8 @@ export function ChatPanel({
         value={draft}
         placeholder={
           busy && sessionId === undefined
-            ? '正在创建会话…'
-            : '给智能体发消息（Enter 发送，Shift+Enter 换行）'
+            ? t('chat.creatingSession')
+            : t('chat.composerPlaceholder')
         }
         disabled={busy}
         onChange={(event) => {
@@ -1164,11 +1178,11 @@ export function ChatPanel({
         onClick={(event) => event.stopPropagation()}
       />
       <div className="composer-bar">
-        <Tooltip title="添加图片">
+        <Tooltip title={t('chat.addImage')}>
           <button
             type="button"
             className="composer-btn"
-            aria-label="添加图片"
+            aria-label={t('chat.addImage')}
             onClick={(event) => {
               event.stopPropagation()
               fileInputRef.current?.click()
@@ -1191,8 +1205,8 @@ export function ChatPanel({
                       {mode.id === chat.permissionMode ? <CheckOutlined /> : null}
                     </span>
                     <span className="perm-mode-text">
-                      <span className="perm-mode-label">{mode.label}</span>
-                      <span className="perm-mode-desc">{mode.desc}</span>
+                      <span className="perm-mode-label">{t(mode.labelKey)}</span>
+                      <span className="perm-mode-desc">{t(mode.descKey)}</span>
                     </span>
                   </div>
                 ),
@@ -1211,7 +1225,9 @@ export function ChatPanel({
               onClick={(e) => e.stopPropagation()}
             >
               <SafetyCertificateOutlined />
-              {PERMISSION_MODES.find((mode) => mode.id === chat.permissionMode)?.label ?? '询问'}
+              {PERMISSION_MODES.find((mode) => mode.id === chat.permissionMode)?.labelKey
+                ? t(PERMISSION_MODES.find((mode) => mode.id === chat.permissionMode)!.labelKey)
+                : t('chat.modeAsk')}
               <DownOutlined className="composer-caret" />
             </button>
           </Dropdown>
@@ -1232,17 +1248,17 @@ export function ChatPanel({
               onClick={(e) => e.stopPropagation()}
             >
               {models.options.find((option) => option.id === (modelOverride ?? models.current))
-                ?.label ?? '模型'}
+                ?.label ?? t('chat.modelFallback')}
               <DownOutlined className="composer-caret" />
             </button>
           </Dropdown>
         )}
         {running && <LoadingOutlined className="composer-spin" />}
-        <Tooltip title={running ? '中断本轮' : '发送'}>
+        <Tooltip title={running ? t('chat.interruptTurn') : t('chat.send')}>
           <button
             type="button"
             className={`composer-send${running ? ' stop' : ''}`}
-            aria-label={running ? '中断本轮' : '发送'}
+            aria-label={running ? t('chat.interruptTurn') : t('chat.send')}
             disabled={!running && !canSend}
             onClick={(event) => {
               event.stopPropagation()
@@ -1258,7 +1274,11 @@ export function ChatPanel({
   )
 
   const empty = chat.messages.length === 0
-  const headerStatus = !connected ? '离线' : running ? '运行中' : '空闲'
+  const headerStatus = !connected
+    ? t('chat.statusOffline')
+    : running
+      ? t('chat.statusRunning')
+      : t('chat.statusIdle')
 
   return (
     <div className="chat-wrap">
@@ -1267,14 +1287,14 @@ export function ChatPanel({
         <div className="chat-head-side" />
         {!empty && (
           <div className="chat-head-center">
-            <div className="chat-head-title">{sessionTitle ?? '新对话'}</div>
+            <div className="chat-head-title">{sessionTitle ?? t('chat.untitledSession')}</div>
             <div className="chat-head-sub">
-              {projectName} · 主智能体 · {headerStatus}
+              {t('chat.headSub', { name: projectName, status: headerStatus })}
             </div>
           </div>
         )}
         <div className="chat-head-side actions">
-          <Tooltip title="在当前智能体中新建对话">
+          <Tooltip title={t('chat.newChatTip')}>
             <Button
               size="small"
               type="text"
@@ -1292,7 +1312,7 @@ export function ChatPanel({
             classNames={{ root: 'recent-popover' }}
             content={recentPanel}
           >
-            <Tooltip title="最近会话 (⌘⇧H)">
+            <Tooltip title={t('chat.recentTip')}>
               <Button
                 size="small"
                 type={recentOpen ? 'primary' : 'text'}
@@ -1300,7 +1320,7 @@ export function ChatPanel({
               />
             </Tooltip>
           </Popover>
-          <Tooltip title="工作台">
+          <Tooltip title={t('chat.workbenchTip')}>
             <Button
               size="small"
               type={workbenchOpen ? 'primary' : 'text'}
@@ -1308,7 +1328,7 @@ export function ChatPanel({
               onClick={onToggleWorkbench}
             />
           </Tooltip>
-          <Tooltip title="连接面板">
+          <Tooltip title={t('chat.connectTip')}>
             <Button
               size="small"
               type={connectOpen ? 'primary' : 'text'}
@@ -1318,7 +1338,7 @@ export function ChatPanel({
           </Tooltip>
           {sessionId !== undefined && !embedded && (
             <Button size="small" onClick={() => void end()} disabled={busy}>
-              结束会话
+              {t('chat.endSession')}
             </Button>
           )}
         </div>
@@ -1328,7 +1348,7 @@ export function ChatPanel({
         /* 欢迎屏：品牌标 + 标语 + cwd + composer 卡片垂直居中。 */
         <div className="chat-hero">
           <BrandMark size={84} />
-          <div className="chat-hero-tag">锻造灵感 · 化为现实</div>
+          <div className="chat-hero-tag">{t('chat.heroTagline')}</div>
           <div className="chat-hero-cwd">{cwd}</div>
           <div className="chat-hero-composer">
             {queueBlock}
@@ -1349,7 +1369,7 @@ export function ChatPanel({
               if (el) nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
             }}
           >
-            <div className="chat-disclaimer">回答由 AI 生成，仅供参考</div>
+            <div className="chat-disclaimer">{t('chat.disclaimer')}</div>
             {feed.map((entry) =>
               entry.kind === 'tool' ? (
                 <ToolRowCard key={entry.key} tool={entry.tool} subagents={chat.subagents} />
@@ -1363,7 +1383,11 @@ export function ChatPanel({
               <div className="think-row">
                 <TypingDots />
                 <span>
-                  {runningTool ? `运行 ${runningToolLabel}` : elapsed < 2 ? '准备中' : '思考中'}
+                  {runningTool
+                    ? t('chat.runningTool', { tool: runningToolLabel ?? '' })
+                    : elapsed < 2
+                      ? t('chat.preparing')
+                      : t('chat.thinking')}
                   {elapsed >= 2 ? ` · ${elapsed}s` : ''}
                   {streamedTokens > 0 ? ` · ↑ ${streamedTokens} tokens` : ''}
                 </span>
@@ -1372,7 +1396,7 @@ export function ChatPanel({
             {chat.permission && (
               <div className="perm-card">
                 <Typography.Text strong>
-                  权限请求：{chat.permission.display.toolName}
+                  {t('chat.permTitle', { tool: chat.permission.display.toolName })}
                 </Typography.Text>
                 <PermissionLineageBadge lineage={chat.permission.lineage} />
                 <pre className="perm-spec">{chat.permission.display.spec}</pre>
@@ -1380,31 +1404,35 @@ export function ChatPanel({
                   {chat.permission.display.approvable ? (
                     <>
                       <Button size="small" type="primary" onClick={() => void decide('allow-once')}>
-                        允许一次
+                        {t('chat.allowOnce')}
                       </Button>
                       <Button size="small" onClick={() => void decide('allow-session')}>
-                        本会话允许
+                        {t('chat.allowSession')}
                       </Button>
                       {chat.permission.mcpServer && (
                         <Tooltip
-                          title={`本会话内放行 MCP server「${chat.permission.mcpServer}」的全部工具`}
+                          title={t('chat.allowMcpServerTip', {
+                            server: chat.permission.mcpServer,
+                          })}
                         >
                           <Button size="small" onClick={() => void decide('allow-mcp-server')}>
-                            允许此 server 全部工具
+                            {t('chat.allowMcpServer')}
                           </Button>
                         </Tooltip>
                       )}
                     </>
                   ) : null}
                   <Button size="small" type="primary" danger onClick={() => void decide('deny')}>
-                    拒绝
+                    {t('chat.deny')}
                   </Button>
                 </div>
               </div>
             )}
             {chat.ask && (
               <div className="perm-card ask-card">
-                <Typography.Text strong>提问：{chat.ask.question}</Typography.Text>
+                <Typography.Text strong>
+                  {t('chat.askTitle', { question: chat.ask.question })}
+                </Typography.Text>
                 <div className="ask-options">
                   {chat.ask.options.map((option) => (
                     <button
@@ -1423,17 +1451,17 @@ export function ChatPanel({
                 <div className="ask-free">
                   <Input
                     size="small"
-                    placeholder="自定义回答（不选选项）"
-                    aria-label="自定义回答"
+                    placeholder={t('chat.askFreePlaceholder')}
+                    aria-label={t('chat.askFreeAria')}
                     value={askDraft}
                     onChange={(event) => setAskDraft(event.target.value)}
                     onPressEnter={sendAskFreeText}
                   />
-                  <Tooltip title="发送自定义回答">
+                  <Tooltip title={t('chat.sendCustomAnswer')}>
                     <Button
                       size="small"
                       type="text"
-                      aria-label="发送自定义回答"
+                      aria-label={t('chat.sendCustomAnswer')}
                       icon={<SendOutlined />}
                       disabled={!askDraft.trim()}
                       onClick={sendAskFreeText}
@@ -1442,7 +1470,7 @@ export function ChatPanel({
                 </div>
                 <div className="perm-actions">
                   <Button size="small" type="text" onClick={() => void answerAsk()}>
-                    跳过（不作答）
+                    {t('chat.skipAnswer')}
                   </Button>
                 </div>
               </div>
@@ -1450,7 +1478,7 @@ export function ChatPanel({
             {/* 用户主动中断：弱化为灰字 + 重试（不是报错，不进黄色警示条）。 */}
             {chat.interrupted && (
               <div className="chat-interrupted">
-                <span>已中断本次回复</span>
+                <span>{t('chat.interrupted')}</span>
                 {canRetryLast && (
                   <Button
                     type="link"
@@ -1459,7 +1487,7 @@ export function ChatPanel({
                     disabled={busy || chat.turn === 'running'}
                     onClick={retryLast}
                   >
-                    重试
+                    {t('chat.retry')}
                   </Button>
                 )}
               </div>
@@ -1469,7 +1497,7 @@ export function ChatPanel({
             )}
             {chat.usage && (
               <div className="chat-usage">
-                用量：in {chat.usage.input} / out {chat.usage.output}
+                {t('chat.usage', { input: chat.usage.input, output: chat.usage.output })}
                 {chat.usage.costUSD ? ` · $${chat.usage.costUSD.toFixed(4)}` : ''}
               </div>
             )}

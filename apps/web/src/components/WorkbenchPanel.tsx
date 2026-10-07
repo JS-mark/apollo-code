@@ -29,6 +29,8 @@ import { App, Button, Dropdown, Empty, Input, Spin, Tabs, Tag, Tooltip, Typograp
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WbGitStatus, WbMatch, WebApi } from '../lib/api'
+import { currentLocale, translate, useI18n, type Translate } from '../lib/i18n'
+import type { ShellKeys } from '../lib/i18n/dict/shell'
 import type { PreviewKind } from '../lib/preview-kind'
 import { previewKindOf } from '../lib/preview-kind'
 import { ChangesPane } from './ChangesPane'
@@ -48,20 +50,21 @@ interface ToolTab {
   line?: number
 }
 
-const TOOL_DEFS: { kind: ToolKind; title: string; icon: React.ReactNode }[] = [
-  { kind: 'explorer', title: '资源管理器', icon: <FolderOutlined /> },
-  { kind: 'search', title: '搜索', icon: <SearchOutlined /> },
-  { kind: 'git', title: '源代码管理', icon: <ForkOutlined /> },
-  { kind: 'changes', title: '文件变更', icon: <DiffOutlined /> },
-  { kind: 'terminal', title: '终端', icon: <TerminalIcon /> },
+const TOOL_DEFS: { kind: ToolKind; titleKey: ShellKeys; icon: React.ReactNode }[] = [
+  { kind: 'explorer', titleKey: 'shell.toolExplorer', icon: <FolderOutlined /> },
+  { kind: 'search', titleKey: 'shell.toolSearch', icon: <SearchOutlined /> },
+  { kind: 'git', titleKey: 'shell.toolGit', icon: <ForkOutlined /> },
+  { kind: 'changes', titleKey: 'shell.toolChanges', icon: <DiffOutlined /> },
+  { kind: 'terminal', titleKey: 'shell.toolTerminal', icon: <TerminalIcon /> },
 ]
 
 /** 终端图标（antd 无终端图标，按参考图手绘：显示器 + >_）。
  * 自绘 SVG 必须包 anticon 类 span——antd 菜单/按钮的图标间距挂在 .anticon
  * 选择器上，裸 SVG 图标会贴住文字。 */
 function TerminalIcon() {
+  const { t } = useI18n()
   return (
-    <span role="img" aria-label="终端" className="anticon">
+    <span role="img" aria-label={t('shell.toolTerminal')} className="anticon">
       <svg
         viewBox="0 0 16 16"
         width="1em"
@@ -92,8 +95,9 @@ const wbIconProps = {
 
 /** 新建对话图标（气泡 + 加号，对齐参考图）。 */
 export function NewChatIcon() {
+  const { t } = useI18n()
   return (
-    <span role="img" aria-label="新对话" className="anticon">
+    <span role="img" aria-label={t('shell.iconNewChat')} className="anticon">
       <svg {...wbIconProps}>
         <path d="M8 2.2c-3.5 0-6.2 2.2-6.2 5 0 1.6.9 3 2.3 4l-.5 2.6 2.5-1.2c.6.1 1.2.2 1.9.2" />
         <path d="M11 9.4v4.4M8.8 11.6h4.4" />
@@ -105,8 +109,9 @@ export function NewChatIcon() {
 
 /** 工作台图标（右侧面板，对齐参考图）。 */
 export function WorkbenchIcon() {
+  const { t } = useI18n()
   return (
-    <span role="img" aria-label="工作台" className="anticon">
+    <span role="img" aria-label={t('shell.iconWorkbench')} className="anticon">
       <svg {...wbIconProps}>
         <rect x="1.6" y="2.8" width="12.8" height="10.4" rx="1.6" />
         <path d="M9.8 2.8v10.4M11.6 6h1M11.6 8h1" />
@@ -115,7 +120,8 @@ export function WorkbenchIcon() {
   )
 }
 
-const toolTitle = (kind: ToolKind): string => TOOL_DEFS.find((tool) => tool.kind === kind)!.title
+const toolTitle = (kind: ToolKind, t: Translate): string =>
+  t(TOOL_DEFS.find((tool) => tool.kind === kind)!.titleKey)
 
 // ── 资源管理器：共享懒加载文件树(见 FileTree.tsx)──────────────────────
 
@@ -128,6 +134,7 @@ function SearchPanel({
   onOpenFile(path: string, line: number): void
 }) {
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<WbMatch[]>([])
   const [truncated, setTruncated] = useState(false)
@@ -160,7 +167,7 @@ function SearchPanel({
   return (
     <div className="wb-pane">
       <Input.Search
-        placeholder="搜索文件内容"
+        placeholder={t('shell.searchContentPlaceholder')}
         enterButton
         loading={running}
         value={query}
@@ -169,11 +176,11 @@ function SearchPanel({
       />
       {truncated && (
         <Typography.Text type="warning" style={{ display: 'block', fontSize: 12, marginTop: 6 }}>
-          结果过多，仅展示前 200 条
+          {t('shell.searchTruncated')}
         </Typography.Text>
       )}
       {searched && matches.length === 0 && (
-        <Empty description="没有匹配内容" style={{ marginTop: 32 }} />
+        <Empty description={t('shell.searchNoMatches')} style={{ marginTop: 32 }} />
       )}
       {groups.map((group) => (
         <div key={group.path} className="wb-search-group">
@@ -197,6 +204,7 @@ function SearchPanel({
 // ── 源代码管理 ─────────────────────────────────────────────────────────
 function GitPanel({ api, onOpenDiff }: { api: WebApi; onOpenDiff(path: string): void }) {
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [status, setStatus] = useState<WbGitStatus>()
   const refresh = useCallback(() => {
     void api
@@ -218,14 +226,20 @@ function GitPanel({ api, onOpenDiff }: { api: WebApi; onOpenDiff(path: string): 
         <Typography.Text strong style={{ flex: 1 }}>
           {status?.branch ?? '…'}
         </Typography.Text>
-        <Button size="small" type="text" icon={<ReloadOutlined />} onClick={refresh} title="刷新" />
+        <Button
+          size="small"
+          type="text"
+          icon={<ReloadOutlined />}
+          onClick={refresh}
+          title={t('shell.refresh')}
+        />
       </div>
       {status === undefined ? (
         <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
       ) : !status.isRepo ? (
-        <Empty description="当前工作区不是 git 仓库" style={{ marginTop: 32 }} />
+        <Empty description={t('shell.gitNotRepo')} style={{ marginTop: 32 }} />
       ) : status.entries.length === 0 ? (
-        <Empty description="工作区干净，没有变更" style={{ marginTop: 32 }} />
+        <Empty description={t('shell.gitClean')} style={{ marginTop: 32 }} />
       ) : (
         status.entries.map((entry) => (
           <div
@@ -247,6 +261,7 @@ function GitPanel({ api, onOpenDiff }: { api: WebApi; onOpenDiff(path: string): 
 // ── git diff 视图 ──────────────────────────────────────────────────────
 function DiffPanel({ api, path }: { api: WebApi; path?: string }) {
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [diff, setDiff] = useState<string>()
   useEffect(() => {
     void api
@@ -256,7 +271,7 @@ function DiffPanel({ api, path }: { api: WebApi; path?: string }) {
   }, [api, path, message])
   if (diff === undefined)
     return <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
-  if (!diff.trim()) return <Empty description="没有可展示的 diff" style={{ marginTop: 32 }} />
+  if (!diff.trim()) return <Empty description={t('shell.noDiff')} style={{ marginTop: 32 }} />
   return (
     <div className="wb-diff">
       <DiffView diff={diff} />
@@ -349,7 +364,7 @@ function TerminalPanel({ api }: { api: WebApi }) {
           if (msg.type === 'out' && typeof msg.data === 'string') term.write(msg.data)
           else if (msg.type === 'exit') {
             exited = true
-            term.write('\r\n\x1b[2m[进程已退出 — 按任意键重开]\x1b[0m\r\n')
+            term.write(`\r\n\x1b[2m${translate(currentLocale(), 'shell.termExited')}\x1b[0m\r\n`)
           }
         } catch {
           // 非 JSON 帧忽略
@@ -358,7 +373,9 @@ function TerminalPanel({ api }: { api: WebApi }) {
       ws.onclose = () => {
         if (!exited) {
           exited = true
-          term.write('\r\n\x1b[2m[连接已断开 — 按任意键重连]\x1b[0m\r\n')
+          term.write(
+            `\r\n\x1b[2m${translate(currentLocale(), 'shell.termDisconnected')}\x1b[0m\r\n`,
+          )
         }
       }
       const dataSub = term.onData((data) => {
@@ -408,6 +425,7 @@ export function WorkbenchPanel({
   focusSignal: { seq: number; tab: 'changes' | 'file'; path: string }
   onClose(): void
 }) {
+  const { t } = useI18n()
   const [tabs, setTabs] = useState<ToolTab[]>([])
   const [activeKey, setActiveKey] = useState<string>()
   const [quickOpen, setQuickOpen] = useState(false)
@@ -432,12 +450,12 @@ export function WorkbenchPanel({
       if (kind === 'terminal') {
         terminalSeq.current += 1
         const seq = terminalSeq.current
-        activate({ key: `terminal:${seq}`, kind, title: `终端 ${seq}` })
+        activate({ key: `terminal:${seq}`, kind, title: t('shell.terminalTab', { n: seq }) })
         return
       }
-      activate({ key: kind, kind, title: toolTitle(kind) })
+      activate({ key: kind, kind, title: toolTitle(kind, t) })
     },
-    [activate],
+    [activate, t],
   )
   const openFile = useCallback(
     (path: string, line?: number) =>
@@ -495,12 +513,12 @@ export function WorkbenchPanel({
   useEffect(() => {
     if (focusSignal.seq <= 0) return
     if (focusSignal.tab === 'changes') {
-      activate({ key: 'changes', kind: 'changes', title: toolTitle('changes') })
+      activate({ key: 'changes', kind: 'changes', title: toolTitle('changes', t) })
       setChangesFocus({ seq: focusSignal.seq, path: focusSignal.path })
     } else {
       openFile(focusSignal.path)
     }
-  }, [focusSignal, activate, openFile])
+  }, [focusSignal, activate, openFile, t])
 
   const closeTab = (key: string) => {
     setTabs((current) => {
@@ -531,7 +549,11 @@ export function WorkbenchPanel({
 
   return (
     <aside className="workbench" style={{ width }}>
-      <div className="workbench-resize" onMouseDown={startResize} title="调整工作台宽度" />
+      <div
+        className="workbench-resize"
+        onMouseDown={startResize}
+        title={t('shell.resizeWorkbench')}
+      />
       <div className="workbench-head">
         {tabs.length > 0 ? (
           // 标签即标识（不设「工作台」文字标题）：Tabs 自身可横向滚动，+ / 收起
@@ -570,7 +592,7 @@ export function WorkbenchPanel({
             items: [
               ...TOOL_DEFS.map((tool) => ({
                 key: tool.kind,
-                label: tool.title,
+                label: t(tool.titleKey),
                 // 自绘图标补菜单槽位样式（antd 的 item-icon 类不会克隆给非自家图标）。
                 icon:
                   tool.kind === 'terminal' ? (
@@ -579,7 +601,7 @@ export function WorkbenchPanel({
                     tool.icon
                   ),
               })),
-              { key: 'open-file', label: '打开文件', icon: <FileOutlined /> },
+              { key: 'open-file', label: t('shell.openFile'), icon: <FileOutlined /> },
             ],
             onClick: ({ key }) => {
               if (key === 'open-file') setQuickOpen(true)
@@ -587,9 +609,14 @@ export function WorkbenchPanel({
             },
           }}
         >
-          <Button size="small" type="text" icon={<PlusOutlined />} title="打开工作区工具" />
+          <Button
+            size="small"
+            type="text"
+            icon={<PlusOutlined />}
+            title={t('shell.openWorkbenchTools')}
+          />
         </Dropdown>
-        <Tooltip title="收起工作台">
+        <Tooltip title={t('shell.collapseWorkbench')}>
           <Button size="small" type="text" icon={<CloseOutlined />} onClick={onClose} />
         </Tooltip>
       </div>
@@ -597,23 +624,23 @@ export function WorkbenchPanel({
         {!active ? (
           <div className="workbench-empty">
             <Typography.Title level={5} style={{ marginBottom: 4 }}>
-              打开工作区工具
+              {t('shell.openWorkbenchTools')}
             </Typography.Title>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              选择资源管理器、文件搜索、源代码管理、文件变更、文件或终端
+              {t('shell.workbenchEmptyHint')}
             </Typography.Text>
             <div className="workbench-tools">
               {TOOL_DEFS.slice(0, 1).map((tool) => (
                 <Button key={tool.kind} icon={tool.icon} onClick={() => openTool(tool.kind)}>
-                  {tool.title}
+                  {t(tool.titleKey)}
                 </Button>
               ))}
               <Button icon={<FileOutlined />} onClick={() => setQuickOpen(true)}>
-                打开文件
+                {t('shell.openFile')}
               </Button>
               {TOOL_DEFS.slice(1).map((tool) => (
                 <Button key={tool.kind} icon={tool.icon} onClick={() => openTool(tool.kind)}>
-                  {tool.title}
+                  {t(tool.titleKey)}
                   {tool.kind === 'terminal' && <span className="wb-kbd">⌘J</span>}
                 </Button>
               ))}

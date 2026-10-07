@@ -8,6 +8,8 @@ import { Input, Modal, Typography } from 'antd'
 import type { InputRef } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useI18n } from '../lib/i18n'
+
 export interface CommandAction {
   key: string
   label: string
@@ -24,6 +26,7 @@ export function CommandModal({
   onClose(): void
   actions: readonly CommandAction[]
 }) {
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<InputRef>(null)
@@ -75,7 +78,7 @@ export function CommandModal({
       <Input
         ref={inputRef}
         value={query}
-        placeholder="搜索动作…（↑↓ 选择，Enter 执行，Esc 关闭）"
+        placeholder={t('shell.commandPalettePlaceholder')}
         onChange={(event) => {
           setQuery(event.target.value)
           setActive(0)
@@ -83,10 +86,14 @@ export function CommandModal({
         onKeyDown={onKeyDown}
         allowClear
       />
-      <div style={{ marginTop: 8, display: 'grid', gap: 2 }} role="listbox" aria-label="命令面板">
+      <div
+        style={{ marginTop: 8, display: 'grid', gap: 2 }}
+        role="listbox"
+        aria-label={t('shell.commandPaletteAria')}
+      >
         {filtered.length === 0 && (
           <Typography.Text type="secondary" style={{ padding: '12px 4px' }}>
-            没有匹配的动作
+            {t('shell.commandPaletteNoMatches')}
           </Typography.Text>
         )}
         {filtered.map((action, index) => (

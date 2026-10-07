@@ -10,15 +10,18 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { useI18n } from '../lib/i18n'
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const { t } = useI18n()
   return (
-    <Tooltip title={copied ? '已复制' : '复制'}>
+    <Tooltip title={copied ? t('chat.copied') : t('chat.copy')}>
       <Button
         size="small"
         type="text"
         icon={copied ? <CheckOutlined /> : <CopyOutlined />}
-        aria-label={copied ? '已复制' : '复制'}
+        aria-label={copied ? t('chat.copied') : t('chat.copy')}
         onClick={() => {
           void navigator.clipboard.writeText(text).then(() => {
             setCopied(true)
@@ -76,6 +79,7 @@ export function Markdown({
   text: string
   transformImgSrc?: (src: string) => string | undefined
 }) {
+  const { t } = useI18n()
   return (
     <div className="markdown">
       <ReactMarkdown
@@ -99,7 +103,11 @@ export function Markdown({
             const resolved =
               transformImgSrc && typeof src === 'string' ? transformImgSrc(src) : undefined
             if (!resolved)
-              return <Typography.Text type="secondary">[图片: {alt ?? '未命名'}]</Typography.Text>
+              return (
+                <Typography.Text type="secondary">
+                  {t('chat.imagePlaceholder', { alt: alt ?? t('chat.imageUnnamed') })}
+                </Typography.Text>
+              )
             return (
               <img src={resolved} alt={alt ?? ''} loading="lazy" style={{ maxWidth: '100%' }} />
             )

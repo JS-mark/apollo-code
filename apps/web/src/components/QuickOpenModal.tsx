@@ -6,6 +6,7 @@ import { Input, Modal, Spin, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 
 export function QuickOpenModal({
   api,
@@ -16,6 +17,7 @@ export function QuickOpenModal({
   onOpenFile(path: string): void
   onClose(): void
 }) {
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ path: string; name: string }[]>([])
   const [searching, setSearching] = useState(false)
@@ -38,12 +40,12 @@ export function QuickOpenModal({
   }, [api, query])
 
   return (
-    <Modal title="打开文件" open footer={null} onCancel={onClose} destroyOnHidden>
+    <Modal title={t('shell.openFile')} open footer={null} onCancel={onClose} destroyOnHidden>
       <Input
         autoFocus
         allowClear
         prefix={<SearchOutlined />}
-        placeholder="输入文件名或路径片段"
+        placeholder={t('shell.quickOpenPlaceholder')}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
@@ -51,7 +53,7 @@ export function QuickOpenModal({
         {searching && <Spin size="small" style={{ display: 'block', margin: '12px auto' }} />}
         {!searching && query.trim() && results.length === 0 && (
           <Typography.Text type="secondary" style={{ display: 'block', padding: '8px 2px' }}>
-            没有匹配的文件
+            {t('shell.quickOpenNoMatches')}
           </Typography.Text>
         )}
         {results.map((item) => (

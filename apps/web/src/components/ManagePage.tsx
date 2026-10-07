@@ -4,20 +4,12 @@ import { Alert, Empty, Table, Tabs, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import { useInventory } from './manage-shared'
 import { McpPanel, MemoryPanel, PluginsPanel, SkillsPanel } from './ManagePanels'
 import { MarketPanel } from './MarketPanel'
 
 type Tab = 'memory' | 'skill' | 'mcp' | 'plugins' | 'market' | 'telemetry'
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'memory', label: 'Memory' },
-  { id: 'skill', label: 'Skills' },
-  { id: 'mcp', label: 'MCP' },
-  { id: 'plugins', label: 'Plugins' },
-  { id: 'market', label: '市场' },
-  { id: 'telemetry', label: 'Telemetry' },
-]
 
 /** 管理页（§22 W-11/W-12/W-14 + WEB-EXT-MANAGE-MARKET-r1）：tagged-union actions 端点。 */
 export function ManagePage({
@@ -27,8 +19,18 @@ export function ManagePage({
   api: WebApi
   capabilities: Record<string, unknown>
 }) {
+  const { t } = useI18n()
   const mgmt = (capabilities.management ?? {}) as Record<string, boolean>
   // 市场页签复用 skill/mcp/plugins 三域端点（§S3.6），任一装配即可用。
+  // （tab 定义在组件体内：label 需渲染期 t 解析。）
+  const TABS: { id: Tab; label: string }[] = [
+    { id: 'memory', label: 'Memory' },
+    { id: 'skill', label: 'Skills' },
+    { id: 'mcp', label: 'MCP' },
+    { id: 'plugins', label: 'Plugins' },
+    { id: 'market', label: t('manage.marketTitle') },
+    { id: 'telemetry', label: 'Telemetry' },
+  ]
   const available = TABS.filter((tab) =>
     tab.id === 'market' ? mgmt.skill || mgmt.mcp || mgmt.plugins : mgmt[tab.id],
   )
@@ -37,16 +39,16 @@ export function ManagePage({
     return (
       <section style={{ padding: 24 }}>
         <Typography.Title level={4} style={{ marginTop: 0 }}>
-          管理
+          {t('manage.manageTitle')}
         </Typography.Title>
-        <Empty description="没有已装配的管理域（unavailable）" />
+        <Empty description={t('manage.noManageDomains')} />
       </section>
     )
 
   return (
     <section style={{ padding: 24, overflow: 'auto' }}>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        管理
+        {t('manage.manageTitle')}
       </Typography.Title>
       <Tabs
         items={available.map((tab) => ({
@@ -82,6 +84,7 @@ function TabBody({ api, tab }: { api: WebApi; tab: Tab }) {
 }
 
 function TelemetryPanel({ api }: { api: WebApi }) {
+  const { t } = useI18n()
   const [tab, setTab] = useState<'summary' | 'events'>('summary')
   const { data, error, reload } = useInventory<{
     summary: unknown
@@ -115,17 +118,17 @@ function TelemetryPanel({ api }: { api: WebApi }) {
         activeKey={tab}
         onChange={(key) => setTab(key as 'summary' | 'events')}
         items={[
-          { key: 'summary', label: '摘要' },
-          { key: 'events', label: '最近事件' },
+          { key: 'summary', label: t('manage.telemetrySummary') },
+          { key: 'events', label: t('manage.recentEvents') },
         ]}
       />
       {tab === 'summary' ? (
         <>
-          <Typography.Title level={5}>摘要</Typography.Title>
+          <Typography.Title level={5}>{t('manage.telemetrySummary')}</Typography.Title>
           <pre style={{ fontSize: 12, overflow: 'auto' }}>
             {JSON.stringify(data?.summary ?? {}, null, 2)}
           </pre>
-          <Typography.Title level={5}>健康</Typography.Title>
+          <Typography.Title level={5}>{t('manage.health')}</Typography.Title>
           <pre style={{ fontSize: 12, overflow: 'auto' }}>
             {JSON.stringify(data?.health ?? {}, null, 2)}
           </pre>
@@ -133,8 +136,11 @@ function TelemetryPanel({ api }: { api: WebApi }) {
       ) : (
         <>
           <Typography.Paragraph type="secondary">
-            最近 {events?.events.length ?? 0} 条（共 {events?.total ?? 0}，损坏行{' '}
-            {events?.corruptLines ?? 0}）
+            {t('manage.eventsCount', {
+              recent: events?.events.length ?? 0,
+              total: events?.total ?? 0,
+              corrupt: events?.corruptLines ?? 0,
+            })}
           </Typography.Paragraph>
           <Table
             size="small"

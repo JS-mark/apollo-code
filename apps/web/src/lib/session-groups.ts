@@ -3,6 +3,7 @@
  * 「更多」每次 +5）。
  */
 import type { SessionGroupsView, SessionSummary } from './api'
+import { currentLocale, translate } from './i18n'
 
 export const GROUP_PAGE_SIZE = 5
 /** 内置「未分组」分组的 key（不与服务端分组 id 冲突）。 */
@@ -45,7 +46,12 @@ export function buildSidebarGroups(
   }))
   // 未分组为空且存在用户分组时不占位；没有任何用户分组时由组件走平铺列表。
   if (ungrouped.length > 0 || groups.length === 0)
-    groups.push({ key: UNGROUPED_KEY, name: '未分组', builtin: true, sessions: ungrouped })
+    groups.push({
+      key: UNGROUPED_KEY,
+      name: translate(currentLocale(), 'shell.ungrouped'),
+      builtin: true,
+      sessions: ungrouped,
+    })
   return groups
 }
 

@@ -1,5 +1,6 @@
 import { Tag } from 'antd'
 
+import { useI18n } from '../lib/i18n'
 import type { PermissionLineage } from '../lib/session-stream'
 
 /**
@@ -8,6 +9,11 @@ import type { PermissionLineage } from '../lib/session-stream'
  * 主代理请求（无 lineage）不渲染——与 TUI/Mobile 同语义。
  */
 export function PermissionLineageBadge({ lineage }: { lineage: PermissionLineage | undefined }) {
+  const { t } = useI18n()
   if (!lineage) return null
-  return <Tag color="magenta">{`子代理${lineage.agentType ? ` · ${lineage.agentType}` : ''}`}</Tag>
+  return (
+    <Tag color="magenta">
+      {`${t('chat.subagent')}${lineage.agentType ? ` · ${lineage.agentType}` : ''}`}
+    </Tag>
+  )
 }

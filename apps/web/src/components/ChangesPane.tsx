@@ -5,6 +5,7 @@ import { Alert, Button, Empty, Modal, Tag, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import { DiffView } from './DiffView'
 
 interface ChangeRow {
@@ -59,6 +60,7 @@ export function ChangesPane({
   const [undoPreview, setUndoPreview] = useState<UndoPreview>()
   const [fileUndoOf, setFileUndoOf] = useState<string>()
   const [fileUndoPreview, setFileUndoPreview] = useState<UndoPreview>()
+  const { t } = useI18n()
 
   const reload = useCallback(() => {
     void api
@@ -149,25 +151,27 @@ export function ChangesPane({
     <div className="chg-pane">
       <div className="chg-head">
         <Typography.Text strong>
-          文件变更{changes !== undefined && changes.length > 0 ? ` · ${changes.length}` : ''}
+          {t('chat.changesTitle', {
+            count: changes !== undefined && changes.length > 0 ? ` · ${changes.length}` : '',
+          })}
         </Typography.Text>
         <span style={{ flex: 1 }} />
-        <Tooltip title="撤销上一批变更">
+        <Tooltip title={t('chat.undoLastBatch')}>
           <Button
             size="small"
             type="text"
             icon={<HistoryOutlined />}
-            aria-label="撤销上一批变更"
+            aria-label={t('chat.undoLastBatch')}
             disabled={changes === undefined || changes.length === 0}
             onClick={() => void openUndo()}
           />
         </Tooltip>
-        <Tooltip title="刷新">
+        <Tooltip title={t('chat.refresh')}>
           <Button
             size="small"
             type="text"
             icon={<ReloadOutlined />}
-            aria-label="刷新"
+            aria-label={t('chat.refresh')}
             onClick={reload}
           />
         </Tooltip>
@@ -176,7 +180,9 @@ export function ChangesPane({
       <div className="chg-list">
         {changes === undefined || changes.length === 0 ? (
           <Empty
-            description={sessionId === undefined ? '没有活动会话' : '本会话暂无文件变更'}
+            description={
+              sessionId === undefined ? t('chat.slashNoSession') : t('chat.noSessionChanges')
+            }
             style={{ marginTop: 32 }}
           />
         ) : (
@@ -192,11 +198,11 @@ export function ChangesPane({
               >
                 <div className="chg-item-line">
                   <Tag color={row.created ? 'success' : 'default'} style={{ marginInlineEnd: 6 }}>
-                    {row.created ? '新建' : '修改'}
+                    {row.created ? t('chat.changeCreated') : t('chat.changeModified')}
                   </Tag>
                   <span className="chg-item-path">{name}</span>
                   {dir !== '' && <span className="chg-item-dir">{dir}</span>}
-                  <Tooltip title={row.allConsumed ? '已撤销' : '撤销最近批次'}>
+                  <Tooltip title={row.allConsumed ? t('chat.undone') : t('chat.undoLatestBatch')}>
                     <Button
                       size="small"
                       type="text"
@@ -204,7 +210,7 @@ export function ChangesPane({
                       disabled={row.allConsumed}
                       icon={<UndoOutlined />}
                       className="chg-item-undo"
-                      aria-label={`撤销 ${name} 的最近批次`}
+                      aria-label={t('chat.undoFileBatchAria', { name })}
                       onClick={(event) => {
                         event.stopPropagation()
                         void openFileUndo(row.path)
@@ -213,7 +219,10 @@ export function ChangesPane({
                   </Tooltip>
                 </div>
                 <div className="chg-item-sub">
-                  {row.batches} 批 · {row.allConsumed ? '已撤销' : row.lastModifiedAt}
+                  {t('chat.batchesLine', {
+                    n: row.batches,
+                    tail: row.allConsumed ? t('chat.undone') : row.lastModifiedAt,
+                  })}
                 </div>
               </div>
             )
@@ -223,24 +232,19 @@ export function ChangesPane({
 
       <div className="chg-diff">
         {selected === undefined ? (
-          <Empty description="选择文件查看 diff" style={{ marginTop: 32 }} />
+          <Empty description={t('chat.selectFileForDiff')} style={{ marginTop: 32 }} />
         ) : diffOfSelected === undefined ? (
           <Typography.Text type="secondary" style={{ padding: '8px 12px' }}>
-            加载 diff…
+            {t('chat.loadingDiff')}
           </Typography.Text>
         ) : !diffOfSelected.tracked ? (
-          <Empty description="该路径没有本会话的备份记录" style={{ marginTop: 32 }} />
+          <Empty description={t('chat.noBackupForPath')} style={{ marginTop: 32 }} />
         ) : diffOfSelected.truncated ? (
-          <Empty
-            description="文件过大，净效果 diff 不做全量渲染（可直接撤销批次）"
-            style={{ marginTop: 32 }}
-          />
+          <Empty description={t('chat.diffTooLarge')} style={{ marginTop: 32 }} />
         ) : diffOfSelected.diff.trim() === '' ? (
           <Empty
             description={
-              diffOfSelected.created
-                ? '会话新建的文件（当前无净变化）'
-                : '与备份起点无差异（可能已撤销）'
+              diffOfSelected.created ? t('chat.diffEmptyCreated') : t('chat.diffEmptyNoDiff')
             }
             style={{ marginTop: 32 }}
           />
@@ -259,9 +263,7 @@ export function ChangesPane({
                 showIcon
                 style={{ margin: '0 8px 8px' }}
                 title={
-                  diffOfSelected.deleted
-                    ? '文件已在本会话内删除'
-                    : '备份起点快照缺失，diff 从空文件起算'
+                  diffOfSelected.deleted ? t('chat.diffDeletedFile') : t('chat.diffMissingBaseline')
                 }
               />
             ) : null}
@@ -274,19 +276,20 @@ export function ChangesPane({
 
       <Modal
         open={modalOpen}
-        title="撤销上一批变更"
-        okText="确认撤销"
+        title={t('chat.undoLastBatch')}
+        okText={t('chat.confirmUndo')}
         okButtonProps={{ danger: true, disabled: !undoPreview?.undoable }}
-        cancelText="取消"
+        cancelText={t('chat.cancel')}
         onOk={() => void runUndo()}
         onCancel={() => setModalOpen(false)}
       >
         {undoPreview === undefined ? (
-          <Typography.Text type="secondary">加载中…</Typography.Text>
+          <Typography.Text type="secondary">{t('chat.loading')}</Typography.Text>
         ) : undoPreview.undoable ? (
           <>
             <Typography.Text>
-              将撤销 <strong>{undoPreview.paths.length}</strong> 个文件的上一批变更：
+              {t('chat.undoLastBatchLead')} <strong>{undoPreview.paths.length}</strong>
+              {t('chat.undoLastBatchTail')}
             </Typography.Text>
             {undoPreview.paths.map((path) => (
               <div key={path} style={{ padding: '2px 0' }}>
@@ -301,22 +304,22 @@ export function ChangesPane({
                 style={{ marginTop: 8 }}
                 title={
                   warning.kind === 'target_modified'
-                    ? `${warning.path}: 备份后曾被外部修改，撤销可能覆盖手工改动`
-                    : `${warning.path}: 备份对象缺失，该文件将跳过`
+                    ? t('chat.undoWarnModified', { path: warning.path })
+                    : t('chat.undoWarnMissing', { path: warning.path })
                 }
               />
             ))}
           </>
         ) : (
-          <Typography.Text type="secondary">没有可撤销的批次（no_backup）。</Typography.Text>
+          <Typography.Text type="secondary">{t('chat.noUndoableBatch')}</Typography.Text>
         )}
       </Modal>
       <Modal
         open={fileUndoOf !== undefined}
-        title={`撤销 ${fileUndoOf ?? ''} 的最近批次`}
-        okText="确认撤销"
+        title={t('chat.undoFileBatchTitle', { path: fileUndoOf ?? '' })}
+        okText={t('chat.confirmUndo')}
         okButtonProps={{ danger: true, disabled: !fileUndoPreview?.undoable }}
-        cancelText="取消"
+        cancelText={t('chat.cancel')}
         onOk={() => void runFileUndo()}
         onCancel={() => {
           setFileUndoOf(undefined)
@@ -324,11 +327,12 @@ export function ChangesPane({
         }}
       >
         {fileUndoPreview === undefined ? (
-          <Typography.Text type="secondary">加载中…</Typography.Text>
+          <Typography.Text type="secondary">{t('chat.loading')}</Typography.Text>
         ) : fileUndoPreview.undoable ? (
           <>
             <Typography.Text>
-              将撤销以下 <strong>{fileUndoPreview.paths.length}</strong> 个文件的最近批次：
+              {t('chat.undoFileBatchLead')} <strong>{fileUndoPreview.paths.length}</strong>
+              {t('chat.undoFileBatchTail')}
             </Typography.Text>
             {fileUndoPreview.paths.map((path) => (
               <div key={path} style={{ padding: '2px 0' }}>
@@ -340,7 +344,7 @@ export function ChangesPane({
                 type="info"
                 showIcon
                 style={{ marginTop: 8 }}
-                title="该批次是一次工具调用产生的多个文件，将一并撤销。"
+                title={t('chat.undoMultiFileNote')}
               />
             ) : null}
             {fileUndoPreview.warnings.map((warning) => (
@@ -351,14 +355,14 @@ export function ChangesPane({
                 style={{ marginTop: 8 }}
                 title={
                   warning.kind === 'target_modified'
-                    ? `${warning.path}: 备份后曾被外部修改，撤销可能覆盖手工改动`
-                    : `${warning.path}: 备份对象缺失，该文件将跳过`
+                    ? t('chat.undoWarnModified', { path: warning.path })
+                    : t('chat.undoWarnMissing', { path: warning.path })
                 }
               />
             ))}
           </>
         ) : (
-          <Typography.Text type="secondary">没有可撤销的批次（no_backup）。</Typography.Text>
+          <Typography.Text type="secondary">{t('chat.noUndoableBatch')}</Typography.Text>
         )}
       </Modal>
     </div>

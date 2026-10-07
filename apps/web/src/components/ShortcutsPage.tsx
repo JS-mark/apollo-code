@@ -2,23 +2,26 @@
 
 import { Table, Typography } from 'antd'
 
+import { useI18n } from '../lib/i18n'
+
 /** 快捷键页（W-16）：只列 Web 端真实存在的键位，不放占位。 */
 export function ShortcutsPage() {
+  const { t } = useI18n()
   const rows = [
-    { key: '1', keys: 'Enter', action: '发送消息' },
-    { key: '2', keys: 'Shift + Enter', action: '换行' },
-    { key: '3', keys: 'Cmd/Ctrl + V', action: '粘贴剪贴板图片为附件' },
-    { key: '4', keys: '拖拽图片到输入框', action: '添加图片附件' },
-    { key: '5', keys: 'Esc', action: '关闭打开的下拉菜单' },
-    { key: '6', keys: 'Cmd/Ctrl + K 或 Cmd + /', action: '命令面板（⌘K）' },
-    { key: '7', keys: 'Cmd + J', action: '打开工作台并聚焦终端' },
-    { key: '8', keys: 'Cmd + B', action: '收起/展开会话侧栏' },
-    { key: '9', keys: 'Cmd + ,', action: '打开设置' },
+    { key: '1', keys: 'Enter', action: t('shell.scSend') },
+    { key: '2', keys: 'Shift + Enter', action: t('shell.scNewline') },
+    { key: '3', keys: 'Cmd/Ctrl + V', action: t('shell.scPasteImage') },
+    { key: '4', keys: t('shell.scDragKeys'), action: t('shell.scAddImage') },
+    { key: '5', keys: 'Esc', action: t('shell.scCloseMenus') },
+    { key: '6', keys: t('shell.scPaletteKeys'), action: t('shell.scCommandPalette') },
+    { key: '7', keys: 'Cmd + J', action: t('shell.scFocusTerminal') },
+    { key: '8', keys: 'Cmd + B', action: t('shell.actionToggleSidebar') },
+    { key: '9', keys: 'Cmd + ,', action: t('shell.scOpenSettings') },
   ]
   return (
     <section style={{ padding: 24, overflow: 'auto' }}>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        快捷键
+        {t('shell.route.shortcuts')}
       </Typography.Title>
       <Table
         size="small"

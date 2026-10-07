@@ -26,6 +26,7 @@ import { App, Button, Image, Input, Spin, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import type { PreviewKind } from '../lib/preview-kind'
 import { Markdown } from './Markdown'
 
@@ -48,6 +49,7 @@ export function FilePreview({
   onOpenPath(path: string): void
 }) {
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [nonce, setNonce] = useState(0)
   // raw-token：所有直出 URL 的公共前缀（opaque iframe 子资源无 cookie，见上）。
   const [token, setToken] = useState<string>()
@@ -103,7 +105,7 @@ export function FilePreview({
       .wbStat(next)
       .then((stat) => {
         if (stat.kind === 'dir') {
-          message.warning('这是目录——请在资源管理器中浏览')
+          message.warning(t('shell.previewIsDir'))
           return
         }
         onOpenPath(next)
@@ -148,7 +150,7 @@ export function FilePreview({
             style={{ flex: 1, minWidth: 0 }}
           />
         ) : (
-          <Tooltip title="点击编辑路径，回车跳转（同浏览器地址栏）">
+          <Tooltip title={t('shell.previewAddrTooltip')}>
             <Typography.Text
               type="secondary"
               ellipsis
@@ -163,40 +165,40 @@ export function FilePreview({
             </Typography.Text>
           </Tooltip>
         )}
-        {kind === 'html' && <Tag style={{ marginRight: 0 }}>沙箱</Tag>}
-        <Tooltip title="打开源码">
+        {kind === 'html' && <Tag style={{ marginRight: 0 }}>{t('shell.previewSandbox')}</Tag>}
+        <Tooltip title={t('shell.previewOpenSource')}>
           <Button
             size="small"
             type="text"
             icon={<CodeOutlined />}
-            aria-label="打开源码"
+            aria-label={t('shell.previewOpenSource')}
             onClick={() => onOpenSource(path)}
           />
         </Tooltip>
-        <Tooltip title="刷新">
+        <Tooltip title={t('shell.refresh')}>
           <Button
             size="small"
             type="text"
             icon={<ReloadOutlined />}
-            aria-label="刷新预览"
+            aria-label={t('shell.previewRefreshAria')}
             onClick={reload}
           />
         </Tooltip>
-        <Tooltip title="新窗口打开">
+        <Tooltip title={t('shell.previewOpenNewWindow')}>
           <Button
             size="small"
             type="text"
             icon={<ExportOutlined />}
-            aria-label="在新窗口打开"
+            aria-label={t('shell.previewOpenNewWindowAria')}
             onClick={openExternal}
           />
         </Tooltip>
-        <Tooltip title="下载">
+        <Tooltip title={t('shell.download')}>
           <Button
             size="small"
             type="text"
             icon={<DownloadOutlined />}
-            aria-label="下载文件"
+            aria-label={t('shell.previewDownloadAria')}
             onClick={download}
           />
         </Tooltip>
@@ -228,7 +230,7 @@ export function FilePreview({
         <div className="wb-preview-markdown">
           {md.truncated && (
             <Typography.Text type="warning" style={{ display: 'block', fontSize: 12 }}>
-              文件过大，仅展示前 512 KiB
+              {t('shell.previewTruncated')}
             </Typography.Text>
           )}
           <Markdown text={md.content} transformImgSrc={resolveMdImage} />

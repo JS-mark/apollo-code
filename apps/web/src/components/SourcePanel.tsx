@@ -13,6 +13,7 @@ import { Highlight, themes } from 'prism-react-renderer'
 import { useEffect, useRef, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import { previewKindOf } from '../lib/preview-kind'
 import { useThemeMode } from '../lib/theme'
 
@@ -80,6 +81,7 @@ export function SourcePanel({
   onOpenPreview(path: string): void
 }) {
   const { message } = App.useApp()
+  const { t } = useI18n()
   const { resolved } = useThemeMode()
   const [file, setFile] = useState<{ binary: boolean; content: string; truncated: boolean }>()
   const [editing, setEditing] = useState(false)
@@ -116,10 +118,10 @@ export function SourcePanel({
   if (file.binary)
     return (
       <div className="workbench-empty" style={{ gap: 12 }}>
-        <Empty description="二进制文件不支持文本查看" style={{ marginTop: 24 }} />
+        <Empty description={t('manage.binaryNotViewable')} style={{ marginTop: 24 }} />
         {previewKindOf(path) !== 'text' && (
           <Button icon={<EyeOutlined />} onClick={() => onOpenPreview(path)}>
-            预览
+            {t('manage.preview')}
           </Button>
         )}
         <Button
@@ -133,7 +135,7 @@ export function SourcePanel({
             })
           }}
         >
-          下载文件
+          {t('manage.downloadFile')}
         </Button>
       </div>
     )
@@ -144,7 +146,7 @@ export function SourcePanel({
       await api.wbWriteFile(path, draft)
       setFile({ ...file, content: draft })
       setEditing(false)
-      message.success('已保存')
+      message.success(t('manage.saved'))
     } catch (cause) {
       message.error(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -160,15 +162,15 @@ export function SourcePanel({
       <div className="wb-file-bar">
         <Typography.Text type="secondary" ellipsis style={{ flex: 1, minWidth: 0, fontSize: 12 }}>
           {path}
-          {file.truncated ? '（过大已截断）' : ''}
+          {file.truncated ? t('manage.truncatedSuffix') : ''}
         </Typography.Text>
         {previewKindOf(path) !== 'text' && !editing && (
-          <Tooltip title="预览">
+          <Tooltip title={t('manage.preview')}>
             <Button
               size="small"
               type="text"
               icon={<EyeOutlined />}
-              aria-label="预览"
+              aria-label={t('manage.preview')}
               onClick={() => onOpenPreview(path)}
             />
           </Tooltip>
@@ -176,19 +178,19 @@ export function SourcePanel({
         {editing ? (
           <>
             <Button size="small" type="primary" loading={saving} onClick={() => void save()}>
-              保存
+              {t('manage.save')}
             </Button>
             <Button size="small" onClick={() => setEditing(false)}>
-              取消
+              {t('manage.cancel')}
             </Button>
           </>
         ) : (
-          <Tooltip title={file.truncated ? '文件过大被截断，编辑会丢内容' : '编辑'}>
+          <Tooltip title={file.truncated ? t('manage.truncatedEditWarning') : t('manage.edit')}>
             <Button
               size="small"
               type="text"
               icon={<EditOutlined />}
-              aria-label="编辑"
+              aria-label={t('manage.edit')}
               disabled={file.truncated}
               onClick={() => setEditing(true)}
             />
