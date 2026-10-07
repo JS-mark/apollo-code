@@ -5,6 +5,7 @@ import { Button, Descriptions, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import type { Bootstrap, WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 
 /** 右侧栏（连接/会话信息，真实数据源；不含伪终端）。 */
 export function RightPanel({
@@ -22,6 +23,7 @@ export function RightPanel({
   connected: boolean
   onClose(): void
 }) {
+  const { t } = useI18n()
   const [permissionMode, setPermissionMode] = useState<string>()
   const [copied, setCopied] = useState(false)
   useEffect(() => {
@@ -44,9 +46,9 @@ export function RightPanel({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography.Text strong>连接</Typography.Text>
+        <Typography.Text strong>{t('shell.connection')}</Typography.Text>
         <Button size="small" type="text" onClick={onClose}>
-          收起
+          {t('shell.collapse')}
         </Button>
       </div>
       <Descriptions
@@ -56,24 +58,28 @@ export function RightPanel({
         items={[
           {
             key: 'status',
-            label: '状态',
-            children: connected ? <Tag color="success">已连接</Tag> : <Tag>连接中</Tag>,
+            label: t('shell.status'),
+            children: connected ? (
+              <Tag color="success">{t('shell.remoteStateOnline')}</Tag>
+            ) : (
+              <Tag>{t('shell.remoteStateConnecting')}</Tag>
+            ),
           },
-          { key: 'version', label: '版本', children: `v${bootstrap.server.version}` },
+          { key: 'version', label: t('shell.version'), children: `v${bootstrap.server.version}` },
           {
             key: 'url',
-            label: '地址',
+            label: t('shell.address'),
             children: (
               <>
                 <Typography.Text code style={{ fontSize: 11 }}>
                   {url}
                 </Typography.Text>
-                <Tooltip title={copied ? '已复制' : '复制'}>
+                <Tooltip title={copied ? t('shell.copied') : t('shell.copy')}>
                   <Button
                     size="small"
                     type="text"
                     icon={copied ? <CheckOutlined /> : <CopyOutlined />}
-                    aria-label={copied ? '已复制' : '复制'}
+                    aria-label={copied ? t('shell.copied') : t('shell.copy')}
                     onClick={() => {
                       void navigator.clipboard.writeText(url).then(() => {
                         setCopied(true)
@@ -87,7 +93,7 @@ export function RightPanel({
           },
           {
             key: 'cwd',
-            label: '工作区',
+            label: t('shell.workspace'),
             children: (
               <Typography.Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
                 {bootstrap.workspace.cwd}
@@ -96,16 +102,20 @@ export function RightPanel({
           },
           {
             key: 'session',
-            label: '会话',
-            children: sessionTitle ?? sessionId?.slice(0, 8) ?? '未开始',
+            label: t('shell.session'),
+            children: sessionTitle ?? sessionId?.slice(0, 8) ?? t('shell.notStarted'),
           },
           ...(permissionMode !== undefined
             ? [
                 {
                   key: 'permission',
-                  label: '权限模式',
+                  label: t('shell.permissionMode'),
                   children:
-                    permissionMode === 'ask' ? '询问' : permissionMode === 'auto' ? '自动' : '放行',
+                    permissionMode === 'ask'
+                      ? t('shell.permAsk')
+                      : permissionMode === 'auto'
+                        ? t('shell.permAuto')
+                        : t('shell.permPass'),
                 },
               ]
             : []),

@@ -22,6 +22,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Bootstrap, SessionGroupsView, SessionSummary, StatusView } from '../lib/api'
 import { openBrowserSession, WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
+import type { ShellKeys } from '../lib/i18n/dict/shell'
 import { BrandMark } from './BrandMark'
 import { ChatPanel } from './ChatPanel'
 import { CodePage } from './CodePage'
@@ -121,6 +123,7 @@ function PulseIcon() {
 }
 
 export function AppShell() {
+  const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded>()
   const [error, setError] = useState<{ code: string; message: string }>()
   const [route, setRoute] = useState<Route>('chat')
@@ -151,22 +154,8 @@ export function AppShell() {
   const commandActions = useMemo<readonly CommandAction[]>(() => {
     const go = (route: Route): CommandAction => ({
       key: `go-${route}`,
-      label: `前往：${
-        {
-          chat: '会话',
-          code: '代码',
-          status: '状态',
-          manage: '管理',
-          tasks: '定时任务',
-          subagents: 'Subagents',
-          settings: '设置',
-          shortcuts: '快捷键',
-          changes: '变更',
-          stats: '统计',
-          remote: '远程控制',
-        }[route]
-      }`,
-      hint: '路由',
+      label: `${t('shell.goPrefix')} ${t(`shell.route.${route}` as ShellKeys)}`,
+      hint: t('shell.routeHint'),
       run: () => setRoute(route),
     })
     return [
@@ -183,7 +172,7 @@ export function AppShell() {
       go('shortcuts'),
       {
         key: 'workbench-terminal',
-        label: '工作台：聚焦终端',
+        label: t('shell.actionFocusTerminal'),
         hint: '⌘J',
         run: () => {
           setRightPanel('workbench')
@@ -192,7 +181,7 @@ export function AppShell() {
       },
       {
         key: 'workbench-changes',
-        label: '工作台：查看变更',
+        label: t('shell.actionViewChanges'),
         run: () => {
           setRightPanel('workbench')
           setWbFocus((current) => ({ seq: current.seq + 1, tab: 'changes', path: '' }))
@@ -200,7 +189,7 @@ export function AppShell() {
       },
       {
         key: 'toggle-sidebar',
-        label: '收起/展开会话侧栏',
+        label: t('shell.actionToggleSidebar'),
         hint: '⌘B',
         run: () => setSidebarCollapsed((collapsed) => !collapsed),
       },
@@ -407,7 +396,7 @@ export function AppShell() {
         type="button"
         className={`rail-menu-item${active ? ' active' : ''}${disabled ? ' disabled' : ''}`}
         aria-disabled={disabled || undefined}
-        title={disabled ? '即将上线' : undefined}
+        title={disabled ? t('shell.comingSoon') : undefined}
         onClick={() => {
           if (disabled) return
           setMenuOpen(false)
@@ -425,23 +414,29 @@ export function AppShell() {
   const railMenu = (
     <div className="rail-menu">
       <div className="rail-menu-group">配置</div>
-      {railMenuItem('settings', '设置', <ControlOutlined />, { route: 'settings' })}
-      {railMenuItem('shortcuts', '快捷键', <KeyboardIcon />, { route: 'shortcuts' })}
-      {railMenuItem('docs', '文档', <ReadOutlined />, { href: DOCS_URL })}
+      {railMenuItem('settings', t('shell.route.settings'), <ControlOutlined />, {
+        route: 'settings',
+      })}
+      {railMenuItem('shortcuts', t('shell.route.shortcuts'), <KeyboardIcon />, {
+        route: 'shortcuts',
+      })}
+      {railMenuItem('docs', t('shell.route.docs'), <ReadOutlined />, { href: DOCS_URL })}
       <div className="rail-menu-divider" />
       <div className="rail-menu-group">可观测</div>
-      {railMenuItem('changes', '变更', <ForkOutlined />, {
+      {railMenuItem('changes', t('shell.route.changes'), <ForkOutlined />, {
         onSelect: () => {
           setRightPanel('workbench')
           setWbFocus((current) => ({ seq: current.seq + 1, tab: 'changes', path: '' }))
         },
       })}
-      {railMenuItem('status', '实例', <ChipIcon />, { route: 'status' })}
-      {railMenuItem('stats', '统计', <BarChartOutlined />, { route: 'stats' })}
-      {railMenuItem('tracing', '链路', <TraceIcon />, { disabled: true })}
-      {railMenuItem('monitoring', '监控', <PulseIcon />, { disabled: true })}
+      {railMenuItem('status', t('shell.route.instances'), <ChipIcon />, { route: 'status' })}
+      {railMenuItem('stats', t('shell.route.stats'), <BarChartOutlined />, { route: 'stats' })}
+      {railMenuItem('tracing', t('shell.route.tracing'), <TraceIcon />, { disabled: true })}
+      {railMenuItem('monitoring', t('shell.route.monitoring'), <PulseIcon />, { disabled: true })}
       <div className="rail-menu-divider" />
-      {railMenuItem('logout', '退出登录', <LogoutOutlined />, { onSelect: () => void logout() })}
+      {railMenuItem('logout', t('shell.logout'), <LogoutOutlined />, {
+        onSelect: () => void logout(),
+      })}
     </div>
   )
 
@@ -452,26 +447,25 @@ export function AppShell() {
         <div className="rail-logo">
           <BrandMark />
         </div>
-        {railButton('chat', '对话', <CommentOutlined />)}
-        {railButton('code', '代码编辑器', <CodeOutlined />)}
-        {railButton(
-          'manage',
-          '管理（Memory / Skills / MCP / Plugins / Telemetry）',
-          <AppstoreOutlined />,
-        )}
-        {tasksAvailable && railButton('tasks', '任务', <ClockCircleOutlined />)}
+        {railButton('chat', t('shell.route.chat'), <CommentOutlined />)}
+        {railButton('code', t('shell.route.code'), <CodeOutlined />)}
+        {railButton('manage', t('shell.manageTitle'), <AppstoreOutlined />)}
+        {tasksAvailable && railButton('tasks', t('shell.route.tasks'), <ClockCircleOutlined />)}
         {bootstrap.capabilities.subagents === true &&
-          railButton('subagents', 'Subagents（子代理运行）', <ForkOutlined />)}
-        {railButton('status', '状态', <ApiOutlined />)}
-        {railButton('remote', '远程控制', <CloudServerOutlined />)}
+          railButton('subagents', t('shell.subagentsTitle'), <ForkOutlined />)}
+        {railButton('status', t('shell.route.status'), <ApiOutlined />)}
+        {railButton('remote', t('shell.route.remote'), <CloudServerOutlined />)}
         <span style={{ flex: 1 }} />
         {/* 侧栏属于会话页,收起/展开按钮也只在会话 tab 出现。 */}
         {route === 'chat' && (
-          <Tooltip title={sidebarCollapsed ? '展开侧栏（⌘B）' : '收起侧栏（⌘B）'} placement="right">
+          <Tooltip
+            title={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
+            placement="right"
+          >
             <button
               type="button"
               className="rail-btn"
-              aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+              aria-label={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
               onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
             >
               {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
@@ -488,7 +482,7 @@ export function AppShell() {
           <button
             type="button"
             className={`rail-btn${menuOpen || MENU_ROUTES.has(route) ? ' active' : ''}`}
-            aria-label="设置与更多"
+            aria-label={t('shell.settingsAndMore')}
           >
             <SettingOutlined />
           </button>

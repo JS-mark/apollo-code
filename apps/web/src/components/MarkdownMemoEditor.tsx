@@ -9,6 +9,7 @@
 import { Button, Input, Segmented, Space, Tooltip, Typography } from 'antd'
 import { useRef, useState } from 'react'
 
+import { useI18n } from '../lib/i18n'
 import { Markdown } from './Markdown'
 
 type EditorMode = 'edit' | 'split' | 'preview'
@@ -54,6 +55,7 @@ export function MarkdownMemoEditor({
   minHeight?: number
 }) {
   const [mode, setMode] = useState<EditorMode>('edit')
+  const { t } = useI18n()
   const areaRef = useRef<React.ComponentRef<typeof Input.TextArea> | null>(null)
   const apply = (next: string) => {
     onChange(next)
@@ -68,29 +70,39 @@ export function MarkdownMemoEditor({
     title: string
     run: (area: HTMLTextAreaElement) => string
   }[] = [
-    { key: 'bold', label: 'B', title: '粗体', run: (a) => wrapSelection(a, '**', '**', '粗体') },
-    { key: 'italic', label: 'I', title: '斜体', run: (a) => wrapSelection(a, '*', '*', '斜体') },
+    {
+      key: 'bold',
+      label: 'B',
+      title: t('chat.mdBold'),
+      run: (a) => wrapSelection(a, '**', '**', t('chat.mdBold')),
+    },
+    {
+      key: 'italic',
+      label: 'I',
+      title: t('chat.mdItalic'),
+      run: (a) => wrapSelection(a, '*', '*', t('chat.mdItalic')),
+    },
     {
       key: 'code',
       label: '</>',
-      title: '行内代码',
+      title: t('chat.mdInlineCode'),
       run: (a) => wrapSelection(a, '`', '`', 'code'),
     },
     {
       key: 'block',
       label: '```',
-      title: '代码块',
+      title: t('chat.mdCodeBlock'),
       run: (a) => wrapSelection(a, '\n```\n', '\n```\n', 'code'),
     },
     {
       key: 'link',
       label: '🔗',
-      title: '链接',
-      run: (a) => wrapSelection(a, '[', '](https://)', '文字'),
+      title: t('chat.mdLink'),
+      run: (a) => wrapSelection(a, '[', '](https://)', t('chat.mdLinkText')),
     },
-    { key: 'ul', label: '• List', title: '无序列表', run: (a) => linePrefix(a, '- ') },
-    { key: 'ol', label: '1. List', title: '有序列表', run: (a) => linePrefix(a, '1. ') },
-    { key: 'quote', label: '❝', title: '引用', run: (a) => linePrefix(a, '> ') },
+    { key: 'ul', label: '• List', title: t('chat.mdUl'), run: (a) => linePrefix(a, '- ') },
+    { key: 'ol', label: '1. List', title: t('chat.mdOl'), run: (a) => linePrefix(a, '1. ') },
+    { key: 'quote', label: '❝', title: t('chat.mdQuote'), run: (a) => linePrefix(a, '> ') },
   ]
   return (
     <div>
@@ -114,9 +126,9 @@ export function MarkdownMemoEditor({
           value={mode}
           onChange={(next) => setMode(next as EditorMode)}
           options={[
-            { value: 'edit', label: '编辑' },
-            { value: 'split', label: '分屏' },
-            { value: 'preview', label: '预览' },
+            { value: 'edit', label: t('chat.mdEdit') },
+            { value: 'split', label: t('chat.mdSplit') },
+            { value: 'preview', label: t('chat.mdPreview') },
           ]}
         />
       </Space>
@@ -133,7 +145,7 @@ export function MarkdownMemoEditor({
             value={value}
             onChange={(event) => onChange(event.target.value)}
             style={{ ...MONO, minHeight }}
-            placeholder="支持 Markdown：**粗体**、`代码`、列表、引用…"
+            placeholder={t('chat.mdPlaceholder')}
           />
         )}
         {mode !== 'edit' && (
@@ -149,13 +161,13 @@ export function MarkdownMemoEditor({
             {value.trim() ? (
               <Markdown text={value} />
             ) : (
-              <Typography.Text type="secondary">（空）</Typography.Text>
+              <Typography.Text type="secondary">{t('chat.mdEmpty')}</Typography.Text>
             )}
           </div>
         )}
       </div>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {value.length} 字符
+        {t('chat.charCount', { n: value.length })}
       </Typography.Text>
     </div>
   )

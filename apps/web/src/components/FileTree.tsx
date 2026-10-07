@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 
 import type { WbEntry, WebApi } from '../lib/api'
 import { fileTypeBadge } from '../lib/file-type-icons'
+import { useI18n } from '../lib/i18n'
 import { FileTypeIcon } from './FileTypeIcon'
 
 const toNode = (entry: WbEntry): DataNode => ({
@@ -45,6 +46,7 @@ interface FileTreeProps {
 export function FileTree(props: FileTreeProps) {
   const { api } = props
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [treeData, setTreeData] = useState<DataNode[]>([])
 
   useEffect(() => {
@@ -66,7 +68,8 @@ export function FileTree(props: FileTreeProps) {
       })
   }
 
-  if (treeData.length === 0) return <Empty description="工作区为空" style={{ marginTop: 32 }} />
+  if (treeData.length === 0)
+    return <Empty description={t('shell.workspaceEmpty')} style={{ marginTop: 32 }} />
   return (
     <Tree
       showIcon

@@ -1,3 +1,8 @@
+import {
+  DIFF_PAIR_MARKERS,
+  pickCopy,
+  TOOL_LABELS as SHARED_TOOL_LABELS,
+} from '@volund/shared/ui-copy'
 /**
  * 会话事件流 reducer（§22.8.3）：SSE 信封 + 本地动作 → 聊天视图的唯一状态源。
  * 幂等去重以 (cursor) 为键；stream.delta 只追加（不落盘，刷新以 transcript 为准）。
@@ -6,6 +11,8 @@
  * （流式消息进了 stream、渲染读 local），是「发消息后无响应」的根因，勿再分叉。
  */
 import { useCallback, useEffect, useReducer, useRef } from 'react'
+
+import { currentLocale, translate } from './i18n'
 
 export interface ChatImage {
   chip: string
@@ -326,25 +333,12 @@ export function mcpToolParts(tool: string): { server: string; name: string } | u
   return { server: rest.slice(0, sep), name: rest.slice(sep + 2) }
 }
 
-/** 工具的折叠行中文标签（Task 由组件走 🤖 特例，不在表内）；MCP 工具显示 server/tool；未知工具原样展示。 */
-const TOOL_LABELS: Record<string, string> = {
-  Bash: '终端',
-  ShellOutput: '终端输出',
-  KillShell: '结束终端',
-  Read: '读取',
-  Write: '写入',
-  Edit: '编辑',
-  MultiEdit: '编辑',
-  Glob: '找文件',
-  Grep: '搜内容',
-  WebFetch: '抓网页',
-  WebSearch: '搜网页',
-  Skill: '技能',
-}
+/** 工具的折叠行展示名（shared 跨端文案表权威，i18n-r1 收编三份手抄）；MCP 工具显示 server/tool；未知工具原样展示。 */
 export function toolLabel(tool: string): string {
   const mcp = mcpToolParts(tool)
   if (mcp) return `MCP · ${mcp.server}/${mcp.name}`
-  return TOOL_LABELS[tool] ?? tool
+  const entry = SHARED_TOOL_LABELS[tool]
+  return entry ? pickCopy(entry, currentLocale()) : tool
 }
 
 /** 多段正文拼接（空段丢弃）；无有效段时省略。 */
@@ -353,10 +347,11 @@ function joinBody(...parts: (string | undefined)[]): string | undefined {
   return body || undefined
 }
 
-/** 编辑类正文的新旧对照段。 */
+/** 编辑类正文的新旧对照段（标记走 shared 跨端文案表）。 */
 function diffPair(oldString?: string, newString?: string): string | undefined {
   if (oldString === undefined && newString === undefined) return undefined
-  return `【旧】\n${oldString ?? ''}\n\n【新】\n${newString ?? ''}`
+  const locale = currentLocale()
+  return `${pickCopy(DIFF_PAIR_MARKERS.old, locale)}\n${oldString ?? ''}\n\n${pickCopy(DIFF_PAIR_MARKERS.new, locale)}\n${newString ?? ''}`
 }
 
 /** 展开卡正文上限（字符）：超大 input（Write 全文等）截断，避免撑爆消息流。 */
@@ -435,7 +430,9 @@ export function toolBodyLabel(tool: string, input: unknown): string | undefined 
       }
   }
   if (!body) return undefined
-  return body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}\n…（已截断）` : body
+  return body.length > BODY_MAX
+    ? `${body.slice(0, BODY_MAX)}\n${translate(currentLocale(), 'chat.truncated')}`
+    : body
 }
 
 /** message.appended content 的 image part → 回显图片（仅 handle 引用式可取字节）。 */
@@ -748,7 +745,11 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
     // 会话重挂（TUI 侧 resume 等）：聊天状态归零，但进程级权限档位保留
     // （SSE permission.mode 帧会持续纠正，不需要随会话切换清空）。
     if (view.type === 'session.attached')
-      return { ...initialChatState, permissionMode: state.permissionMode, notice: '已连接会话' }
+      return {
+        ...initialChatState,
+        permissionMode: state.permissionMode,
+        notice: translate(currentLocale(), 'chat.attachedNotice'),
+      }
   }
   return state
 }

@@ -24,6 +24,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import {
   ItemCard,
   Notice,
@@ -44,6 +45,7 @@ export function MarketPanel({
   api: WebApi
   available: Record<string, boolean>
 }) {
+  const { t } = useI18n()
   const [kind, setKind] = useState<MarketKind>(
     available.plugins ? 'plugins' : available.skill ? 'skills' : 'mcp',
   )
@@ -51,12 +53,12 @@ export function MarketPanel({
     <div>
       <div style={{ marginBottom: 10 }}>
         <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 2 }}>
-          市场
+          {t('manage.marketTitle')}
         </Typography.Title>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          索引源：
+          {t('manage.indexSourcePrefix')}
           <code>[plugins|skills|mcp] market</code>
-          （~/.volund/config.toml；项目级覆盖禁止，供应链面不变）
+          {t('manage.marketSourceSuffix')}
         </Typography.Text>
       </div>
       <Segmented
@@ -90,6 +92,7 @@ function MarketItemCard({
   action: React.ReactNode
   onDetail?: () => void
 }) {
+  const { t } = useI18n()
   return (
     <ItemCard>
       <div
@@ -98,7 +101,7 @@ function MarketItemCard({
         <div
           style={{ minWidth: 0, cursor: onDetail ? 'pointer' : undefined }}
           onClick={onDetail}
-          title={onDetail ? '查看详情' : undefined}
+          title={onDetail ? t('manage.viewDetails') : undefined}
         >
           <Space size={8} wrap>
             <Typography.Text strong>{title}</Typography.Text>
@@ -121,7 +124,7 @@ function MarketItemCard({
               }}
               style={{ fontSize: 12 }}
             >
-              详情
+              {t('manage.details')}
             </Typography.Link>
           )}
         </div>
@@ -132,9 +135,10 @@ function MarketItemCard({
 }
 
 function RefreshButton({ onClick, loading }: { onClick: () => void; loading: boolean }) {
+  const { t } = useI18n()
   return (
     <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={onClick}>
-      刷新
+      {t('manage.refresh')}
     </Button>
   )
 }
@@ -168,6 +172,7 @@ type PluginRegistry = { source: string; plugins: PluginListing[] } | { error: st
 
 function PluginsMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'plugins')
+  const { t } = useI18n()
   const [registry, setRegistry] = useState<PluginRegistry>()
   const [installed, setInstalled] =
     useState<{ name: string; lifecycle?: { approved: boolean; enabled: boolean } }[]>()
@@ -200,7 +205,7 @@ function PluginsMarket({ api }: { api: WebApi }) {
         await api.managementAction('plugins', { action: 'install', name })
         await load()
       } catch (cause) {
-        setNotice(marketErrorMessage(cause))
+        setNotice(marketErrorMessage(cause, t))
       } finally {
         setBusy(undefined)
       }
@@ -215,30 +220,33 @@ function PluginsMarket({ api }: { api: WebApi }) {
       <PanelToolbar>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {registry && 'plugins' in registry
-            ? `源：${registry.source} · ${installableMarketSource(registry.source) ? '本地源，可安装' : '远程 HTTPS 安装需签名信任根（§19a），当前置灰'}`
-            : '远程 HTTPS 安装需签名信任根（§19a）；loopback http 本地源可装'}
+            ? t('manage.marketSourceLine', {
+                source: registry.source,
+                status: installableMarketSource(registry.source)
+                  ? t('manage.localSourceInstallable')
+                  : t('manage.remotePendingTrustRoot'),
+              })
+            : t('manage.remoteLoopbackNote')}
         </Typography.Text>
         <RefreshButton loading={loading} onClick={() => void load()} />
       </PanelToolbar>
       <Notice message={notice} />
-      {loading && !registry && <LoadingBlock text="正在加载市场 inventory…" />}
-      {!loading && !registry && (
-        <Empty description="未配置 [plugins] market（~/.volund/config.toml）" />
-      )}
+      {loading && !registry && <LoadingBlock text={t('manage.loadingMarketInventory')} />}
+      {!loading && !registry && <Empty description={t('manage.noPluginsMarket')} />}
       {registry && 'error' in registry && <Alert type="warning" showIcon title={registry.error} />}
       {registry && 'plugins' in registry && (
         <Grid>
           {registry.plugins.length === 0 && (
-            <Empty description="市场源没有条目" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty description={t('manage.marketEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
           )}
           {registry.plugins.map((listing) => {
             const record = installed?.find((entry) => entry.name === listing.name)
             const badge = record
               ? record.lifecycle?.enabled
-                ? { color: '#52c41a', text: '已启用' }
+                ? { color: '#52c41a', text: t('manage.stateEnabled') }
                 : record.lifecycle?.approved
-                  ? { color: '#1677ff', text: '待启用' }
-                  : { color: '#faad14', text: '待批准' }
+                  ? { color: '#1677ff', text: t('manage.statePendingEnable') }
+                  : { color: '#faad14', text: t('manage.statePendingApprove') }
               : undefined
             const canInstall = !badge && installableMarketSource(registry.source)
             return (
@@ -257,12 +265,10 @@ function PluginsMarket({ api }: { api: WebApi }) {
                       type="primary"
                       disabled={!canInstall}
                       loading={busy === listing.name}
-                      title={
-                        canInstall ? undefined : '等待签名信任根（§19a）；loopback http 本地源可装'
-                      }
+                      title={canInstall ? undefined : t('manage.waitTrustRootTooltip')}
                       onClick={() => void installListing(listing.name)}
                     >
-                      安装
+                      {t('manage.install')}
                     </Button>
                   )
                 }
@@ -282,26 +288,32 @@ function PluginsMarket({ api }: { api: WebApi }) {
         {detail && (
           <>
             <Descriptions size="small" column={1} bordered>
-              <Descriptions.Item label="版本">{detail.version}</Descriptions.Item>
-              <Descriptions.Item label="发布者">{detail.publisher ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="描述">{detail.description ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="索引源">
+              <Descriptions.Item label={t('manage.labelVersion')}>
+                {detail.version}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelPublisher')}>
+                {detail.publisher ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelDescription')}>
+                {detail.description ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelIndexSource')}>
                 <Typography.Text copyable code style={{ fontSize: 12 }}>
                   {registry && 'source' in registry ? registry.source : ''}
                 </Typography.Text>
               </Descriptions.Item>
-              <Descriptions.Item label="安装资格">
+              <Descriptions.Item label={t('manage.labelInstallEligibility')}>
                 {registry && 'source' in registry && installableMarketSource(registry.source)
-                  ? '本地源，可安装'
-                  : '远程 HTTPS 安装需签名信任根（§19a）'}
+                  ? t('manage.localSourceInstallable')
+                  : t('manage.remoteNeedsTrustRoot')}
               </Descriptions.Item>
             </Descriptions>
             <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-              安装由宿主逐文件下载并做 sha256 完整性校验，落盘 ~/.volund/plugins/ 后等待权限批准。
+              {t('manage.installShaNote')}
             </Typography.Paragraph>
             {installed?.some((entry) => entry.name === detail.name) ? (
               <Typography.Text type="secondary">
-                已安装（在 Plugins 页签管理生命周期）
+                {t('manage.installedInPluginsNote')}
               </Typography.Text>
             ) : (
               <Button
@@ -313,7 +325,7 @@ function PluginsMarket({ api }: { api: WebApi }) {
                 loading={busy === detail.name}
                 onClick={() => void installListing(detail.name)}
               >
-                安装 v{detail.version}
+                {t('manage.installVersion', { version: detail.version })}
               </Button>
             )}
           </>
@@ -335,6 +347,7 @@ type SkillMarketEntry = {
 
 function SkillsMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'skills')
+  const { t } = useI18n()
   const [view, setView] = useState<{
     entries: SkillMarketEntry[]
     isDefault: boolean
@@ -353,8 +366,8 @@ function SkillsMarket({ api }: { api: WebApi }) {
         const result = value as
           | { entries?: SkillMarketEntry[]; error?: string; isDefault?: boolean; source?: string }
           | undefined
-        if (!result) setNotice('未配置 [skills] market')
-        else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
+        if (!result) setNotice(t('manage.noSkillsMarket'))
+        else if ('error' in result) setNotice(result.error ?? t('manage.indexFetchFailed'))
         else
           setView({
             entries: result.entries ?? [],
@@ -403,27 +416,27 @@ function SkillsMarket({ api }: { api: WebApi }) {
             value={scope}
             onChange={(next) => setScope(next as 'user' | 'project')}
             options={[
-              { value: 'user', label: '装到用户级' },
-              { value: 'project', label: '装到项目级' },
+              { value: 'user', label: t('manage.installToUser') },
+              { value: 'project', label: t('manage.installToProject') },
             ]}
           />
           <Input.Search
             allowClear
-            placeholder="过滤 skill…"
+            placeholder={t('manage.filterSkills')}
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
             style={{ width: 220 }}
           />
         </Space>
         <Space>
-          {view?.isDefault && <Tag color="blue">默认源 · anthropics/skills</Tag>}
+          {view?.isDefault && <Tag color="blue">{t('manage.defaultSkillsSource')}</Tag>}
           <RefreshButton loading={loading} onClick={() => void load()} />
         </Space>
       </PanelToolbar>
       <Notice message={notice} />
-      {loading && !view && <LoadingBlock text="正在拉取 skills 市场索引…" />}
+      {loading && !view && <LoadingBlock text={t('manage.loadingSkillsIndex')} />}
       {!loading && view && entries.length === 0 && (
-        <Empty description={filter ? '没有匹配的条目' : '目录为空'} />
+        <Empty description={filter ? t('manage.noMatchingEntries') : t('manage.catalogEmpty')} />
       )}
       <Grid>
         {entries.map((entry) => {
@@ -439,7 +452,7 @@ function SkillsMarket({ api }: { api: WebApi }) {
               onDetail={() => setDetail(entry)}
               action={
                 isInstalled ? (
-                  <StatusDot color="#52c41a" text="已装" />
+                  <StatusDot color="#52c41a" text={t('manage.installedShort')} />
                 ) : (
                   <Button
                     size="small"
@@ -447,7 +460,7 @@ function SkillsMarket({ api }: { api: WebApi }) {
                     loading={busy === entry.name}
                     onClick={() => void installSkill(entry)}
                   >
-                    安装
+                    {t('manage.install')}
                   </Button>
                 )
               }
@@ -466,14 +479,18 @@ function SkillsMarket({ api }: { api: WebApi }) {
         {detail && (
           <>
             <Descriptions size="small" column={1} bordered>
-              <Descriptions.Item label="版本">{detail.version ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="描述">{detail.description ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="安装源">
+              <Descriptions.Item label={t('manage.labelVersion')}>
+                {detail.version ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelDescription')}>
+                {detail.description ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelInstallSource')}>
                 <Typography.Text copyable code style={{ fontSize: 12 }}>
                   {detail.source}
                 </Typography.Text>
               </Descriptions.Item>
-              <Descriptions.Item label="主页">
+              <Descriptions.Item label={t('manage.labelHomepage')}>
                 {detail.homepage ? (
                   <Typography.Link href={detail.homepage} target="_blank">
                     {detail.homepage}
@@ -484,11 +501,12 @@ function SkillsMarket({ api }: { api: WebApi }) {
               </Descriptions.Item>
             </Descriptions>
             <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-              安装走 git 通道（skill 不执行代码，远程源可装），当前装到
-              {scope === 'user' ? '用户级' : '项目级'}目录。
+              {t('manage.skillsInstallNote', {
+                scope: scope === 'user' ? t('manage.scopeUser') : t('manage.scopeProject'),
+              })}
             </Typography.Paragraph>
             {installedNames?.includes(detail.name) ? (
-              <Typography.Text type="secondary">已安装</Typography.Text>
+              <Typography.Text type="secondary">{t('manage.installedTitle')}</Typography.Text>
             ) : (
               <Button
                 type="primary"
@@ -496,7 +514,9 @@ function SkillsMarket({ api }: { api: WebApi }) {
                 loading={busy === detail.name}
                 onClick={() => void installSkill(detail)}
               >
-                安装到{scope === 'user' ? '用户级' : '项目级'}
+                {t('manage.installToScope', {
+                  scope: scope === 'user' ? t('manage.scopeUser') : t('manage.scopeProject'),
+                })}
               </Button>
             )}
           </>
@@ -522,6 +542,7 @@ type McpMarketEntry = {
 
 function McpMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'mcp')
+  const { t } = useI18n()
   const [view, setView] = useState<{ entries: McpMarketEntry[]; isDefault: boolean }>()
   const [configured, setConfigured] = useState<string[]>()
   const [prefill, setPrefill] = useState<McpMarketEntry>()
@@ -535,8 +556,8 @@ function McpMarket({ api }: { api: WebApi }) {
         const result = value as
           | { entries?: McpMarketEntry[]; error?: string; isDefault?: boolean }
           | undefined
-        if (!result) setNotice('未配置 [mcp] market')
-        else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
+        if (!result) setNotice(t('manage.noMcpMarket'))
+        else if ('error' in result) setNotice(result.error ?? t('manage.indexFetchFailed'))
         else
           setView({
             entries: result.entries ?? [],
@@ -568,24 +589,24 @@ function McpMarket({ api }: { api: WebApi }) {
         <Space wrap>
           <Input.Search
             allowClear
-            placeholder="搜索 MCP server（如 github、filesystem）…"
+            placeholder={t('manage.searchMcpMarket')}
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
             style={{ width: 300 }}
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            目录条目只预填表单——command/env 全文可见，确认后才写入 mcp.toml
+            {t('manage.mcpPrefillNote')}
           </Typography.Text>
         </Space>
         <Space>
-          {view?.isDefault && <Tag color="blue">默认源 · 官方 MCP Registry</Tag>}
+          {view?.isDefault && <Tag color="blue">{t('manage.defaultMcpSource')}</Tag>}
           <RefreshButton loading={loading} onClick={() => void load()} />
         </Space>
       </PanelToolbar>
       <Notice message={notice} />
-      {loading && !view && <LoadingBlock text="正在拉取官方 MCP Registry…" />}
+      {loading && !view && <LoadingBlock text={t('manage.loadingMcpRegistry')} />}
       {!loading && view && entries.length === 0 && (
-        <Empty description={filter ? '没有匹配的 server' : '目录为空'} />
+        <Empty description={filter ? t('manage.noMatchingServers') : t('manage.catalogEmpty')} />
       )}
       <Grid>
         {entries.map((entry) => {
@@ -602,10 +623,10 @@ function McpMarket({ api }: { api: WebApi }) {
               onDetail={() => setDetail(entry)}
               action={
                 isConfigured ? (
-                  <StatusDot color="#52c41a" text="已配置" />
+                  <StatusDot color="#52c41a" text={t('manage.stateConfigured')} />
                 ) : (
                   <Button size="small" onClick={() => setPrefill(entry)}>
-                    预填安装…
+                    {t('manage.prefillInstall')}
                   </Button>
                 )
               }
@@ -643,8 +664,10 @@ function McpMarket({ api }: { api: WebApi }) {
         {detail && (
           <>
             <Descriptions size="small" column={1} bordered>
-              <Descriptions.Item label="描述">{detail.description ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="传输">
+              <Descriptions.Item label={t('manage.labelDescription')}>
+                {detail.description ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('manage.labelTransport')}>
                 <Tag>{detail.transport}</Tag>
               </Descriptions.Item>
               {detail.url && (
@@ -655,7 +678,7 @@ function McpMarket({ api }: { api: WebApi }) {
                 </Descriptions.Item>
               )}
               {detail.command && (
-                <Descriptions.Item label="启动命令">
+                <Descriptions.Item label={t('manage.labelStartCommand')}>
                   <Typography.Text code>
                     {detail.command} {(detail.args ?? []).join(' ')}
                   </Typography.Text>
@@ -676,7 +699,7 @@ function McpMarket({ api }: { api: WebApi }) {
                 </Descriptions.Item>
               )}
               {detail.homepage && (
-                <Descriptions.Item label="主页">
+                <Descriptions.Item label={t('manage.labelHomepage')}>
                   <Typography.Link href={detail.homepage} target="_blank">
                     {detail.homepage}
                   </Typography.Link>
@@ -684,7 +707,7 @@ function McpMarket({ api }: { api: WebApi }) {
               )}
             </Descriptions>
             <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-              「安装」只预填表单——command/env 全文可见，确认后才写入 mcp.toml。
+              {t('manage.mcpPrefillModalNote')}
             </Typography.Paragraph>
             <Button
               block
@@ -693,7 +716,7 @@ function McpMarket({ api }: { api: WebApi }) {
                 setDetail(undefined)
               }}
             >
-              预填安装…
+              {t('manage.prefillInstall')}
             </Button>
           </>
         )}

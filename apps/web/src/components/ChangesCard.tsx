@@ -12,6 +12,7 @@ import { Alert, Button, Modal, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import { FileTypeIcon } from './FileTypeIcon'
 
 interface ChangeRow {
@@ -56,6 +57,7 @@ export function ChangesCard({
   const [undoOpen, setUndoOpen] = useState(false)
   const [undoPreview, setUndoPreview] = useState<UndoPreview>()
   const [undoing, setUndoing] = useState(false)
+  const { t } = useI18n()
 
   const reload = useCallback(() => {
     if (sessionId === undefined) {
@@ -113,24 +115,24 @@ export function ChangesCard({
       <div className="chg-card-head" onClick={toggleExpanded}>
         {expanded ? <DownOutlined /> : <RightOutlined />}
         <Typography.Text strong style={{ fontSize: 13 }}>
-          {rows.length} 个文件已更改
+          {t('chat.filesChanged', { n: rows.length })}
         </Typography.Text>
         <span className="chg-diff-stat add">+{totals.added}</span>
         <span className="chg-diff-stat del">−{totals.removed}</span>
         <span style={{ flex: 1 }} />
-        <Tooltip title="撤销上一批变更">
+        <Tooltip title={t('chat.undoLastBatch')}>
           <Button
             size="small"
             type="text"
             icon={<HistoryOutlined />}
-            aria-label="撤销上一批变更"
+            aria-label={t('chat.undoLastBatch')}
             disabled={pending.length === 0}
             onClick={(event) => {
               event.stopPropagation()
               void openUndo()
             }}
           >
-            撤销
+            {t('chat.undo')}
           </Button>
         </Tooltip>
       </div>
@@ -149,13 +151,13 @@ export function ChangesCard({
                   <span className="chg-diff-stat del">−{row.stats.linesRemoved}</span>
                 </>
               )}
-              {row.allConsumed && <span className="chg-card-consumed">已撤销</span>}
+              {row.allConsumed && <span className="chg-card-consumed">{t('chat.undone')}</span>}
               <span className="chg-card-actions">
                 <Button size="small" onClick={() => onOpenChanges(row.path)}>
-                  审查
+                  {t('chat.review')}
                 </Button>
                 <Button size="small" onClick={() => onOpenFile(row.path)}>
-                  打开
+                  {t('chat.open')}
                 </Button>
               </span>
             </div>
@@ -164,19 +166,20 @@ export function ChangesCard({
 
       <Modal
         open={undoOpen}
-        title="撤销上一批变更"
-        okText="确认撤销"
+        title={t('chat.undoLastBatch')}
+        okText={t('chat.confirmUndo')}
         okButtonProps={{ danger: true, disabled: !undoPreview?.undoable, loading: undoing }}
-        cancelText="取消"
+        cancelText={t('chat.cancel')}
         onOk={() => void runUndo()}
         onCancel={() => setUndoOpen(false)}
       >
         {undoPreview === undefined ? (
-          <Typography.Text type="secondary">加载中…</Typography.Text>
+          <Typography.Text type="secondary">{t('chat.loading')}</Typography.Text>
         ) : undoPreview.undoable ? (
           <>
             <Typography.Text>
-              将撤销 <strong>{undoPreview.paths.length}</strong> 个文件的上一批变更：
+              {t('chat.undoLastBatchLead')} <strong>{undoPreview.paths.length}</strong>
+              {t('chat.undoLastBatchTail')}
             </Typography.Text>
             {undoPreview.paths.map((path) => (
               <div key={path} style={{ padding: '2px 0' }}>
@@ -191,14 +194,14 @@ export function ChangesCard({
                 style={{ marginTop: 8 }}
                 title={
                   warning.kind === 'target_modified'
-                    ? `${warning.path}: 备份后曾被外部修改，撤销可能覆盖手工改动`
-                    : `${warning.path}: 备份对象缺失，该文件将跳过`
+                    ? t('chat.undoWarnModified', { path: warning.path })
+                    : t('chat.undoWarnMissing', { path: warning.path })
                 }
               />
             ))}
           </>
         ) : (
-          <Typography.Text type="secondary">没有可撤销的批次（no_backup）。</Typography.Text>
+          <Typography.Text type="secondary">{t('chat.noUndoableBatch')}</Typography.Text>
         )}
       </Modal>
     </div>

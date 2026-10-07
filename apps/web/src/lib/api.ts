@@ -2,6 +2,8 @@
  * API client（§22.8.1）：bootstrap 自动签发 browser session → 带 CSRF 的调用。
  * 进入无 token 门；csrfToken 只存内存（不写 localStorage）。
  */
+import { currentLocale, translate } from './i18n'
+
 export interface BrowserSession {
   serverId: string
   csrfToken: string
@@ -178,9 +180,16 @@ export interface TaskRunView {
 }
 
 export function formatSchedule(schedule: TaskScheduleView): string {
-  if (schedule.kind === 'interval') return `每 ${Math.round((schedule.everyMs ?? 0) / 60_000)} 分钟`
-  if (schedule.kind === 'daily') return `每天 ${schedule.at ?? ''}`
-  return `每周 ${(schedule.weekdays ?? []).join(',')} ${schedule.at ?? ''}`
+  if (schedule.kind === 'interval')
+    return translate(currentLocale(), 'manage.scheduleInterval', {
+      n: Math.round((schedule.everyMs ?? 0) / 60_000),
+    })
+  if (schedule.kind === 'daily')
+    return translate(currentLocale(), 'manage.scheduleDaily', { at: schedule.at ?? '' })
+  return translate(currentLocale(), 'manage.scheduleWeekly', {
+    weekdays: (schedule.weekdays ?? []).join(','),
+    at: schedule.at ?? '',
+  })
 }
 
 // ── SAG-13 subagent 运行注册表 ─────────────────────────────────────────

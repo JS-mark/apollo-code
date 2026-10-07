@@ -4,18 +4,24 @@ import { Descriptions, Empty, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 
-function flatten(value: unknown, prefix = ''): { key: string; label: string; value: string }[] {
+function flatten(
+  value: unknown,
+  prefix = '',
+  countLabel: (count: number) => string = String,
+): { key: string; label: string; value: string }[] {
   if (value === null || value === undefined) return []
   if (typeof value !== 'object') return [{ key: prefix, label: prefix, value: String(value) }]
-  if (Array.isArray(value)) return [{ key: prefix, label: prefix, value: `${value.length} 项` }]
+  if (Array.isArray(value)) return [{ key: prefix, label: prefix, value: countLabel(value.length) }]
   return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
-    flatten(item, prefix ? `${prefix}.${key}` : key),
+    flatten(item, prefix ? `${prefix}.${key}` : key, countLabel),
   )
 }
 
 /** 统计页（可观测）：telemetry 汇总 + 健康（管理面 telemetry 域的只读投影）。 */
 export function StatsPage({ api }: { api: WebApi }) {
+  const { t } = useI18n()
   const [data, setData] = useState<{ summary?: unknown; health?: unknown }>()
   const [error, setError] = useState<string>()
   useEffect(() => {
@@ -25,13 +31,14 @@ export function StatsPage({ api }: { api: WebApi }) {
       .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
   }, [api])
 
+  const countLabel = (count: number) => t('manage.itemsCount', { count })
   const rows = [
-    ...flatten(data?.summary).map((row) => ({
+    ...flatten(data?.summary, '', countLabel).map((row) => ({
       ...row,
       label: `summary.${row.label}`,
       key: `s.${row.key}`,
     })),
-    ...flatten(data?.health).map((row) => ({
+    ...flatten(data?.health, '', countLabel).map((row) => ({
       ...row,
       label: `health.${row.label}`,
       key: `h.${row.key}`,
@@ -40,12 +47,12 @@ export function StatsPage({ api }: { api: WebApi }) {
   return (
     <section style={{ padding: 24, overflow: 'auto' }}>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        统计
+        {t('manage.statsTitle')}
       </Typography.Title>
       {error ? (
         <Typography.Text type="warning">{error}</Typography.Text>
       ) : rows.length === 0 ? (
-        <Empty description="暂无遥测数据（本地事件日志为空）" />
+        <Empty description={t('manage.noTelemetry')} />
       ) : (
         <Descriptions
           size="small"

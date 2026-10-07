@@ -3,6 +3,7 @@
  * server 没有 slash 概念，`/foo` 原样出站会被当用户消息起 turn，因此 Enter
  * 必须本地处理。注册表只收 web 真实可执行的动作，不放占位。
  */
+import { currentLocale, translate } from './i18n'
 
 export interface WebSlashCommand {
   name: string
@@ -24,27 +25,27 @@ export interface WebSlashContext {
 export const WEB_SLASH_COMMANDS: readonly WebSlashCommand[] = [
   {
     name: 'interrupt',
-    description: '中断当前回合',
+    description: translate(currentLocale(), 'chat.slashInterrupt'),
     run: ({ hasActiveSession, interrupt, notice }) => {
-      if (!hasActiveSession) return notice('没有活动会话')
+      if (!hasActiveSession) return notice(translate(currentLocale(), 'chat.slashNoSession'))
       interrupt()
     },
   },
   {
     name: 'end',
-    description: '结束当前会话',
+    description: translate(currentLocale(), 'chat.slashEnd'),
     aliases: ['exit'],
     run: ({ hasActiveSession, endSession, notice }) => {
-      if (!hasActiveSession) return notice('没有活动会话')
+      if (!hasActiveSession) return notice(translate(currentLocale(), 'chat.slashNoSession'))
       endSession()
     },
   },
   {
     name: 'help',
-    description: '列出可用命令',
+    description: translate(currentLocale(), 'chat.slashHelp'),
     run: ({ notice }) =>
       notice(
-        `可用命令：${WEB_SLASH_COMMANDS.map((command) => `/${command.name}`).join(' · ')}（在输入框输入 / 触发补全）`,
+        `Available commands: ${WEB_SLASH_COMMANDS.map((command) => `/${command.name}`).join(' · ')} (type / to trigger completion)`,
       ),
   },
 ]

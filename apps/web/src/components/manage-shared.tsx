@@ -9,6 +9,7 @@ import { Button, Alert, Input, Space, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
+import { useI18n, type Translate } from '../lib/i18n'
 
 export function useInventory<T>(
   api: WebApi,
@@ -84,25 +85,26 @@ export function PanelToolbar({ children }: { children: React.ReactNode }) {
 export function CountBadge({
   scopeLabel,
   count,
-  unit = '条',
+  unit,
 }: {
   scopeLabel: string
   count: number
   unit?: string
 }) {
+  const { t } = useI18n()
   const label =
     scopeLabel === 'project'
-      ? '项目级'
+      ? t('manage.scopeProject')
       : scopeLabel === 'workspace'
-        ? '工作区'
+        ? t('manage.scopeWorkspace')
         : scopeLabel === 'session'
-          ? '会话'
+          ? t('manage.scopeSession')
           : scopeLabel
   return (
     <span>
       <Tag color="blue">{label}</Tag>
       <Typography.Text type="secondary">
-        {count} {unit}
+        {count} {unit ?? t('manage.unitRecords')}
       </Typography.Text>
     </span>
   )
@@ -175,8 +177,8 @@ export function useAction(api: WebApi, domain: string) {
 export function KeyValueEditor({
   value,
   onChange,
-  keyPlaceholder = '键',
-  valuePlaceholder = '值',
+  keyPlaceholder,
+  valuePlaceholder,
   secretValues = false,
 }: {
   value: Record<string, string>
@@ -185,6 +187,7 @@ export function KeyValueEditor({
   valuePlaceholder?: string
   secretValues?: boolean
 }) {
+  const { t } = useI18n()
   const entries = Object.entries(value)
   return (
     <div style={{ display: 'grid', gap: 4 }}>
@@ -192,7 +195,7 @@ export function KeyValueEditor({
         <Space key={`${key}:${index}`} style={{ display: 'flex' }}>
           <Input
             style={{ width: 180 }}
-            placeholder={keyPlaceholder}
+            placeholder={keyPlaceholder ?? t('manage.fieldKey')}
             value={key}
             onChange={(event) => {
               const next = { ...value }
@@ -206,7 +209,11 @@ export function KeyValueEditor({
               width: 260,
               ...(secretValues ? { fontFamily: 'ui-monospace, monospace' } : {}),
             }}
-            placeholder={secretValues ? '值或 keyref://mcp.<name>.<field>' : valuePlaceholder}
+            placeholder={
+              secretValues
+                ? t('manage.secretValuePlaceholder')
+                : (valuePlaceholder ?? t('manage.fieldValue'))
+            }
             value={item}
             onChange={(event) => onChange({ ...value, [key]: event.target.value })}
           />
@@ -226,7 +233,7 @@ export function KeyValueEditor({
         style={{ width: 'fit-content' }}
         onClick={() => onChange({ ...value, '': '' })}
       >
-        添加
+        {t('manage.add')}
       </Button>
     </div>
   )
@@ -243,10 +250,10 @@ export function downloadJson(name: string, data: unknown): void {
 }
 
 /** 友好转译市场安装的 fail-closed 错误（§S3.5：远程 HTTPS 等签名信任根）。 */
-export function marketErrorMessage(cause: unknown): string {
+export function marketErrorMessage(cause: unknown, t: Translate): string {
   const message = cause instanceof Error ? cause.message : String(cause)
   if (message.includes('plugin_registry_signature_required'))
-    return '远程插件安装需要签名信任根（§19a capability contract）后开放；当前可配置 loopback http 本地源自建市场。'
+    return t('manage.marketSignatureRequired')
   return message
 }
 

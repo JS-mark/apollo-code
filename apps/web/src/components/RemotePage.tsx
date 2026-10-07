@@ -33,6 +33,8 @@ import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ConfigView, PairingInvitation, RemoteView, WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
+import type { ShellKeys } from '../lib/i18n/dict/shell'
 
 interface FieldState {
   value: string
@@ -54,14 +56,15 @@ function useStateField(
 
 const STATE_TEXT: Record<
   RemoteView['status']['state'],
-  { label: string; status: 'success' | 'processing' | 'default' | 'error' }
+  { labelKey: ShellKeys; status: 'success' | 'processing' | 'default' | 'error' }
 > = {
-  online: { label: '已连接', status: 'success' },
-  connecting: { label: '连接中', status: 'processing' },
-  off: { label: '未开启', status: 'default' },
+  online: { labelKey: 'shell.remoteStateOnline', status: 'success' },
+  connecting: { labelKey: 'shell.remoteStateConnecting', status: 'processing' },
+  off: { labelKey: 'shell.remoteStateOff', status: 'default' },
 }
 
 export function RemotePage({ api }: { api: WebApi }) {
+  const { t } = useI18n()
   const [view, setView] = useState<RemoteView>()
   const [config, setConfig] = useState<ConfigView>()
   const [pairing, setPairing] = useState<PairingInvitation>()
@@ -154,19 +157,19 @@ export function RemotePage({ api }: { api: WebApi }) {
     ) => {
       const trimmed = value.trim()
       if (!trimmed) {
-        messageApi.warning('请先输入内容再保存')
+        messageApi.warning(t('shell.remoteEmptyInput'))
         return
       }
       // schema 门（remote.client_secret min 16）前端预检：后端报 config_invalid
       // 堆栈话术，这里直接给可操作的提示。
       if (key === 'client_secret' && trimmed.length < 16) {
-        messageApi.error('client_secret 至少 16 个字符（网关签发的是 43 字符 base64url）')
+        messageApi.error(t('shell.remoteSecretTooShort'))
         return
       }
       begin()
       try {
         await api.configSet(`remote.${key}`, trimmed)
-        messageApi.success('已保存，运行中的链路将自动用新凭证重拨')
+        messageApi.success(t('shell.remoteSaved'))
         await refresh()
         if (key === 'client_secret') setClientSecret('')
       } catch (cause) {
@@ -175,7 +178,7 @@ export function RemotePage({ api }: { api: WebApi }) {
         end()
       }
     },
-    [api, messageApi, refresh, setClientSecret],
+    [api, messageApi, refresh, setClientSecret, t],
   )
 
   const generatePairing = useCallback(async () => {
@@ -193,12 +196,11 @@ export function RemotePage({ api }: { api: WebApi }) {
       const result = (await runAction({ type: 'revoke-device', deviceId })) as
         | { revoked: boolean }
         | undefined
-      if (result && result.revoked === false)
-        messageApi.warning('撤销未生效：远程控制链路离线或设备已不存在，请确认链路在线后重试')
-      else messageApi.success('已撤销该设备')
+      if (result && result.revoked === false) messageApi.warning(t('shell.remoteRevokeFailed'))
+      else messageApi.success(t('shell.remoteDeviceRevoked'))
       await refresh()
     },
-    [runAction, refresh, messageApi],
+    [runAction, refresh, messageApi, t],
   )
 
   const pairingSecondsLeft = useMemo(
@@ -213,10 +215,10 @@ export function RemotePage({ api }: { api: WebApi }) {
     <section className="page" style={{ padding: 24, overflow: 'auto', maxWidth: 880 }}>
       {contextHolder}
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        远程控制
+        {t('shell.remoteTitle')}
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
-        管理渠道连接——外部设备经公网网关中转控制本机会话。
+        {t('shell.remoteSubtitle')}
       </Typography.Paragraph>
 
       {/* 总开关 + 网关配置 */}
@@ -229,7 +231,7 @@ export function RemotePage({ api }: { api: WebApi }) {
               loading={actionBusy}
               onClick={() => void toggle(false)}
             >
-              停止服务
+              {t('shell.remoteStop')}
             </Button>
           ) : (
             <Button
@@ -238,10 +240,10 @@ export function RemotePage({ api }: { api: WebApi }) {
               loading={actionBusy}
               onClick={() => void toggle(true)}
             >
-              启动服务
+              {t('shell.remoteStart')}
             </Button>
           )}
-          <Badge status={stateMeta.status} text={stateMeta.label} />
+          <Badge status={stateMeta.status} text={t(stateMeta.labelKey)} />
           {status?.gatewayUrl && (
             <Typography.Text type="secondary">{status.gatewayUrl}</Typography.Text>
           )}
@@ -252,15 +254,15 @@ export function RemotePage({ api }: { api: WebApi }) {
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
-            title={`正在重试连接（第 ${status.attempt} 次）：${status.lastError}`}
-            description="检查网关地址是否可达、client_id/client_secret 是否正确；网关侧日志能看到认证失败原因。"
+            title={t('shell.remoteRetrying', { attempt: status.attempt, error: status.lastError })}
+            description={t('shell.remoteRetryHint')}
           />
         )}
         <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
           <Space.Compact style={{ display: 'flex' }}>
             <Input
               prefix={<LinkOutlined />}
-              placeholder="网关地址，如 https://gateway.nexo-ai.top"
+              placeholder={t('shell.remoteGatewayPlaceholder')}
               value={gatewayUrl.value}
               onChange={(event) => setGatewayUrl(event.target.value)}
             />
@@ -270,12 +272,12 @@ export function RemotePage({ api }: { api: WebApi }) {
                 void saveField('gateway_url', gatewayUrl.value, saveGatewayUrl, endSaveGatewayUrl)
               }
             >
-              保存
+              {t('shell.save')}
             </Button>
           </Space.Compact>
           <Space.Compact style={{ display: 'flex' }}>
             <Input
-              placeholder="client_id（网关 clients.json 登记的机器凭证 id）"
+              placeholder={t('shell.remoteClientIdPlaceholder')}
               value={clientId.value}
               onChange={(event) => setClientId(event.target.value)}
             />
@@ -285,15 +287,15 @@ export function RemotePage({ api }: { api: WebApi }) {
                 void saveField('client_id', clientId.value, saveClientId, endSaveClientId)
               }
             >
-              保存
+              {t('shell.save')}
             </Button>
           </Space.Compact>
           <Space.Compact style={{ display: 'flex' }}>
             <Input.Password
               placeholder={
                 secretSet
-                  ? 'client_secret 已设置（不回显），输入以更换'
-                  : 'client_secret（机器凭证 secret）'
+                  ? t('shell.remoteSecretSetPlaceholder')
+                  : t('shell.remoteSecretPlaceholder')
               }
               value={clientSecret.value}
               onChange={(event) => setClientSecret(event.target.value)}
@@ -309,7 +311,7 @@ export function RemotePage({ api }: { api: WebApi }) {
                 )
               }
             >
-              保存
+              {t('shell.save')}
             </Button>
           </Space.Compact>
         </Space>
@@ -318,18 +320,18 @@ export function RemotePage({ api }: { api: WebApi }) {
       {/* 已连渠道 */}
       <Card
         size="small"
-        title="已连渠道"
+        title={t('shell.remoteChannelsTitle')}
         style={{ marginBottom: 16 }}
         extra={
           <Button size="small" icon={<ReloadOutlined />} onClick={() => void refresh()}>
-            刷新
+            {t('shell.refresh')}
           </Button>
         }
       >
         {availableChannels.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="暂无已连接渠道——开启上方远程控制并配置网关后，移动端网站渠道自动就绪"
+            description={t('shell.remoteChannelsEmpty')}
           />
         ) : (
           <List
@@ -342,9 +344,11 @@ export function RemotePage({ api }: { api: WebApi }) {
                         <Badge
                           key="state"
                           status={status?.state === 'online' ? 'success' : 'default'}
-                          text={status?.state === 'online' ? '在线' : '离线'}
+                          text={status?.state === 'online' ? t('shell.online') : t('shell.offline')}
                         />,
-                        <Tag key="devices">{view?.devices.length ?? 0} 台设备</Tag>,
+                        <Tag key="devices">
+                          {t('shell.remoteDeviceCount', { count: view?.devices.length ?? 0 })}
+                        </Tag>,
                       ]
                     : []
                 }
@@ -363,7 +367,7 @@ export function RemotePage({ api }: { api: WebApi }) {
       {/* 配对（仅移动站渠道 + 在线时可用） */}
       <Card
         size="small"
-        title="添加移动设备"
+        title={t('shell.remotePairingTitle')}
         style={{ marginBottom: 16 }}
         extra={
           <Button
@@ -374,19 +378,17 @@ export function RemotePage({ api }: { api: WebApi }) {
             disabled={status?.state !== 'online'}
             onClick={() => void generatePairing()}
           >
-            生成配对码
+            {t('shell.remoteGeneratePairing')}
           </Button>
         }
       >
         {status?.state !== 'online' ? (
-          <Typography.Text type="secondary">
-            开启远程控制并连上网关后，可生成一次性配对码（5 分钟有效）供手机扫码接入。
-          </Typography.Text>
+          <Typography.Text type="secondary">{t('shell.remotePairingOfflineHint')}</Typography.Text>
         ) : pairing && pairingSecondsLeft > 0 ? (
           <Space size={24} align="start">
             {pairingQr && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={pairingQr} alt="配对二维码" width={180} height={180} />
+              <img src={pairingQr} alt={t('shell.remotePairingQrAlt')} width={180} height={180} />
             )}
             <Space orientation="vertical" size={4}>
               <Typography.Text
@@ -395,21 +397,21 @@ export function RemotePage({ api }: { api: WebApi }) {
               >
                 {pairing.code}
               </Typography.Text>
-              <Typography.Text type="secondary">手机扫码，或在移动站输入配对码</Typography.Text>
-              <Typography.Text type="secondary">{pairingSecondsLeft} 秒后失效</Typography.Text>
+              <Typography.Text type="secondary">{t('shell.remotePairingScanHint')}</Typography.Text>
+              <Typography.Text type="secondary">
+                {t('shell.remotePairingExpires', { seconds: pairingSecondsLeft })}
+              </Typography.Text>
             </Space>
           </Space>
         ) : (
-          <Typography.Text type="secondary">
-            生成配对码后，手机打开网关地址扫码/输入即可接入本机。
-          </Typography.Text>
+          <Typography.Text type="secondary">{t('shell.remotePairingReadyHint')}</Typography.Text>
         )}
       </Card>
 
       {/* 设备管理 */}
-      <Card size="small" title="已配对设备" style={{ marginBottom: 16 }}>
+      <Card size="small" title={t('shell.remoteDevicesTitle')} style={{ marginBottom: 16 }}>
         {!view || view.devices.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无已配对设备" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('shell.remoteDevicesEmpty')} />
         ) : (
           <List
             dataSource={view.devices}
@@ -418,12 +420,12 @@ export function RemotePage({ api }: { api: WebApi }) {
                 actions={[
                   <Popconfirm
                     key="revoke"
-                    title="撤销该设备？"
-                    description="撤销后手机上的访问凭证立即失效"
+                    title={t('shell.remoteRevokeConfirmTitle')}
+                    description={t('shell.remoteRevokeConfirmDesc')}
                     onConfirm={() => void revoke(device.id)}
                   >
                     <Button size="small" danger icon={<StopOutlined />}>
-                      撤销
+                      {t('shell.remoteRevoke')}
                     </Button>
                   </Popconfirm>,
                 ]}
@@ -438,9 +440,10 @@ export function RemotePage({ api }: { api: WebApi }) {
                     />
                   }
                   title={device.name}
-                  description={`配对于 ${new Date(device.pairedAt).toLocaleString()} · 最近活跃 ${new Date(
-                    device.lastSeen,
-                  ).toLocaleString()}`}
+                  description={t('shell.remoteDeviceMeta', {
+                    paired: new Date(device.pairedAt).toLocaleString(),
+                    lastSeen: new Date(device.lastSeen).toLocaleString(),
+                  })}
                 />
               </List.Item>
             )}
@@ -449,17 +452,18 @@ export function RemotePage({ api }: { api: WebApi }) {
       </Card>
 
       {/* 更多渠道（R3 插件市场） */}
-      <Card size="small" title="安装更多渠道">
+      <Card size="small" title={t('shell.remoteMoreChannelsTitle')}>
         <Space orientation="vertical" size={4}>
           {comingSoonChannels.map((channel) => (
             <Typography.Text key={channel.id} type="secondary">
               <DisconnectOutlined style={{ marginRight: 6 }} />
-              {channel.name} — {channel.description}（即将上线）
+              {t('shell.remoteComingSoonChannel', {
+                name: channel.name,
+                description: channel.description,
+              })}
             </Typography.Text>
           ))}
-          <Typography.Text type="secondary">
-            浏览插件市场安装第三方渠道插件（即将上线）。
-          </Typography.Text>
+          <Typography.Text type="secondary">{t('shell.remoteMarketHint')}</Typography.Text>
         </Space>
       </Card>
     </section>

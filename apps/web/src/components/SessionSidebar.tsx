@@ -24,6 +24,7 @@ import { App, Button, Dropdown, Empty, Input, Modal, Typography } from 'antd'
 import { useMemo, useState } from 'react'
 
 import type { SessionGroup, SessionGroupsView, SessionSummary, WebApi } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import type { SidebarGroup } from '../lib/session-groups'
 import { buildSidebarGroups, nextVisibleCount, visibleCount } from '../lib/session-groups'
 
@@ -60,6 +61,7 @@ type NameModal = { mode: 'create' } | { mode: 'rename'; group: SessionGroup } | 
 export function SessionSidebar(props: SessionSidebarProps) {
   const { api, groupingEnabled, deleteEnabled, serverId, groups, sessions, activeId } = props
   const { message } = App.useApp()
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
@@ -98,8 +100,10 @@ export function SessionSidebar(props: SessionSidebarProps) {
     if (!nameModal) return
     const name = nameValue.trim()
     if (!name) return
-    if (nameModal.mode === 'create') await runOp(() => api.createSessionGroup(name), '分组已创建')
-    else await runOp(() => api.renameSessionGroup(nameModal.group.id, name), '分组已重命名')
+    if (nameModal.mode === 'create')
+      await runOp(() => api.createSessionGroup(name), t('shell.groupCreated'))
+    else
+      await runOp(() => api.renameSessionGroup(nameModal.group.id, name), t('shell.groupRenamed'))
     setNameModal(null)
   }
 
@@ -109,7 +113,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
     setDeleting(true)
     try {
       const result = await api.deleteSession(target.id)
-      message.success('会话已删除')
+      message.success(t('shell.sessionDeleted'))
       setDeleteSessionTarget(null)
       props.onSessionDeleted(target.id, result.next)
     } catch (cause) {
@@ -122,14 +126,18 @@ export function SessionSidebar(props: SessionSidebarProps) {
   /** 会话条目 ⋯ 菜单：复制会话 ID + 移动到分组（分组能力开启时）+ 删除会话（删除能力开启时）。 */
   const sessionMenu = (session: SessionSummary): MenuProps | undefined => {
     const items: MenuProps['items'] = [
-      { key: 'copy-id', label: '复制会话 ID' },
+      { key: 'copy-id', label: t('shell.copySessionId') },
       ...(groupingEnabled
         ? [
             {
               key: 'move',
-              label: '移动到分组',
+              label: t('shell.moveToGroup'),
               children: [
-                { key: 'move:', label: '未分组', disabled: groupOf(session.id) === null },
+                {
+                  key: 'move:',
+                  label: t('shell.ungrouped'),
+                  disabled: groupOf(session.id) === null,
+                },
                 ...groups.groups.map((group) => ({
                   key: `move:${group.id}`,
                   label: group.name,
@@ -139,7 +147,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
             },
           ]
         : []),
-      ...(deleteEnabled ? [{ key: 'delete', label: '删除会话', danger: true }] : []),
+      ...(deleteEnabled ? [{ key: 'delete', label: t('shell.deleteSession'), danger: true }] : []),
     ]
     if (items.length === 0) return undefined
     return {
@@ -153,8 +161,8 @@ export function SessionSidebar(props: SessionSidebarProps) {
         if (key === 'copy-id') {
           // 排障取证：设备 ID（服务器实例）+ 会话 ID 一次带全，用户直接粘贴反馈。
           void navigator.clipboard
-            .writeText(`设备ID: ${serverId}\n会话ID: ${session.id}`)
-            .then(() => message.success('已复制'))
+            .writeText(t('shell.copyIdsText', { deviceId: serverId, sessionId: session.id }))
+            .then(() => message.success(t('shell.copied')))
             .catch((cause: unknown) =>
               message.error(cause instanceof Error ? cause.message : String(cause)),
             )
@@ -164,7 +172,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
         const groupId = key.slice('move:'.length) || null
         void runOp(
           () => api.assignSessionGroup(session.id, groupId),
-          groupId ? '已移动会话' : '已移回未分组',
+          groupId ? t('shell.sessionMoved') : t('shell.sessionMovedToUngrouped'),
         )
       },
     }
@@ -211,8 +219,8 @@ export function SessionSidebar(props: SessionSidebarProps) {
     const menu: MenuProps | undefined = source
       ? {
           items: [
-            { key: 'rename', label: '重命名分组' },
-            { key: 'delete', label: '删除分组', danger: true },
+            { key: 'rename', label: t('shell.renameGroup') },
+            { key: 'delete', label: t('shell.deleteGroup'), danger: true },
           ],
           onClick: ({ key, domEvent }) => {
             domEvent.stopPropagation()
@@ -252,7 +260,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
         </div>
         {!isCollapsed &&
           (group.sessions.length === 0 ? (
-            <div className="sg-group-empty">暂无会话，可从会话菜单移入</div>
+            <div className="sg-group-empty">{t('shell.groupEmpty')}</div>
           ) : (
             <>
               {group.sessions.slice(0, visible).map(renderItem)}
@@ -268,7 +276,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
                     }))
                   }
                 >
-                  更多（还有 {remaining} 条）
+                  {t('shell.moreSessions', { count: remaining })}
                 </Button>
               )}
             </>
@@ -287,7 +295,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
           ref={props.searchRef}
           allowClear
           prefix={<SearchOutlined />}
-          placeholder="搜索会话"
+          placeholder={t('shell.searchSessions')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -296,9 +304,9 @@ export function SessionSidebar(props: SessionSidebarProps) {
           placement="bottomRight"
           menu={{
             items: [
-              { key: 'chat', label: '新建对话', icon: <CommentOutlined /> },
+              { key: 'chat', label: t('shell.newChat'), icon: <CommentOutlined /> },
               ...(groupingEnabled
-                ? [{ key: 'group', label: '新建分组', icon: <FolderAddOutlined /> }]
+                ? [{ key: 'group', label: t('shell.newGroup'), icon: <FolderAddOutlined /> }]
                 : []),
             ],
             onClick: ({ key }) => {
@@ -310,13 +318,13 @@ export function SessionSidebar(props: SessionSidebarProps) {
             },
           }}
         >
-          <Button icon={<PlusOutlined />} title="新建对话 / 新建分组" />
+          <Button icon={<PlusOutlined />} title={t('shell.newChatOrGroup')} />
         </Dropdown>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 8px 8px' }}>
         {showEmpty ? (
           <Empty
-            description={searching ? '没有匹配的会话' : '暂无历史会话'}
+            description={searching ? t('shell.noMatchingSessions') : t('shell.noSessions')}
             style={{ marginTop: 32 }}
           />
         ) : flat ? (
@@ -326,10 +334,10 @@ export function SessionSidebar(props: SessionSidebarProps) {
         )}
       </div>
       <Modal
-        title={nameModal?.mode === 'rename' ? '重命名分组' : '新建分组'}
+        title={nameModal?.mode === 'rename' ? t('shell.renameGroup') : t('shell.newGroup')}
         open={nameModal !== null}
-        okText={nameModal?.mode === 'rename' ? '保存' : '创建'}
-        cancelText="取消"
+        okText={nameModal?.mode === 'rename' ? t('shell.save') : t('shell.create')}
+        cancelText={t('shell.cancel')}
         okButtonProps={{ disabled: !nameValue.trim() }}
         onCancel={() => setNameModal(null)}
         onOk={() => void submitNameModal()}
@@ -337,7 +345,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
       >
         <Input
           autoFocus
-          placeholder="分组名称（1-60 字符）"
+          placeholder={t('shell.groupNamePlaceholder')}
           value={nameValue}
           maxLength={60}
           onChange={(event) => setNameValue(event.target.value)}
@@ -348,32 +356,32 @@ export function SessionSidebar(props: SessionSidebarProps) {
         />
       </Modal>
       <Modal
-        title="删除分组"
+        title={t('shell.deleteGroup')}
         open={deleteTarget !== null}
-        okText="删除"
+        okText={t('shell.delete')}
         okButtonProps={{ danger: true }}
-        cancelText="取消"
+        cancelText={t('shell.cancel')}
         onCancel={() => setDeleteTarget(null)}
         onOk={() => {
           if (!deleteTarget) return
           void (async () => {
-            await runOp(() => api.deleteSessionGroup(deleteTarget.id), '分组已删除')
+            await runOp(() => api.deleteSessionGroup(deleteTarget.id), t('shell.groupDeleted'))
             setDeleteTarget(null)
           })()
         }}
       >
         {deleteTarget && (
           <Typography.Text>
-            删除分组「{deleteTarget.name}」？组内会话会移回「未分组」，会话本身不受影响。
+            {t('shell.deleteGroupConfirm', { name: deleteTarget.name })}
           </Typography.Text>
         )}
       </Modal>
       <Modal
-        title="删除会话"
+        title={t('shell.deleteSession')}
         open={deleteSessionTarget !== null}
-        okText="删除"
+        okText={t('shell.delete')}
         okButtonProps={{ danger: true, loading: deleting }}
-        cancelText="取消"
+        cancelText={t('shell.cancel')}
         onCancel={() => {
           if (deleting) return
           setDeleteSessionTarget(null)
@@ -382,8 +390,7 @@ export function SessionSidebar(props: SessionSidebarProps) {
       >
         {deleteSessionTarget && (
           <Typography.Text>
-            删除会话「{deleteSessionTarget.title}」？事件流、附件与撤销备份会一并清除，
-            此操作不可恢复。
+            {t('shell.deleteSessionConfirm', { title: deleteSessionTarget.title })}
           </Typography.Text>
         )}
       </Modal>
