@@ -21,7 +21,8 @@ import type { PermissionRuleScope, PermissionRuleSource } from '@volund/app-runt
 /**
  * 落盘条目：tool + spec 对就是匹配单位。fs 路径在落盘前泛化为 `<cwd>/**`
  * 子树模式（generalizePermissionSpec），匹配走 permissionRuleMatches 的
- * 「请求 ⊆ 规则」模式语义；bash / net 保持 command / origin 精确形态。
+ * 「请求 ⊆ 规则」模式语义；bash 收敛为命令前缀规则（`<前两词> *`，匹配按
+ * 字面前缀），net 保持 origin 精确形态。
  */
 export interface StoredPermission {
   tool: string
@@ -121,7 +122,9 @@ export class PermissionRuleStore implements PermissionRuleSource {
 
   /**
    * 新决策取代同 key 的旧决策（allow 翻 deny / deny 翻 allow 都成立）；allow
-   * 先把项目内路径泛化为 `<cwd>/**` 模式再落盘，deny 保持精确（宁缺毋滥）。
+   * 先把项目内路径泛化为 `<cwd>/**` 模式、bash 命令泛化为 `<前两词> *` 前缀规则
+   * 再落盘，deny 保持精确（宁缺毋滥）。翻盘时对侧桶按「泛化形态 + 原样形态」
+   * 双 key 清除——allow 泛化后与 deny 精确形态 key 不同，只删一种会残留旧规则。
    * 写盘失败只告警，内存决策保留。
    */
   async persist(
@@ -130,12 +133,22 @@ export class PermissionRuleStore implements PermissionRuleSource {
     allow: boolean,
   ): Promise<void> {
     await this.ready()
-    const spec = allow ? generalizePermissionSpec(request.spec, request.session.cwd) : request.spec
-    const key = permissionKey(request.toolName, spec)
-    const entry: StoredPermission = { tool: request.toolName, spec }
+    const generalized = generalizePermissionSpec(request.spec, request.session.cwd)
+    // allow 落泛化形态（fs 子树 / bash 前缀），deny 落精确形态。
+    const entry: StoredPermission = {
+      tool: request.toolName,
+      spec: allow ? generalized : request.spec,
+    }
     const buckets = this.#entries[scope]
-    ;(allow ? buckets.allow : buckets.deny).set(key, entry)
-    ;(allow ? buckets.deny : buckets.allow).delete(key)
+    const generalizedKey = permissionKey(request.toolName, generalized)
+    const exactKey = permissionKey(request.toolName, request.spec)
+    // 先按两种 key 清两侧旧条目（allow 泛化后与 deny 精确形态 key 不同），
+    // 再落新决策——顺序反了会把刚 set 的条目自己删掉。
+    buckets.deny.delete(generalizedKey)
+    buckets.deny.delete(exactKey)
+    buckets.allow.delete(generalizedKey)
+    buckets.allow.delete(exactKey)
+    ;(allow ? buckets.allow : buckets.deny).set(allow ? generalizedKey : exactKey, entry)
     this.#writes[scope] = this.#writes[scope].catch(() => undefined).then(() => this.#flush(scope))
     await this.#writes[scope]
   }

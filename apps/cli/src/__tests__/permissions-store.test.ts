@@ -71,6 +71,27 @@ describe('PermissionRuleStore', () => {
     expect(reloaded.isDenied('project', bashRequest('git status'))).toBe(false)
   })
 
+  it('persists bash commands as prefix rules so command variants stop re-prompting', async () => {
+    const { paths, store } = await createStore()
+    await store.ready()
+    // 项目会话的主流形态：cd 进项目后的长链式命令——按前两词收敛为一条前缀规则
+    await store.persist(
+      'project',
+      bashRequest(`cd ${process.cwd()} && find packages -name '*.ts' | xargs wc -l`),
+      true,
+    )
+
+    const saved = await readFile(paths.project, 'utf8')
+    expect(saved).toContain(`command = "cd ${process.cwd()} *"`)
+
+    const reloaded = new PermissionRuleStore(paths)
+    await reloaded.ready()
+    expect(
+      reloaded.isAllowed('project', bashRequest(`cd ${process.cwd()} && grep -rn foo src/`)),
+    ).toBe(true)
+    expect(reloaded.isAllowed('project', bashRequest('pnpm test'))).toBe(false)
+  })
+
   it('persists deny-forever to the global file and the decision chain denies before prompting', async () => {
     const { store } = await createStore()
     await store.ready()
@@ -130,10 +151,10 @@ describe('PermissionRuleStore', () => {
     await store.persist('project', bashRequest('git status'), true)
 
     // 真 TOML 内联表（= 语法），外部 TOML 工具可读；键序与原请求 spec 一致
-    // （grant key 依赖 spec 键序，往返规范化会静默失配）。
+    // （grant key 依赖 spec 键序，往返规范化会静默失配）。bash 落盘泛化为前缀规则。
     const saved = await readFile(paths.project, 'utf8')
     expect(saved).toContain(
-      'allow = [{ tool = "Bash", spec = { bash = { command = "git status" }, fs = { read = ["."], write = ["."] } } }]',
+      'allow = [{ tool = "Bash", spec = { bash = { command = "git status *" }, fs = { read = ["."], write = ["."] } } }]',
     )
 
     const reloaded = new PermissionRuleStore(paths)

@@ -62,7 +62,7 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
   {
     color: 'blue',
     id: 'allow-project',
-    hint: '写入 .volund/permissions.toml；仓库内路径记为 <repo>/**',
+    hint: '写入 .volund/permissions.toml；路径记为 <repo>/**，bash 记为命令前缀',
     label: '项目内记住',
     quickKey: 'p',
   },

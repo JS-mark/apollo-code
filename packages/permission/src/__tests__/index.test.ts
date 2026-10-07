@@ -489,11 +489,21 @@ describe('generalizePermissionSpec', () => {
     expect(spec.fs?.read).toEqual(['docs/**/*.md'])
     expect(spec.fs?.write).toEqual(['/etc/hosts', toPosix(`${cwd}/**`)])
   })
-  it('returns bash / net specs untouched (identity is command / origin)', () => {
+  it('generalizes bash commands to prefix rules; net specs stay untouched', () => {
     const bashSpec = { bash: { command: 'git status' }, fs: { read: ['.'], write: ['.'] } }
-    expect(generalizePermissionSpec(bashSpec, cwd)).toBe(bashSpec)
+    const generalized = generalizePermissionSpec(bashSpec, cwd)
+    expect(generalized.bash?.command).toBe('git status *')
+    expect(generalized.fs).toEqual(bashSpec.fs)
     const netSpec = { net: { url: 'https://example.dev/a', method: 'GET' as const } }
     expect(generalizePermissionSpec(netSpec, cwd)).toBe(netSpec)
+  })
+  it('collapses `cd <proj> && …` chains to one project-rooted prefix rule', () => {
+    const spec = generalizePermissionSpec(
+      { bash: { command: `cd ${cwd} && find packages -name '*.ts' | wc -l` } },
+      cwd,
+    )
+    // 前两词 = `cd <cwd>`：项目会话里 cd 进项目后的各种命令一次记住
+    expect(spec.bash?.command).toBe(`cd ${cwd} *`)
   })
 })
 describe('permissionRuleMatches', () => {
@@ -538,6 +548,36 @@ describe('permissionRuleMatches', () => {
     const prefix = { tool: 'Bash', spec: { bash: { command: 'git *' } } }
     expect(permissionRuleMatches(prefix, bashReqFor('git log --oneline'))).toBe(true)
     expect(permissionRuleMatches(prefix, bashReqFor('gitk'))).toBe(false)
+  })
+  it('`<head> *` prefix rules match literally across slashes — the picomatch dialect cannot', () => {
+    // `*` 在 picomatch 里不跨 `/`：cd 进项目后的命令尾巴几乎必含路径，
+    // 前缀语义必须按字面实现，否则「项目内记住」对链式命令形同虚设。
+    const rule = { tool: 'Bash', spec: { bash: { command: `cd ${cwd} *` } } }
+    expect(permissionRuleMatches(rule, bashReqFor(`cd ${cwd} && cat src/a.ts`))).toBe(true)
+    expect(permissionRuleMatches(rule, bashReqFor(`cd ${cwd} && cat .env | grep TOKEN`))).toBe(true)
+    expect(permissionRuleMatches(rule, bashReqFor(`cd ${join(cwd, '..')} && ls`))).toBe(false)
+    // 命令头按字面处理：规则里的 glob 元字符不展开
+    const literal = { tool: 'Bash', spec: { bash: { command: 'grep -rn *.ts *' } } }
+    expect(permissionRuleMatches(literal, bashReqFor("grep -rn *.ts src 'foo'"))).toBe(true)
+    expect(permissionRuleMatches(literal, bashReqFor('grep -rn src'))).toBe(false)
+  })
+  it('generalized prefix rules cover bare commands and variants; background stays discriminating', () => {
+    const generalized = generalizePermissionSpec({ bash: { command: 'git status' } }, cwd)
+    const rule = { tool: 'Bash', spec: generalized }
+    expect(permissionRuleMatches(rule, bashReqFor('git status'))).toBe(true)
+    expect(permissionRuleMatches(rule, bashReqFor('git status --short'))).toBe(true)
+    expect(permissionRuleMatches(rule, bashReqFor('git push --force'))).toBe(false)
+    const background = {
+      tool: 'Bash',
+      spec: { bash: { command: 'pnpm dev *', background: true } },
+    }
+    expect(
+      permissionRuleMatches(background, {
+        ...bashReqFor('pnpm dev --watch'),
+        spec: { bash: { command: 'pnpm dev --watch', background: true } },
+      }),
+    ).toBe(true)
+    expect(permissionRuleMatches(background, bashReqFor('pnpm dev --watch'))).toBe(false)
   })
   it('net rules still match by origin and split on method; tool name gates everything', () => {
     const rule = {

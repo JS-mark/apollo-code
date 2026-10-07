@@ -98,11 +98,14 @@ const GLOB_CHARS = /[*?[]/
  * 弹窗授权（allow-project / allow-forever）落盘前的规则泛化 —— 对齐 codex 的
  * 项目级信任与 claude-code 的 glob 规则：项目内文件路径不落成具体文件（否则写
  * 第二个文件还要再弹窗），收敛为 `<cwd>/**` 子树模式；既有 glob 与 cwd 外路径
- * 原样保留（宁可多问，不做目录越权）。bash / net 的身份就在 command / origin
- * 上，整体原样保留，规则保持手写友好的精确形态。
+ * 原样保留（宁可多问，不做目录越权）。bash 收敛为命令前缀规则 `<前两词> *`
+ * （精确命令的「记住」一上午能攒十几条，等于没记住——命令变体不该反复弹窗）；
+ * net 的身份就在 origin 上，原样保留。
  */
 export function generalizePermissionSpec(spec: PermissionSpec, cwd: string): PermissionSpec {
-  if (spec.bash || spec.net || !spec.fs) return spec
+  if (spec.bash)
+    return { ...spec, bash: { ...spec.bash, command: bashCommandPrefixRule(spec.bash.command) } }
+  if (spec.net || !spec.fs) return spec
   const generalize = (paths: string[]): string[] => [
     ...new Set(
       paths.map((path) =>
@@ -119,12 +122,25 @@ export function generalizePermissionSpec(spec: PermissionSpec, cwd: string): Per
 }
 
 /**
+ * bash 命令的落盘泛化：前两个空白分词作命令头，落成 `<head> *` 前缀规则。
+ * `cd <proj> && …` 收敛为 `cd <proj> *`（项目会话的绝大多数命令一次记住）；
+ * `git status --short` 收敛为 `git status *`（`git push` 等不命中）。空命令原样。
+ */
+export function bashCommandPrefixRule(command: string): string {
+  const tokens = command.trim().split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return command
+  return `${tokens.slice(0, 2).join(' ')} *`
+}
+
+/**
  * 持久化规则（permissions.toml 的 tool+spec 条目）对请求的匹配：
  * - fs.read/write / env.read：请求 ⊆ 规则 —— 请求的每个具体值都要被规则的某个
  *   模式覆盖（统一走 matchPath 的钉死方言，字面量即退化为其 canonicalize 相等）；
  *   请求未触及的能力面（字段为空/缺失）不参与判定；
- * - bash：规则 command 含 glob 字符时按 picomatch 全串匹配（`git *` 前缀语义），
- *   否则全等；background 需一致；
+ * - bash：规则 command 以 ` *` 结尾时按「字面前缀」匹配（`git status *` 命中
+ *   `git status --short` 与裸 `git status`；头部按字面处理，尾部可跨 `/` 与
+ *   空白——picomatch 的 `*` 不跨 `/`，命令前缀语义必须代码实现）；其余含 glob
+ *   字符的按 picomatch 全串匹配（手写 glob 规则兼容），否则全等；background 需一致；
  * - net：origin 归一相等（r13-D1）且 method 相等；
  * - custom：JSON 全等（与 permissionKey 同语义）。
  * 非法存储模式（如裸名 glob）按不命中处理——弹窗总比崩溃或静默放行好。
@@ -138,12 +154,16 @@ export function permissionRuleMatches(
   const requestSpec = request.spec
   if (ruleSpec.bash || requestSpec.bash) {
     if (!ruleSpec.bash || !requestSpec.bash) return false
-    const matched = GLOB_CHARS.test(ruleSpec.bash.command)
-      ? picomatch.isMatch(requestSpec.bash.command, ruleSpec.bash.command, {
-          dot: true,
-          nonegate: true,
-        })
-      : ruleSpec.bash.command === requestSpec.bash.command
+    const ruleCommand = ruleSpec.bash.command
+    const requestCommand = requestSpec.bash.command
+    const matched = ruleCommand.endsWith(' *')
+      ? commandMatchesPrefix(ruleCommand.slice(0, -2).trimEnd(), requestCommand)
+      : GLOB_CHARS.test(ruleCommand)
+        ? picomatch.isMatch(requestCommand, ruleCommand, {
+            dot: true,
+            nonegate: true,
+          })
+        : ruleCommand === requestCommand
     if (!matched) return false
     if ((ruleSpec.bash.background ?? false) !== (requestSpec.bash.background ?? false)) return false
   }
@@ -174,6 +194,11 @@ export function permissionRuleMatches(
       return false
   }
   return true
+}
+
+/** bash 前缀规则（`<head> *`）的命中：请求等于命令头，或以「命令头 + 空白」起头。 */
+function commandMatchesPrefix(head: string, command: string): boolean {
+  return command === head || command.startsWith(`${head} `)
 }
 
 export class PermissionManager {
