@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { AskCard } from '../../lib/chat'
+import { I18nProvider } from '../../lib/i18n'
 import { AskStack } from '../AskStack'
 
 const ask = (overrides: Partial<AskCard> = {}): AskCard => ({
@@ -11,9 +12,13 @@ const ask = (overrides: Partial<AskCard> = {}): AskCard => ({
   ...overrides,
 })
 
+/** 静态渲染包 I18nProvider：useI18n 默认上下文 t 直返 key，无 Provider 会丢中文断言。 */
+const render = (ui: React.ReactElement): string =>
+  renderToStaticMarkup(<I18nProvider>{ui}</I18nProvider>)
+
 describe('AskStack（移动端提问卡：选项 + 自由文本）', () => {
   it('渲染问题、选项按钮、自定义回答输入行与跳过', () => {
-    const html = renderToStaticMarkup(<AskStack asks={[ask()]} onAnswer={() => {}} />)
+    const html = render(<AskStack asks={[ask()]} onAnswer={() => {}} />)
     expect(html).toContain('用哪个方案？')
     expect(html).toContain('方案 A')
     expect(html).toContain('快')
@@ -25,16 +30,16 @@ describe('AskStack（移动端提问卡：选项 + 自由文本）', () => {
   })
 
   it('倒计时：带 expiresAt 渲染剩余秒数；旧网关（无截止）不渲染', () => {
-    const withDeadline = renderToStaticMarkup(
+    const withDeadline = render(
       <AskStack asks={[ask({ expiresAt: Date.now() + 60_000 })]} onAnswer={() => {}} />,
     )
     expect(withDeadline).toContain('后自动关闭')
-    const withoutDeadline = renderToStaticMarkup(<AskStack asks={[ask()]} onAnswer={() => {}} />)
+    const withoutDeadline = render(<AskStack asks={[ask()]} onAnswer={() => {}} />)
     expect(withoutDeadline).not.toContain('后自动关闭')
   })
 
   it('空队列：不渲染任何卡片', () => {
-    const html = renderToStaticMarkup(<AskStack asks={[]} onAnswer={() => {}} />)
+    const html = render(<AskStack asks={[]} onAnswer={() => {}} />)
     expect(html).not.toContain('askstack')
   })
 })

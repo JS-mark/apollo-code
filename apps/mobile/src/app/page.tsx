@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons'
 import { VolundError } from '@volund/shared/errors'
 import { App as AntApp, Badge, ConfigProvider, Select, theme as antdTheme, Typography } from 'antd'
+import enUS from 'antd/locale/en_US'
 import zhCN from 'antd/locale/zh_CN'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
@@ -27,7 +28,7 @@ import { TasksView } from '../components/TasksView'
 import { WelcomeView } from '../components/WelcomeView'
 import {
   initialChatState,
-  MACHINE_OFFLINE_NOTICE,
+  machineOfflineNotice,
   reduceChatState,
   type ChatMessageImage,
 } from '../lib/chat'
@@ -43,6 +44,7 @@ import {
   type SessionSummary,
   type StagedAttachment,
 } from '../lib/gateway'
+import { I18nProvider, currentLocale, translate, useI18n } from '../lib/i18n'
 import { ThemeModeProvider, useThemeMode } from '../lib/theme'
 
 type Tab = 'sessions' | 'chat' | 'tasks' | 'mine'
@@ -50,9 +52,10 @@ type Tab = 'sessions' | 'chat' | 'tasks' | 'mine'
 /** antd 主题壳：亮/暗 algorithm 跟随 ThemeModeProvider 的 resolved（cssVar 随之切换）。 */
 function Themed({ children }: { children: React.ReactNode }) {
   const { resolved } = useThemeMode()
+  const { locale } = useI18n()
   return (
     <ConfigProvider
-      locale={zhCN}
+      locale={locale === 'zh' ? zhCN : enUS}
       theme={{
         algorithm: resolved === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       }}
@@ -64,15 +67,18 @@ function Themed({ children }: { children: React.ReactNode }) {
 
 export default function Page() {
   return (
-    <ThemeModeProvider>
-      <Themed>
-        <MobileApp />
-      </Themed>
-    </ThemeModeProvider>
+    <I18nProvider>
+      <ThemeModeProvider>
+        <Themed>
+          <MobileApp />
+        </Themed>
+      </ThemeModeProvider>
+    </I18nProvider>
   )
 }
 
 function MobileApp() {
+  const { t } = useI18n()
   const [session, setSession] = useState<MobileSession | undefined>()
   const [booted, setBooted] = useState(false)
   // tab 持久化：刷新回到原视图（会话选中本身由 hello 帧恢复，见 onHello）。
@@ -237,13 +243,16 @@ function MobileApp() {
         // （decided 为现行字段名；accepted 兼容旧网关。）
         if (frame.type === 'permission.decided') {
           if (frame.decided === false || frame.accepted === false)
-            dispatch({ type: 'notice', notice: '审批未生效：该请求已被处理或过期' })
+            dispatch({
+              type: 'notice',
+              notice: translate(currentLocale(), 'page.permissionStaleNotice'),
+            })
           return
         }
         // 提问应答：answered=false = 该提问已被他端作答/已过期——同款提示兜底。
         if (frame.type === 'ask.answered') {
           if (frame.answered === false)
-            dispatch({ type: 'notice', notice: '作答未生效：该提问已被处理或过期' })
+            dispatch({ type: 'notice', notice: translate(currentLocale(), 'page.askStaleNotice') })
           return
         }
         if (frame.type === 'session.attached' && typeof frame.id === 'string') {
@@ -270,12 +279,15 @@ function MobileApp() {
             type: 'notice',
             notice:
               code === 'gateway_uplink_offline'
-                ? MACHINE_OFFLINE_NOTICE
-                : `错误 ${code || 'unknown'}: ${message}`,
+                ? machineOfflineNotice()
+                : translate(currentLocale(), 'page.errorNotice', {
+                    code: code || 'unknown',
+                    message,
+                  }),
           })
         }
       },
-      onRevoked: () => unpair('设备已被桌面端撤销，请重新配对'),
+      onRevoked: () => unpair(translate(currentLocale(), 'page.revokedNotice')),
     })
     ws.connect()
     wsRef.current = ws
@@ -294,7 +306,8 @@ function MobileApp() {
   /** 等活动会话就绪（附件暂存的会话依赖）：显式新建在途时等 session.attached，否则拒绝。 */
   const ensureActiveSession = useCallback((): Promise<string> => {
     if (activeSessionId) return Promise.resolve(activeSessionId)
-    if (!pendingStartRef.current) return Promise.reject(new Error('请先创建会话'))
+    if (!pendingStartRef.current)
+      return Promise.reject(new Error(translate(currentLocale(), 'page.needSessionFirst')))
     return new Promise<string>((resolve, reject) => {
       const settled = (id: string) => {
         clearTimeout(timer)
@@ -302,7 +315,7 @@ function MobileApp() {
       }
       const timer = setTimeout(() => {
         sessionWaitersRef.current = sessionWaitersRef.current.filter((waiter) => waiter !== settled)
-        reject(new Error('会话建立超时，请重试'))
+        reject(new Error(translate(currentLocale(), 'page.sessionStartTimeout')))
       }, 30_000)
       sessionWaitersRef.current.push(settled)
     })
@@ -312,7 +325,8 @@ function MobileApp() {
   const stageImage = useCallback(
     async (file: File): Promise<StagedAttachment> => {
       const current = sessionRef.current
-      if (!current) throw new VolundError('gateway_not_paired', '未配对')
+      if (!current)
+        throw new VolundError('gateway_not_paired', translate(currentLocale(), 'page.notPaired'))
       await ensureActiveSession()
       return new GatewayApi(current.token).uploadAttachment(file, file.type)
     },
@@ -415,7 +429,8 @@ function MobileApp() {
   /** handle 引用图片 → objectURL（字节缓存留在 gateway 层；objectURL 生命周期归组件）。 */
   const resolveAttachment = useCallback(async (handle: string): Promise<string> => {
     const current = sessionRef.current
-    if (!current) throw new VolundError('gateway_not_paired', '未配对')
+    if (!current)
+      throw new VolundError('gateway_not_paired', translate(currentLocale(), 'page.notPaired'))
     const blob = await new GatewayApi(current.token).downloadAttachment(handle)
     return URL.createObjectURL(blob)
   }, [])
@@ -438,7 +453,9 @@ function MobileApp() {
 
   // REST 401（凭证被撤销/过期）→ 统一回配对页；WS 侧被策略关闭走 onRevoked。
   useEffect(() => {
-    setUnauthorizedHandler(() => unpair('凭证已失效或被撤销，请重新配对'))
+    setUnauthorizedHandler(() =>
+      unpair(translate(currentLocale(), 'page.credentialsInvalidNotice')),
+    )
     return () => setUnauthorizedHandler(undefined)
   }, [unpair])
 
@@ -449,7 +466,8 @@ function MobileApp() {
 
   const header = useMemo(() => {
     if (!session) return null
-    const title = tab === 'chat' ? '对话' : tab === 'sessions' ? '会话' : '我的'
+    const title =
+      tab === 'chat' ? t('tab.chat') : tab === 'sessions' ? t('tab.sessions') : t('tab.mine')
     // 模型选择器只在对话页露出；选中默认模型 = 清掉 override（跟随本机配置变化）。
     const picker =
       tab === 'chat' && modelsView && modelsView.options.length > 0 ? (
@@ -458,7 +476,7 @@ function MobileApp() {
           variant="borderless"
           className="model-picker"
           value={modelOverride ?? modelsView.current ?? null}
-          placeholder="模型"
+          placeholder={t('page.modelPlaceholder')}
           options={modelsView.options.map((option) => ({
             value: option.id,
             label: option.label,
@@ -495,7 +513,7 @@ function MobileApp() {
         {picker}
       </header>
     )
-  }, [session, tab, connected, activeSessionId, sessions, modelsView, modelOverride])
+  }, [session, tab, connected, activeSessionId, sessions, modelsView, modelOverride, t])
 
   if (!booted) return null
   if (!session)
@@ -566,10 +584,14 @@ function MobileApp() {
       <nav className="tabbar">
         {(
           [
-            ['sessions', '会话', <HistoryOutlined key="icon" style={{ fontSize: 20 }} />],
-            ['chat', '对话', <CommentOutlined key="icon" style={{ fontSize: 20 }} />],
-            ['tasks', '任务', <ClockCircleOutlined key="icon" style={{ fontSize: 20 }} />],
-            ['mine', '我的', <UserOutlined key="icon" style={{ fontSize: 20 }} />],
+            [
+              'sessions',
+              t('tab.sessions'),
+              <HistoryOutlined key="icon" style={{ fontSize: 20 }} />,
+            ],
+            ['chat', t('tab.chat'), <CommentOutlined key="icon" style={{ fontSize: 20 }} />],
+            ['tasks', t('tab.tasks'), <ClockCircleOutlined key="icon" style={{ fontSize: 20 }} />],
+            ['mine', t('tab.mine'), <UserOutlined key="icon" style={{ fontSize: 20 }} />],
           ] as const
         ).map(([key, label, icon]) => (
           <button

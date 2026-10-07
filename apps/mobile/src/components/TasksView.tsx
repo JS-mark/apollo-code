@@ -9,6 +9,7 @@ import { ReloadOutlined } from '@ant-design/icons'
 import { Button, Empty, List, Skeleton, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { type DictKey } from '../lib/dict'
 import {
   GatewayApi,
   type MobileTask,
@@ -16,14 +17,19 @@ import {
   type MobileTaskSchedulerStatus,
   type MobileTaskSchedule,
 } from '../lib/gateway'
+import { currentLocale, translate, useI18n } from '../lib/i18n'
 
 function scheduleLabel(schedule: MobileTaskSchedule): string {
   if (schedule.kind === 'interval') {
     const minutes = Math.round((schedule.everyMs ?? 0) / 60_000)
-    return `每 ${minutes} 分钟`
+    return translate(currentLocale(), 'tasks.everyMinutes', { minutes })
   }
-  if (schedule.kind === 'daily') return `每天 ${schedule.at ?? ''}`
-  return `每周 ${(schedule.weekdays ?? []).join(',')} ${schedule.at ?? ''}`
+  if (schedule.kind === 'daily')
+    return translate(currentLocale(), 'tasks.dailyAt', { at: schedule.at ?? '' })
+  return translate(currentLocale(), 'tasks.weeklyAt', {
+    weekdays: (schedule.weekdays ?? []).join(','),
+    at: schedule.at ?? '',
+  })
 }
 
 function epochLabel(ms: number): string {
@@ -37,15 +43,16 @@ function epochLabel(ms: number): string {
   })
 }
 
-const RUN_STATUS: Record<MobileTaskRun['status'], { color: string; label: string }> = {
-  completed: { color: 'green', label: '完成' },
-  running: { color: 'blue', label: '运行中' },
-  failed: { color: 'red', label: '失败' },
-  missed: { color: 'default', label: '错过' },
-  skipped: { color: 'default', label: '跳过' },
+const RUN_STATUS: Record<MobileTaskRun['status'], { color: string; key: DictKey }> = {
+  completed: { color: 'green', key: 'tasks.runCompleted' },
+  running: { color: 'blue', key: 'common.running' },
+  failed: { color: 'red', key: 'common.failed' },
+  missed: { color: 'default', key: 'tasks.runMissed' },
+  skipped: { color: 'default', key: 'tasks.runSkipped' },
 }
 
 export function TasksView({ token, active }: { token: string; active: boolean }) {
+  const { t } = useI18n()
   const api = useMemo(() => new GatewayApi(token), [token])
   const [status, setStatus] = useState<MobileTaskSchedulerStatus>()
   const [tasks, setTasks] = useState<MobileTask[]>([])
@@ -86,11 +93,11 @@ export function TasksView({ token, active }: { token: string; active: boolean })
           marginBottom: 8,
         }}
       >
-        <Typography.Text strong>任务</Typography.Text>
+        <Typography.Text strong>{t('tab.tasks')}</Typography.Text>
         <Button
           size="small"
           icon={<ReloadOutlined />}
-          aria-label="刷新任务"
+          aria-label={t('tasks.refresh')}
           onClick={() => setTick((value) => value + 1)}
         />
       </div>
@@ -101,18 +108,18 @@ export function TasksView({ token, active }: { token: string; active: boolean })
       ) : null}
       {status && !status.enabled ? (
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          调度未启用（本机 config [tasks].enabled）；以下为缓存数据。
+          {t('tasks.schedulerDisabled')}
         </Typography.Text>
       ) : status && !status.daemonRunning ? (
         <Typography.Text type="warning" style={{ display: 'block', marginBottom: 8 }}>
-          daemon 未运行——任务不会触发。
+          {t('tasks.daemonDown')}
         </Typography.Text>
       ) : null}
       <List
         size="small"
-        header={<Typography.Text type="secondary">任务定义</Typography.Text>}
+        header={<Typography.Text type="secondary">{t('tasks.definitions')}</Typography.Text>}
         dataSource={tasks}
-        locale={{ emptyText: <Empty description="没有任务定义" /> }}
+        locale={{ emptyText: <Empty description={t('tasks.noDefinitions')} /> }}
         renderItem={(task) => (
           <List.Item
             style={{ cursor: 'pointer' }}
@@ -123,9 +130,9 @@ export function TasksView({ token, active }: { token: string; active: boolean })
                 <span>
                   {task.name}{' '}
                   <Tag color={task.enabled ? 'green' : 'default'}>
-                    {task.enabled ? '启用' : '停用'}
+                    {task.enabled ? t('tasks.enabled') : t('tasks.disabled')}
                   </Tag>
-                  {filter === task.id ? <Tag color="blue">筛选中</Tag> : null}
+                  {filter === task.id ? <Tag color="blue">{t('tasks.filtering')}</Tag> : null}
                 </span>
               }
               description={`${scheduleLabel(task.schedule)}`}
@@ -136,15 +143,15 @@ export function TasksView({ token, active }: { token: string; active: boolean })
       <List
         size="small"
         style={{ marginTop: 12 }}
-        header={<Typography.Text type="secondary">运行记录（新→旧）</Typography.Text>}
+        header={<Typography.Text type="secondary">{t('tasks.runsHeader')}</Typography.Text>}
         dataSource={runs}
-        locale={{ emptyText: <Empty description="没有运行记录" /> }}
+        locale={{ emptyText: <Empty description={t('tasks.noRuns')} /> }}
         renderItem={(run) => (
           <List.Item>
             <List.Item.Meta
               title={
                 <span>
-                  <Tag color={RUN_STATUS[run.status].color}>{RUN_STATUS[run.status].label}</Tag>
+                  <Tag color={RUN_STATUS[run.status].color}>{t(RUN_STATUS[run.status].key)}</Tag>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {epochLabel(run.scheduledFor)}
                     {run.exitCode !== undefined && run.exitCode !== 0

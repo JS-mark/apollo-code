@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { initialChatState, type ChatState, type ToolCard } from '../../lib/chat'
 import type { StagedAttachment } from '../../lib/gateway'
+import { I18nProvider } from '../../lib/i18n'
 import { ChatView, ToolGroupRow, ToolRow } from '../ChatView'
 
 const staged: StagedAttachment = { kind: 'image', mime: 'image/png', size: 1, handle: 'h-1' }
@@ -33,9 +34,13 @@ const props = (overrides: { loading?: boolean; noSession?: boolean } = {}) => ({
   onNotice: () => {},
 })
 
+/** 静态渲染包 I18nProvider：useI18n 默认上下文 t 直返 key，无 Provider 会丢中文断言。 */
+const render = (ui: React.ReactElement): string =>
+  renderToStaticMarkup(<I18nProvider>{ui}</I18nProvider>)
+
 describe('ChatView 会话流空态（有会话无消息）', () => {
   it('空流：渲染俏皮空态（气泡场景 + 引导文案）', () => {
-    const html = renderToStaticMarkup(<ChatView {...props()} />)
+    const html = render(<ChatView {...props()} />)
     expect(html).toContain('chat-blank-stream')
     expect(html).toContain('chat-blank-bubble')
     expect(html).toContain('这里静悄悄的')
@@ -43,7 +48,7 @@ describe('ChatView 会话流空态（有会话无消息）', () => {
   })
 
   it('有消息：不渲染空态', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <ChatView
         {...props()}
         state={state({
@@ -55,7 +60,7 @@ describe('ChatView 会话流空态（有会话无消息）', () => {
   })
 
   it('transcript 水合中：俏皮加载动画优先于空态', () => {
-    const html = renderToStaticMarkup(<ChatView {...props({ loading: true })} />)
+    const html = render(<ChatView {...props({ loading: true })} />)
     expect(html).not.toContain('chat-blank-stream')
     expect(html).toContain('aria-busy')
     expect(html).toContain('chat-hydrate-typing')
@@ -63,7 +68,7 @@ describe('ChatView 会话流空态（有会话无消息）', () => {
   })
 
   it('无活动会话：走整页空态引导（不是会话流空态）', () => {
-    const html = renderToStaticMarkup(<ChatView {...props({ noSession: true })} />)
+    const html = render(<ChatView {...props({ noSession: true })} />)
     expect(html).not.toContain('chat-blank-stream')
     expect(html).toContain('没有进行中的会话')
   })
@@ -76,7 +81,7 @@ describe('ChatView 会话流空态（有会话无消息）', () => {
       target: 'pnpm build',
       body: 'pnpm build 2>&1\n| tail -15',
     }
-    const html = renderToStaticMarkup(<ToolRow tool={tool} subagents={{}} />)
+    const html = render(<ToolRow tool={tool} subagents={{}} />)
     // 折叠行：中文标签 + 单行目标 + 可展开箭头；展开卡常驻 DOM 但处于收起态。
     expect(html).toContain('tool-row')
     expect(html).toContain('终端')

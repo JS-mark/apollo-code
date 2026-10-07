@@ -12,12 +12,13 @@ import { LoadingOutlined } from '@ant-design/icons'
 import { useEffect, useRef, useState } from 'react'
 
 import type { AskCard } from '../lib/chat'
+import { currentLocale, translate, useI18n } from '../lib/i18n'
 
 /** 提问倒计时文案：剩余秒数；归零后到局前（网关关闭 → resolved 清卡）的过渡文案。 */
 function countdownLabel(expiresAt: number, now: number): string {
   const remaining = Math.round((expiresAt - now) / 1000)
-  if (remaining <= 0) return '自动关闭中…'
-  return `${remaining}s 后自动关闭`
+  if (remaining <= 0) return translate(currentLocale(), 'ask.autoClosing')
+  return translate(currentLocale(), 'ask.autoCloseIn', { seconds: remaining })
 }
 
 export function AskStack({
@@ -27,6 +28,7 @@ export function AskStack({
   asks: readonly AskCard[]
   onAnswer(requestId: string, value?: string): void
 }) {
+  const { t } = useI18n()
   const [activeIndex, setActiveIndex] = useState(0)
   /** 自由文本草稿：不选选项、键入自定义答案（与 web 卡片同语义）。 */
   const [draft, setDraft] = useState('')
@@ -79,10 +81,10 @@ export function AskStack({
   }
 
   return (
-    <section className="permstack askstack" aria-label="提问">
+    <section className="permstack askstack" aria-label={t('ask.title')}>
       <div className="perm-head">
         <span className="perm-pulse" aria-hidden />
-        <span className="perm-title">提问</span>
+        <span className="perm-title">{t('ask.title')}</span>
         {ask.expiresAt !== undefined && (
           <span className="perm-countdown">{countdownLabel(ask.expiresAt, now)}</span>
         )}
@@ -94,7 +96,7 @@ export function AskStack({
       </div>
 
       {asks.length > 1 && (
-        <div className="perm-reqtabs" role="tablist" aria-label="待决提问队列">
+        <div className="perm-reqtabs" role="tablist" aria-label={t('ask.queueTabs')}>
           {asks.map((entry, index) => (
             <button
               key={entry.id}
@@ -139,8 +141,8 @@ export function AskStack({
       <div className="askstack-freetext">
         <input
           className="askstack-freetext-input"
-          placeholder="自定义回答（不选选项）"
-          aria-label="自定义回答"
+          placeholder={t('ask.freetextPlaceholder')}
+          aria-label={t('ask.freetextLabel')}
           value={draft}
           disabled={pendingValue !== undefined}
           onChange={(event) => setDraft(event.target.value)}
@@ -151,11 +153,11 @@ export function AskStack({
         <button
           type="button"
           className="askstack-freetext-send"
-          aria-label="发送自定义回答"
+          aria-label={t('ask.freetextSend')}
           disabled={pendingValue !== undefined || !draft.trim()}
           onClick={sendFreeText}
         >
-          发送
+          {t('common.send')}
         </button>
       </div>
 
@@ -166,7 +168,7 @@ export function AskStack({
           disabled={pendingValue !== undefined}
           onClick={() => answer(undefined)}
         >
-          跳过（不作答）
+          {t('ask.skip')}
         </button>
       </div>
     </section>

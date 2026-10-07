@@ -9,6 +9,8 @@
  */
 import { VolundError } from '@volund/shared/errors'
 
+import { currentLocale, translate } from './i18n'
+
 export interface MobileSession {
   readonly token: string
   readonly deviceId: string
@@ -41,7 +43,7 @@ export function saveModelOverride(model: string | undefined): void {
 function normalizeBase(raw: string): string {
   const value = raw.trim().replace(/\/+$/, '')
   if (value && !/^https?:\/\//.test(value))
-    throw new VolundError('gateway_base_invalid', '网关地址须以 http(s):// 开头')
+    throw new VolundError('gateway_base_invalid', translate(currentLocale(), 'gateway.baseInvalid'))
   return value
 }
 
@@ -145,7 +147,7 @@ export async function redeemPairing(code: string, name: string): Promise<Pairing
     // fetch 在断网与 CORS 拦截下都抛 TypeError——给出可操作的提示而非裸异常。
     throw new VolundError(
       'gateway_unreachable',
-      '连不上网关：确认网关地址可达；跨源部署时网关侧须把本站 Origin 加进 GATEWAY_CORS_ORIGINS',
+      translate(currentLocale(), 'gateway.connectFailed'),
     )
   }
   const body = (await res.json()) as {
@@ -157,7 +159,8 @@ export async function redeemPairing(code: string, name: string): Promise<Pairing
   if (!res.ok || !body.access_token || !body.device_id) {
     throw new VolundError(
       'gateway_pairing_failed',
-      body.error?.message ?? `配对失败（${res.status}）`,
+      body.error?.message ??
+        translate(currentLocale(), 'gateway.pairFailed', { status: res.status }),
     )
   }
   const session: MobileSession = {
@@ -291,9 +294,16 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
+      throw new VolundError(
+        'gateway_session_expired',
+        translate(currentLocale(), 'gateway.sessionExpired'),
+      )
     }
-    if (!res.ok) throw new VolundError('gateway_request_failed', `网关请求失败（${res.status}）`)
+    if (!res.ok)
+      throw new VolundError(
+        'gateway_request_failed',
+        translate(currentLocale(), 'gateway.requestFailed', { status: res.status }),
+      )
     return (await res.json()) as T
   }
 
@@ -310,7 +320,10 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
+      throw new VolundError(
+        'gateway_session_expired',
+        translate(currentLocale(), 'gateway.sessionExpired'),
+      )
     }
     if (!res.ok) {
       const body = (await res.json().catch(() => undefined)) as
@@ -318,7 +331,8 @@ export class GatewayApi {
         | undefined
       throw new VolundError(
         'gateway_request_failed',
-        body?.error?.message ?? `网关请求失败（${res.status}）`,
+        body?.error?.message ??
+          translate(currentLocale(), 'gateway.requestFailed', { status: res.status }),
       )
     }
     return (await res.json()) as { deleted: true; next?: string }
@@ -368,9 +382,16 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
+      throw new VolundError(
+        'gateway_session_expired',
+        translate(currentLocale(), 'gateway.sessionExpired'),
+      )
     }
-    if (!res.ok) throw new VolundError('gateway_request_failed', `网关请求失败（${res.status}）`)
+    if (!res.ok)
+      throw new VolundError(
+        'gateway_request_failed',
+        translate(currentLocale(), 'gateway.requestFailed', { status: res.status }),
+      )
     return (await res.json()) as { undone: boolean; reason?: string }
   }
 
@@ -388,9 +409,16 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
+      throw new VolundError(
+        'gateway_session_expired',
+        translate(currentLocale(), 'gateway.sessionExpired'),
+      )
     }
-    if (!res.ok) throw new VolundError('gateway_request_failed', `网关请求失败（${res.status}）`)
+    if (!res.ok)
+      throw new VolundError(
+        'gateway_request_failed',
+        translate(currentLocale(), 'gateway.requestFailed', { status: res.status }),
+      )
     return (await res.json()) as { message: string }
   }
 
@@ -403,7 +431,10 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
+      throw new VolundError(
+        'gateway_session_expired',
+        translate(currentLocale(), 'gateway.sessionExpired'),
+      )
     }
     const body = (await res.json().catch(() => ({}))) as StagedAttachment & {
       error?: { message?: string }
@@ -411,7 +442,8 @@ export class GatewayApi {
     if (!res.ok) {
       throw new VolundError(
         'gateway_upload_failed',
-        body.error?.message ?? `图片上传失败（${res.status}）`,
+        body.error?.message ??
+          translate(currentLocale(), 'gateway.uploadFailed', { status: res.status }),
       )
     }
     return body
@@ -431,9 +463,16 @@ export class GatewayApi {
       })
       if (res.status === 401) {
         notifyUnauthorized()
-        throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
+        throw new VolundError(
+          'gateway_session_expired',
+          translate(currentLocale(), 'gateway.sessionExpired'),
+        )
       }
-      if (!res.ok) throw new VolundError('gateway_download_failed', `图片下载失败（${res.status}）`)
+      if (!res.ok)
+        throw new VolundError(
+          'gateway_download_failed',
+          translate(currentLocale(), 'gateway.downloadFailed', { status: res.status }),
+        )
       return res.blob()
     })()
     attachmentBlobCache.set(key, pending)

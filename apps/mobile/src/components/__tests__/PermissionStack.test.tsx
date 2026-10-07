@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { PermissionCard } from '../../lib/chat'
+import { I18nProvider } from '../../lib/i18n'
 import { PermissionStack } from '../PermissionStack'
 
 const card = (overrides: Partial<PermissionCard> = {}): PermissionCard => ({
@@ -11,11 +12,13 @@ const card = (overrides: Partial<PermissionCard> = {}): PermissionCard => ({
   ...overrides,
 })
 
+/** 静态渲染包 I18nProvider：useI18n 默认上下文 t 直返 key，无 Provider 会丢中文断言。 */
+const render = (ui: React.ReactElement): string =>
+  renderToStaticMarkup(<I18nProvider>{ui}</I18nProvider>)
+
 describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   it('单请求：渲染工具名 + 结构化能力行（不是裸 JSON）', () => {
-    const html = renderToStaticMarkup(
-      <PermissionStack permissions={[card()]} onDecide={() => {}} />,
-    )
+    const html = render(<PermissionStack permissions={[card()]} onDecide={() => {}} />)
     expect(html).toContain('Write')
     expect(html).toContain('写入')
     expect(html).toContain('/tmp/a.ts')
@@ -23,7 +26,7 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   })
 
   it('审批倒计时：带 expiresAt 渲染剩余秒数/过期过渡文案，缺省不渲染', () => {
-    const future = renderToStaticMarkup(
+    const future = render(
       <PermissionStack
         permissions={[card({ expiresAt: Date.now() + 60_000 })]}
         onDecide={() => {}}
@@ -31,20 +34,16 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
     )
     expect(future).toContain('perm-countdown')
     expect(future).toMatch(/\d+s 后自动拒绝/)
-    const expired = renderToStaticMarkup(
+    const expired = render(
       <PermissionStack permissions={[card({ expiresAt: Date.now() - 1 })]} onDecide={() => {}} />,
     )
     expect(expired).toContain('自动拒绝中…')
-    const undated = renderToStaticMarkup(
-      <PermissionStack permissions={[card()]} onDecide={() => {}} />,
-    )
+    const undated = render(<PermissionStack permissions={[card()]} onDecide={() => {}} />)
     expect(undated).not.toContain('perm-countdown')
   })
 
   it('七档决策面：全部档位都是一键按钮（无「先选档再批准」段控件）', () => {
-    const html = renderToStaticMarkup(
-      <PermissionStack permissions={[card()]} onDecide={() => {}} />,
-    )
+    const html = render(<PermissionStack permissions={[card()]} onDecide={() => {}} />)
     for (const kind of [
       'allow-once',
       'allow-session',
@@ -61,16 +60,14 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   })
 
   it('完整 JSON 收进「详情」折叠（能力行直读，不再有 能力/数据 tab）', () => {
-    const html = renderToStaticMarkup(
-      <PermissionStack permissions={[card()]} onDecide={() => {}} />,
-    )
+    const html = render(<PermissionStack permissions={[card()]} onDecide={() => {}} />)
     expect(html).toContain('perm-details')
     expect(html).toContain('详情')
     expect(html).not.toContain('data-view-tab=')
   })
 
   it('多请求：tab 条渲染每个请求，计数提示 N/M', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <PermissionStack
         permissions={[
           card(),
@@ -85,7 +82,7 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   })
 
   it('不可审批（approvable=false）：无放行档位，仅拒绝/永不', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <PermissionStack
         permissions={[
           card({
@@ -106,7 +103,7 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   })
 
   it('解析失败的 spec 回退原文展示（不猜测），且无详情折叠', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <PermissionStack
         permissions={[card({ display: { approvable: true, spec: '{oops', toolName: 'Write' } })]}
         onDecide={() => {}}
@@ -117,7 +114,7 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   })
 
   it('子代理 lineage 徽标透传（§2.7bis.5 U4）', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <PermissionStack
         permissions={[card({ lineage: { sessionId: 's', agentType: 'explore' } })]}
         onDecide={() => {}}
@@ -127,7 +124,7 @@ describe('PermissionStack（移动端审批卡：一键决策面）', () => {
   })
 
   it('空队列不渲染', () => {
-    const html = renderToStaticMarkup(<PermissionStack permissions={[]} onDecide={() => {}} />)
+    const html = render(<PermissionStack permissions={[]} onDecide={() => {}} />)
     expect(html).toBe('')
   })
 })

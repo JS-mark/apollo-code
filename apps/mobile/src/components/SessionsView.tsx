@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 
 import type { SessionSummary } from '../lib/gateway'
+import { currentLocale, translate, useI18n } from '../lib/i18n'
 import { usePullToRefresh } from '../lib/interactions'
 
 function timeLabel(iso: string): string {
@@ -36,6 +37,7 @@ function SessionRow({
   active: boolean
   onSelect(): void
 }) {
+  const { t } = useI18n()
   return (
     <div
       className={`session-item${active ? ' active' : ''}`}
@@ -49,10 +51,10 @@ function SessionRow({
         <div className="session-item-title">
           {active && (
             <Tag color="blue" style={{ fontSize: 11, lineHeight: '16px', margin: 0 }}>
-              当前
+              {t('sessions.current')}
             </Tag>
           )}
-          <span className="session-item-name">{session.title || '未命名会话'}</span>
+          <span className="session-item-name">{session.title || t('sessions.untitled')}</span>
         </div>
         <Typography.Text type="secondary" className="session-item-sub" ellipsis>
           {session.summary || session.cwd}
@@ -93,15 +95,16 @@ function SessionsListHeader({ context }: { context?: SessionsListContext }) {
 }
 
 function SessionsListEmpty({ context }: { context?: SessionsListContext }) {
+  const { t } = useI18n()
   if (context?.showSkeleton) return null
   return (
     <Empty
       image={Empty.PRESENTED_IMAGE_SIMPLE}
-      description="还没有会话，新建一个开始远程对话"
+      description={t('sessions.emptyDescription')}
       style={{ marginTop: 40 }}
     >
       <Button type="primary" icon={<PlusOutlined />} onClick={() => context?.onNewChat()}>
-        新建会话
+        {t('sessions.newChat')}
       </Button>
     </Empty>
   )
@@ -141,6 +144,7 @@ export function SessionsView({
   onDelete(id: string): Promise<void> | void
 }) {
   const { modal, message } = App.useApp()
+  const { t } = useI18n()
   const scrollRef = useRef<HTMLElement | null>(null)
   /** 当前左滑展开的会话 id（同时只展开一行；SwipeAction 实例按 id 收拢关闭）。 */
   const [swipedId, setSwipedId] = useState<string>()
@@ -190,26 +194,31 @@ export function SessionsView({
   const confirmDelete = useCallback(
     (session: SessionSummary) => {
       modal.confirm({
-        title: '删除会话',
-        content: `删除「${session.title || '未命名会话'}」？事件流与附件会一并清除，不可恢复。`,
-        okText: '删除',
+        title: t('sessions.deleteTitle'),
+        content: t('sessions.deleteConfirm', { name: session.title || t('sessions.untitled') }),
+        okText: t('common.delete'),
         okButtonProps: { danger: true },
-        cancelText: '取消',
+        cancelText: t('common.cancel'),
         onOk: () => onDelete(session.id),
       })
     },
-    [modal, onDelete],
+    [modal, onDelete, t],
   )
 
   /** 左滑「复制ID」：设备 ID + 会话 ID 一次带全，用户直接粘贴给维护者取证。 */
   const copySessionId = useCallback(
     (session: SessionSummary) => {
       void navigator.clipboard
-        .writeText(`设备ID: ${deviceId}\n会话ID: ${session.id}`)
-        .then(() => message.success('已复制'))
-        .catch(() => message.error('复制失败：剪贴板不可用'))
+        .writeText(
+          translate(currentLocale(), 'sessions.copyIdPayload', {
+            device: deviceId,
+            session: session.id,
+          }),
+        )
+        .then(() => message.success(t('common.copied')))
+        .catch(() => message.error(t('sessions.copyFailed')))
     },
-    [deviceId, message],
+    [deviceId, message, t],
   )
 
   const renderRow = (session: SessionSummary) => (
@@ -222,13 +231,13 @@ export function SessionsView({
           rightActions={[
             {
               key: 'copy',
-              text: '复制ID',
+              text: t('sessions.copyId'),
               color: 'primary',
               onClick: () => copySessionId(session),
             },
             {
               key: 'delete',
-              text: '删除',
+              text: t('common.delete'),
               color: 'danger',
               onClick: () => confirmDelete(session),
             },
@@ -262,11 +271,19 @@ export function SessionsView({
         data-state={refreshing ? 'refreshing' : armed ? 'armed' : pull > 0 ? 'pulling' : 'idle'}
       >
         <span className="pull-spinner">{refreshing ? '⏳' : armed ? '↑' : '↓'}</span>
-        <span>{refreshing ? '刷新中…' : armed ? '释放刷新' : pull > 0 ? '下拉刷新' : ''}</span>
+        <span>
+          {refreshing
+            ? t('sessions.refreshing')
+            : armed
+              ? t('sessions.releaseToRefresh')
+              : pull > 0
+                ? t('sessions.pullToRefresh')
+                : ''}
+        </span>
       </div>
       <div style={{ display: 'flex', gap: 8, padding: '4px 10px 10px' }}>
         <Button block icon={<PlusOutlined />} onClick={onNewChat}>
-          新会话
+          {t('sessions.newSession')}
         </Button>
         {/* 手动刷新与下拉手势走同一 trigger：refreshing/loading 状态同源，快网下也有最短反馈。 */}
         <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void trigger()} />

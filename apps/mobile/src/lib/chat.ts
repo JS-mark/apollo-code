@@ -4,6 +4,14 @@
  * 幂等键 = message id；stream.delta 只追加（刷新以 transcript 水合为准）。
  */
 
+import {
+  DIFF_PAIR_MARKERS,
+  pickCopy,
+  TOOL_LABELS as SHARED_TOOL_LABELS,
+} from '@volund/shared/ui-copy'
+
+import { currentLocale, translate } from './i18n'
+
 export interface ChatMessageImage {
   chip: string
   /** 本机发送的乐观回显预览（blob objectURL）；transcript 水合/跨端消息没有它。 */
@@ -198,10 +206,15 @@ export function chatFeedGrouped(state: ChatState): FeedEntry[] {
 }
 
 /** 本机离线提示文案（machine.online 到达时按文案匹配清除，不误清其他提示）。 */
-export const MACHINE_OFFLINE_NOTICE = '本机离线：桌面端隧道已断开，恢复后自动重连'
+/** 通知文案（i18n-r1）：经 currentLocale() 即时取值，勿在模块层缓存。 */
+export function machineOfflineNotice(): string {
+  return translate(currentLocale(), 'chat.offlineNotice')
+}
 
 /** 停摆兜底提示（turn-stalled 时若已有其他提示则不覆盖）。 */
-export const TURN_STALLED_NOTICE = '长时间未收到新事件，本轮可能已中断；可点「中断」结束'
+export function turnStalledNotice(): string {
+  return translate(currentLocale(), 'chat.stalledNotice')
+}
 
 /** 各工具最具辨识度的参数名（与 apps/web session-stream 同一选择规则）。 */
 const TOOL_TARGET_KEYS: Record<string, string> = {
@@ -259,24 +272,12 @@ export function mcpToolParts(tool: string): { server: string; name: string } | u
 }
 
 /** 工具的折叠行中文标签（Task 由组件走 🤖 特例，不在表内）；MCP 工具显示 server/tool；未知工具原样展示。 */
-const TOOL_LABELS: Record<string, string> = {
-  Bash: '终端',
-  ShellOutput: '终端输出',
-  KillShell: '结束终端',
-  Read: '读取',
-  Write: '写入',
-  Edit: '编辑',
-  MultiEdit: '编辑',
-  Glob: '找文件',
-  Grep: '搜内容',
-  WebFetch: '抓网页',
-  WebSearch: '搜网页',
-  Skill: '技能',
-}
+/** 工具展示名（shared 跨端文案表权威，i18n-r1 收编三份手抄）。 */
 export function toolLabel(tool: string): string {
   const mcp = mcpToolParts(tool)
   if (mcp) return `MCP · ${mcp.server}/${mcp.name}`
-  return TOOL_LABELS[tool] ?? tool
+  const entry = SHARED_TOOL_LABELS[tool]
+  return entry ? pickCopy(entry, currentLocale()) : tool
 }
 
 /** 多段正文拼接（空段丢弃）；无有效段时省略。 */
@@ -288,7 +289,8 @@ function joinBody(...parts: (string | undefined)[]): string | undefined {
 /** 编辑类正文的新旧对照段。 */
 function diffPair(oldString?: string, newString?: string): string | undefined {
   if (oldString === undefined && newString === undefined) return undefined
-  return `【旧】\n${oldString ?? ''}\n\n【新】\n${newString ?? ''}`
+  const locale = currentLocale()
+  return `${pickCopy(DIFF_PAIR_MARKERS.old, locale)}\n${oldString ?? ''}\n\n${pickCopy(DIFF_PAIR_MARKERS.new, locale)}\n${newString ?? ''}`
 }
 
 /** 展开卡正文上限（字符）：超大 input（Write 全文等）截断，避免撑爆消息流。 */
@@ -367,7 +369,9 @@ export function toolBodyLabel(tool: string, input: unknown): string | undefined 
       }
   }
   if (!body) return undefined
-  return body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}\n…（已截断）` : body
+  return body.length > BODY_MAX
+    ? `${body.slice(0, BODY_MAX)}\n${translate(currentLocale(), 'chat.truncated')}`
+    : body
 }
 
 /** 信封事件面：CoreEvent 透传（附录 D.3 冒泡 tag 在事件顶层，§2.7bis.5 U3）。 */
@@ -791,9 +795,9 @@ function reduceEnvelope(
     // 会把其他设备的上下文打空（还能发消息，但历史看不见）。
     if (view.type === 'session.attached') return state
     // 网关合成的机器在线状态（uplink 断开/重连）：离线即提示，上线仅清离线条。
-    if (view.type === 'machine.offline') return { ...state, notice: MACHINE_OFFLINE_NOTICE }
+    if (view.type === 'machine.offline') return { ...state, notice: machineOfflineNotice() }
     if (view.type === 'machine.online')
-      return state.notice === MACHINE_OFFLINE_NOTICE ? { ...state, notice: undefined } : state
+      return state.notice === machineOfflineNotice() ? { ...state, notice: undefined } : state
   }
   return state
 }
@@ -809,7 +813,7 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
     // 到达后照常收回。已有其他提示时不覆盖；无事可做时返回原引用（不触发渲染）。
     const messages = finalizeStreaming(state.messages)
     if (messages === state.messages && state.notice !== undefined) return state
-    return { ...state, messages, notice: state.notice ?? TURN_STALLED_NOTICE }
+    return { ...state, messages, notice: state.notice ?? turnStalledNotice() }
   }
   if (action.type === 'envelope') {
     const event = action.envelope.event as Partial<Event>

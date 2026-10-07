@@ -17,6 +17,7 @@ import {
   redeemPairing,
   setGatewayBase,
 } from '../lib/gateway'
+import { currentLocale, translate, useI18n } from '../lib/i18n'
 
 function deviceName(): string {
   const ua = navigator.userAgent
@@ -26,7 +27,7 @@ function deviceName(): string {
       ? 'Android'
       : /Macintosh/.test(ua)
         ? 'Mac'
-        : '设备'
+        : translate(currentLocale(), 'pair.deviceFallback')
   const browser =
     /Safari/.test(ua) && !/Chrome/.test(ua) ? 'Safari' : /Chrome/.test(ua) ? 'Chrome' : ''
   return browser ? `${platform}·${browser}` : platform
@@ -46,6 +47,7 @@ export function PairView({
   const [gateway, setGateway] = useState(() => gatewayBase())
   const [label, setLabel] = useState(() => gatewayLabel())
   const [messageApi, contextHolder] = message.useMessage()
+  const { t } = useI18n()
 
   const redeem = useCallback(
     async (raw: string) => {
@@ -88,10 +90,10 @@ export function PairView({
       {contextHolder}
       <SoundOutlined style={{ fontSize: 34, color: '#1677ff' }} />
       <Typography.Title level={4} style={{ margin: 0 }}>
-        Volund 远程
+        {t('common.appTitle')}
       </Typography.Title>
       <Typography.Text type="secondary" style={{ textAlign: 'center' }}>
-        在桌面 Web 控制台「远程控制」页生成配对码，扫码或在此输入
+        {t('pair.subtitle')}
       </Typography.Text>
       {notice && (
         <Alert type="warning" showIcon message={notice} style={{ maxWidth: 320 }} closable />
@@ -99,14 +101,14 @@ export function PairView({
       {auto && busy ? (
         <Space>
           <Spin size="small" />
-          <Typography.Text type="secondary">正在配对…</Typography.Text>
+          <Typography.Text type="secondary">{t('pair.pairing')}</Typography.Text>
         </Space>
       ) : (
         <Space orientation="vertical" size={8} style={{ alignItems: 'center' }}>
           <Space.Compact style={{ width: 260 }}>
             <Input
               size="large"
-              placeholder="8 位配对码"
+              placeholder={t('pair.codePlaceholder')}
               value={code}
               maxLength={8}
               onChange={(event) => setCode(event.target.value.toUpperCase())}
@@ -120,13 +122,13 @@ export function PairView({
               disabled={code.trim().length !== 8}
               onClick={() => void redeem(code)}
             >
-              配对
+              {t('pair.pair')}
             </Button>
           </Space.Compact>
           <Space.Compact style={{ width: 260 }}>
             <Input
               size="small"
-              placeholder="网关地址（可选）https://…"
+              placeholder={t('pair.gatewayPlaceholder')}
               value={gateway}
               onChange={(event) => setGateway(event.target.value)}
             />
@@ -137,13 +139,13 @@ export function PairView({
                   setGatewayBase(gateway)
                   setGateway(gatewayBase())
                   setLabel(gatewayLabel())
-                  messageApi.success('网关地址已保存')
+                  messageApi.success(t('pair.gatewaySaved'))
                 } catch (cause) {
                   messageApi.error(cause instanceof Error ? cause.message : String(cause))
                 }
               }}
             >
-              保存
+              {t('common.save')}
             </Button>
           </Space.Compact>
         </Space>
@@ -152,7 +154,7 @@ export function PairView({
         type="info"
         showIcon={false}
         style={{ maxWidth: 300, fontSize: 12 }}
-        title={`网关：${label}（独立部署时先填网关地址）`}
+        title={t('pair.gatewayHint', { label })}
       />
     </div>
   )

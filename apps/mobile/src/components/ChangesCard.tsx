@@ -12,6 +12,7 @@ import { Alert, Button, Modal } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { ChangeDiff, ChangeRow, GatewayApi, UndoPreview } from '../lib/gateway'
+import { useI18n } from '../lib/i18n'
 
 /** unified diff 行分类（meta 行不渲染）。 */
 export function diffLineClass(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'ctx' {
@@ -24,6 +25,7 @@ export function diffLineClass(line: string): 'add' | 'del' | 'hunk' | 'meta' | '
 
 /** 单文件行内 diff：点击展开时按路径直拉（拉过的缓存住，撤销后整缓存失效）。 */
 function RowDiff({ diff }: { diff: ChangeDiff | undefined }) {
+  const { t } = useI18n()
   if (diff === undefined)
     return (
       <div className="chg-row-diff">
@@ -31,13 +33,13 @@ function RowDiff({ diff }: { diff: ChangeDiff | undefined }) {
       </div>
     )
   if (!diff.tracked)
-    return <div className="chg-row-diff chg-row-empty">该路径没有本会话的备份记录</div>
+    return <div className="chg-row-diff chg-row-empty">{t('changes.noBackup')}</div>
   if (diff.truncated)
-    return <div className="chg-row-diff chg-row-empty">文件过大，净效果 diff 不做全量渲染</div>
+    return <div className="chg-row-diff chg-row-empty">{t('changes.tooLarge')}</div>
   if (diff.diff.trim() === '')
     return (
       <div className="chg-row-diff chg-row-empty">
-        {diff.created ? '会话新建的文件（当前无净变化）' : '与备份起点无差异（可能已撤销）'}
+        {diff.created ? t('changes.created') : t('changes.noDiff')}
       </div>
     )
   return (
@@ -66,6 +68,7 @@ export function ChangesCard({
   turn: string
 }) {
   const [rows, setRows] = useState<ChangeRow[]>()
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const [openPath, setOpenPath] = useState<string>()
   const [diffs, setDiffs] = useState<Record<string, ChangeDiff | undefined>>({})
@@ -140,7 +143,7 @@ export function ChangesCard({
     <div className="chg-card">
       <div className="chg-card-head" onClick={toggleExpanded}>
         {expanded ? <DownOutlined /> : <RightOutlined />}
-        <span className="chg-card-title">{rows.length} 个文件已更改</span>
+        <span className="chg-card-title">{t('changes.title', { count: rows.length })}</span>
         <span className="chg-stat add">+{totals.added}</span>
         <span className="chg-stat del">−{totals.removed}</span>
         <span style={{ flex: 1 }} />
@@ -153,7 +156,7 @@ export function ChangesCard({
             void openUndo()
           }}
         >
-          撤销
+          {t('changes.undo')}
         </Button>
       </div>
       {expanded &&
@@ -176,7 +179,9 @@ export function ChangesCard({
                     <span className="chg-stat del">−{row.stats.linesRemoved}</span>
                   </>
                 )}
-                {row.allConsumed && <span className="chg-card-consumed">已撤销</span>}
+                {row.allConsumed && (
+                  <span className="chg-card-consumed">{t('changes.undone')}</span>
+                )}
                 {open ? <DownOutlined /> : <RightOutlined />}
               </div>
               {open && <RowDiff diff={diffs[row.path]} />}
@@ -186,19 +191,21 @@ export function ChangesCard({
 
       <Modal
         open={undoOpen}
-        title="撤销上一批变更"
-        okText="确认撤销"
+        title={t('changes.undoTitle')}
+        okText={t('changes.undoConfirm')}
         okButtonProps={{ danger: true, disabled: !undoPreview?.undoable, loading: undoing }}
-        cancelText="取消"
+        cancelText={t('common.cancel')}
         onOk={() => void runUndo()}
         onCancel={() => setUndoOpen(false)}
       >
         {undoPreview === undefined ? (
-          <span>加载中…</span>
+          <span>{t('common.loading')}</span>
         ) : undoPreview.undoable ? (
           <>
             <span>
-              将撤销 <strong>{undoPreview.paths.length}</strong> 个文件的上一批变更：
+              {t('changes.undoPreviewPrefix')}
+              <strong>{undoPreview.paths.length}</strong>
+              {t('changes.undoPreviewSuffix')}
             </span>
             {undoPreview.paths.map((path) => (
               <div key={path} className="chg-undo-path">
@@ -213,14 +220,14 @@ export function ChangesCard({
                 style={{ marginTop: 8 }}
                 title={
                   warning.kind === 'target_modified'
-                    ? `${warning.path}: 备份后曾被外部修改，撤销可能覆盖手工改动`
-                    : `${warning.path}: 备份对象缺失，该文件将跳过`
+                    ? t('changes.warnModified', { path: warning.path })
+                    : t('changes.warnMissing', { path: warning.path })
                 }
               />
             ))}
           </>
         ) : (
-          <span>没有可撤销的批次（no_backup）。</span>
+          <span>{t('changes.noUndoable')}</span>
         )}
       </Modal>
     </div>

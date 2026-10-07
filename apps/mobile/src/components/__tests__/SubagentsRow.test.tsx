@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { SubagentRunRow } from '../../lib/gateway'
+import { I18nProvider } from '../../lib/i18n'
 import { SubagentsRow } from '../SubagentsRow'
 
 const run = (
@@ -17,16 +18,18 @@ const run = (
   ...overrides,
 })
 
+/** 静态渲染包 I18nProvider：useI18n 默认上下文 t 直返 key，无 Provider 会丢中文断言。 */
+const render = (ui: React.ReactElement): string =>
+  renderToStaticMarkup(<I18nProvider>{ui}</I18nProvider>)
+
 describe('SubagentsRow（移动端只读运行行）', () => {
   it('无运行：不渲染任何行', () => {
-    const html = renderToStaticMarkup(
-      <SubagentsRow gateway={undefined} tick={0} initialRuns={[]} />,
-    )
+    const html = render(<SubagentsRow gateway={undefined} tick={0} initialRuns={[]} />)
     expect(html).toBe('')
   })
 
   it('有运行：窄条头 + 展开列表（状态/agent/预览/时长/取消）', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <SubagentsRow
         gateway={undefined}
         tick={0}
@@ -52,7 +55,7 @@ describe('SubagentsRow（移动端只读运行行）', () => {
   })
 
   it('非运行行不出现取消按钮', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       <SubagentsRow
         gateway={undefined}
         tick={0}
