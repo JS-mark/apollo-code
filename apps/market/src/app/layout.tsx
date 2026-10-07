@@ -8,7 +8,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'volund market',
-  description: 'volund 插件 / Skill / MCP 市场服务端',
+  description: 'Market index for volund plugins, skills, and MCP servers',
 }
 
 // 主题防闪烁：渲染任何内容前先按 localStorage / 系统偏好把 data-theme 落到 <html>
