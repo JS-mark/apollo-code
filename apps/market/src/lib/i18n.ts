@@ -77,6 +77,10 @@ export const zh = {
   'admin.tokenNote':
     'token 只存本机 localStorage，随请求以 Bearer 头发送；服务端未配置 token 时写接口整体关闭。',
   footer: '索引契约与 volund 客户端逐字段对齐 · 插件可执行安装仅限回环 http 源',
+  'admin.descPluginPlaceholder': 'Excel 电子表格处理',
+  'admin.descMcpPlaceholder': '官方文件系统 MCP',
+  'admin.transportStdio': 'stdio（本地进程）',
+  'admin.transportHttp': 'http（远程 URL）',
 } as const
 
 export type Dict = Record<keyof typeof zh, string>
@@ -159,6 +163,10 @@ export const en: Dict = {
     'The token stays in this browser’s localStorage and is sent as a Bearer header; write endpoints stay disabled until the server has MARKET_ADMIN_TOKEN configured.',
   footer:
     'Index wire format matches the volund client field by field · executable plugin installs require a loopback http source',
+  'admin.descPluginPlaceholder': 'Spreadsheet processing for Excel files',
+  'admin.descMcpPlaceholder': 'Official filesystem MCP',
+  'admin.transportStdio': 'stdio (local process)',
+  'admin.transportHttp': 'http (remote URL)',
 }
 
 export const dictionaries: Record<'zh' | 'en', Dict> = { zh, en }

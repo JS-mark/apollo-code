@@ -289,7 +289,7 @@ export default function AdminPanel() {
         <Input placeholder="1.0.0" />
       </Form.Item>
       <Form.Item name="description" label={t['admin.desc']}>
-        <Input placeholder="Excel 电子表格处理" />
+        <Input placeholder={t['admin.descPluginPlaceholder']} />
       </Form.Item>
       <Form.Item name="homepage" label={t['admin.homepage']}>
         <Input placeholder="https://github.com/…" />
@@ -309,8 +309,8 @@ export default function AdminPanel() {
       >
         <Select
           options={[
-            { value: 'stdio', label: 'stdio（本地进程）' },
-            { value: 'http', label: 'http（远程 URL）' },
+            { value: 'stdio', label: t['admin.transportStdio'] },
+            { value: 'http', label: t['admin.transportHttp'] },
           ]}
         />
       </Form.Item>
@@ -336,7 +336,7 @@ export default function AdminPanel() {
         <Input placeholder="1.0.0" />
       </Form.Item>
       <Form.Item name="description" label={t['admin.desc']}>
-        <Input placeholder="官方文件系统 MCP" />
+        <Input placeholder={t['admin.descMcpPlaceholder']} />
       </Form.Item>
     </>
   )
