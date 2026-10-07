@@ -69,6 +69,7 @@ export const configKeyRegistry = {
   'native.ipc_max_line_bytes': 'allowed',
   'ui.theme': 'allowed',
   'ui.color': 'allowed',
+  'ui.locale': 'allowed',
   'telemetry.sink': 'forbidden',
   'telemetry.otel.endpoint': 'forbidden',
   // [evolution] legacy compatibility switch（见 §15）：严格 boolean，缺省 off
@@ -274,6 +275,9 @@ export const ConfigSchema = z.strictObject({
     .strictObject({
       theme: z.string().optional(),
       color: z.boolean().optional(),
+      // 界面语言（i18n-r1）：驱动会话默认标题等服务端用户可见文案的 locale；
+      // web/mobile 控制台自身语言走浏览器 localStorage（ui.locale 缺省时不受影响）。
+      locale: z.enum(['zh', 'en']).optional(),
     })
     .optional(),
   telemetry: z
