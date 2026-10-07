@@ -100,21 +100,32 @@ export function ChangesPanel({
     try {
       const diff = await controller.fileDiff(sessionId, current.path)
       setDetailTitle(relativizeChangePath(diff.path, cwd))
-      if (!diff.tracked) setDetail([{ tone: 'meta', text: '该路径没有本会话的备份记录' }])
+      if (!diff.tracked)
+        setDetail([{ tone: 'meta', text: 'No backup records for this path in this session' }])
       else if (diff.truncated)
-        setDetail([{ tone: 'meta', text: '文件过大，净效果 diff 不做全量渲染（可按 x 撤销批次）' }])
+        setDetail([
+          {
+            tone: 'meta',
+            text: 'File too large; the net-effect diff is not fully rendered (press x to undo a batch)',
+          },
+        ])
       else if (diff.diff === '')
         setDetail([
           {
             tone: 'meta',
-            text: diff.created ? '会话新建的文件（当前无净变化）' : '与备份起点无差异',
+            text: diff.created
+              ? 'Created in this session (no net change now)'
+              : 'No difference from the backup baseline',
           },
         ])
       else {
         const notes: { tone: DiffRowTone; text: string }[] = []
         if (!diff.beforeAvailable)
-          notes.push({ tone: 'meta', text: '（备份起点快照缺失，diff 从空文件起算）' })
-        if (diff.deleted) notes.push({ tone: 'meta', text: '（文件已在本会话内删除）' })
+          notes.push({
+            tone: 'meta',
+            text: '(baseline snapshot missing; diff computed from an empty file)',
+          })
+        if (diff.deleted) notes.push({ tone: 'meta', text: '(file deleted in this session)' })
         setDetail([...notes, ...diffRowsOf(diff.diff)])
       }
       setDetailScroll(0)
@@ -151,12 +162,12 @@ export function ChangesPanel({
               const result = await controller.undoPath?.(sessionId, target.path)
               if (result?.undone) {
                 const warningsNote = result.warnings.length
-                  ? `（${result.warnings.length} 条警告）`
+                  ? ` (${result.warnings.length} warnings)`
                   : ''
-                onNotice(`已撤销 ${result.paths.length} 个文件${warningsNote}`)
+                onNotice(`Undone ${result.paths.length} file(s)${warningsNote}`)
                 await refresh()
               } else {
-                setError('撤销失败：没有可撤销的批次')
+                setError('Undo failed: no batches to undo')
               }
             } catch (cause) {
               setError(cause instanceof Error ? cause.message : String(cause))
@@ -186,7 +197,7 @@ export function ChangesPanel({
           try {
             const preview = await controller.previewUndo?.(sessionId, target.path)
             if (!preview?.undoable) {
-              setError('该文件没有可撤销的批次')
+              setError('No batches to undo for this file')
               return
             }
             setUndoing({ path: target.path, paths: preview.paths })
@@ -232,8 +243,8 @@ export function ChangesPanel({
   if (undoing !== undefined) {
     return (
       <PanelFrame
-        footer="Enter/y 确认撤销 · Esc/n 取消"
-        title={`撤销 ${relativizeChangePath(undoing.path, cwd)} 的最近批次`}
+        footer="Enter/y confirm undo · Esc/n cancel"
+        title={`Undo the latest batch of ${relativizeChangePath(undoing.path, cwd)}`}
       >
         <Box flexDirection="column">
           <Text>将撤销以下 {undoing.paths.length} 个文件的最近批次：</Text>
@@ -255,9 +266,9 @@ export function ChangesPanel({
       footer={
         error ??
         (missing
-          ? '本会话尚无备份记录（写操作后生成）'
+          ? 'No backup records this session yet (generated after writes)'
           : controller.previewUndo && controller.undoPath
-            ? '↑/↓ select · Enter diff · x 撤销该文件批次 · r refresh · type to filter · Esc close'
+            ? '↑/↓ select · Enter diff · x undo file batch · r refresh · type to filter · Esc close'
             : '↑/↓ select · Enter diff · r refresh · type to filter · Esc close')
       }
       title={`Changes${query ? ` · /${query}` : ''}`}
@@ -265,7 +276,9 @@ export function ChangesPanel({
       {entries === undefined ? (
         <Text color="gray">loading session changes…</Text>
       ) : filtered.length === 0 ? (
-        <Text color="gray">{query ? 'no files match the filter' : '本会话暂无文件变更'}</Text>
+        <Text color="gray">
+          {query ? 'no files match the filter' : 'No file changes in this session yet'}
+        </Text>
       ) : (
         <Box flexDirection="column">
           {page.map((item) => {

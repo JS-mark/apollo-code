@@ -14,7 +14,8 @@ import type { VolundPorts, DoctorHealth, PluginAvailability } from './ports'
 const execFileAsync = promisify(execFile)
 const GH_VERSION_TIMEOUT_MS = 5 * 1e3
 /** r13-G6: hint mirrors CONTRIBUTING "Recommended" deps — gh only powers the PR workflow. */
-export const GH_CLI_MISSING_HINT = 'PR 工作流需要 gh（CONTRIBUTING 推荐依赖）'
+export const GH_CLI_MISSING_HINT =
+  'gh is required for the PR workflow (recommended dependency, see CONTRIBUTING)'
 const REMOTE_HEALTH_TIMEOUT_MS = 3 * 1e3
 
 export interface GhCliHealth {

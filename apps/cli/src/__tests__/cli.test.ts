@@ -775,14 +775,16 @@ describe('runCli', () => {
         warn?: boolean
       }>
       expect(checks.find((check) => check.name === 'gh CLI')).toEqual({
-        detail: 'PR 工作流需要 gh（CONTRIBUTING 推荐依赖）',
+        detail: 'gh is required for the PR workflow (recommended dependency, see CONTRIBUTING)',
         gh: { installed: false },
         name: 'gh CLI',
         ok: true,
         warn: true,
       })
       const text = await runCli(['doctor'], healthyPorts)
-      expect(text.stdout).toContain('⚠️ gh CLI: PR 工作流需要 gh（CONTRIBUTING 推荐依赖）')
+      expect(text.stdout).toContain(
+        '⚠️ gh CLI: gh is required for the PR workflow (recommended dependency, see CONTRIBUTING)',
+      )
       expect(text.stdout).not.toContain('✗ gh CLI')
     } finally {
       vi.unstubAllEnvs()

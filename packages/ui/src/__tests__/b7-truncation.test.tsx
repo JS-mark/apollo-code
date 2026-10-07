@@ -124,7 +124,7 @@ describe('B7 truncation continuation marker (r13-G5)', () => {
     await new Promise((resolve) => setTimeout(resolve, 40))
     instance.unmount()
     expect(stdout.output).toContain('[truncated: max_tokens reached]')
-    expect(stdout.output).toContain('输入 continue 可继续')
+    expect(stdout.output).toContain('type continue to proceed')
   })
 
   it('MessageBlock renders no marker for ordinary assistant entries', async () => {

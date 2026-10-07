@@ -30,21 +30,21 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
     const next = Array.from({ length: 30 }, (_, i) => `new${i}`).join('\n')
     const rows = permissionDiffPreview('Edit', { old_string: old, new_string: next }, 60)
     expect(rows.length).toBe(13)
-    expect(rows.at(-1)).toEqual({ tone: 'meta', text: '… 共 +30 −30 行变更' })
+    expect(rows.at(-1)).toEqual({ tone: 'meta', text: '… +30 −30 lines in total' })
     expect(rows.filter((row) => row.tone === 'del').length).toBe(12)
   })
 
   it('previews the head of a Write and notes the remainder', () => {
     const content = Array.from({ length: 9 }, (_, i) => `line${i}`).join('\n')
     const rows = permissionDiffPreview('Write', { path: 'new.ts', content }, 60)
-    expect(rows[0]).toEqual({ tone: 'meta', text: '新内容 9 行（预览前 6 行）' })
+    expect(rows[0]).toEqual({ tone: 'meta', text: 'New content: 9 lines (showing first 6)' })
     expect(rows[1]).toEqual({ tone: 'add', text: 'line0' })
-    expect(rows.at(-1)).toEqual({ tone: 'meta', text: '… 其余 3 行' })
+    expect(rows.at(-1)).toEqual({ tone: 'meta', text: '… 3 more lines' })
   })
 
   it('labels an empty Write', () => {
     expect(permissionDiffPreview('Write', { path: 'e.txt', content: '' }, 60)).toEqual([
-      { tone: 'meta', text: '写入空文件' },
+      { tone: 'meta', text: 'Writing an empty file' },
     ])
   })
 
@@ -67,7 +67,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
       { tone: 'del', text: 'two' },
       { tone: 'add', text: '2' },
       { tone: 'add', text: '2b' },
-      { tone: 'meta', text: '合计 +3 −2 行变更' },
+      { tone: 'meta', text: 'Total: +3 −2 lines' },
     ])
   })
 
@@ -78,9 +78,9 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
       new_string: `new${i}`,
     }))
     const rows = permissionDiffPreview('MultiEdit', { edits }, 60)
-    expect(rows.some((row) => row.text === '… 其余编辑已省略')).toBe(true)
+    expect(rows.some((row) => row.text === '… remaining edits omitted')).toBe(true)
     expect(rows.some((row) => row.text === 'f5.ts')).toBe(false)
-    expect(rows.at(-1)).toEqual({ tone: 'meta', text: '合计 +6 −6 行变更' })
+    expect(rows.at(-1)).toEqual({ tone: 'meta', text: 'Total: +6 −6 lines' })
   })
 
   it('escapes untrusted content instead of emitting raw control characters', () => {
@@ -122,7 +122,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
     )
     expect(rows[0]).toEqual({
       tone: 'meta',
-      text: '⚠ 目标文件当前内容不含该文本（可能已被外部修改）',
+      text: '⚠ The target file no longer contains this text (may have been modified externally)',
     })
     expect(rows).toContainEqual({ tone: 'del', text: 'const value = 1' })
   })
@@ -137,7 +137,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
       60,
       dir,
     )
-    expect(all).toContainEqual({ tone: 'meta', text: '将替换全部 3 处出现' })
+    expect(all).toContainEqual({ tone: 'meta', text: 'Will replace all 3 occurrences' })
     // 未指定 replace_all + 多处：执行将失败，批准前明示。
     const ambiguous = permissionDiffPreview(
       'Edit',
@@ -147,7 +147,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
     )
     expect(ambiguous[0]).toEqual({
       tone: 'meta',
-      text: '⚠ 该文本在文件中出现 3 处；未指定 replace_all，执行将失败',
+      text: '⚠ This text appears 3 times in the file; replace_all is not set, so the edit will fail',
     })
     // 单处匹配：不告警。
     await writeFile(resolve(dir, 'c.ts'), 'x = 1\n')
@@ -171,12 +171,12 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
     )
     expect(rows[0]).toEqual({
       tone: 'meta',
-      text: '将覆盖现有文件 existing.ts（现有 2.0 KB）',
+      text: 'Will overwrite existing file existing.ts (currently 2.0 KB)',
     })
     // 新文件：无覆盖警告。
     const fresh = permissionDiffPreview('Write', { path: 'new.ts', content: 'hello\n' }, 60, dir)
-    expect(fresh[0]!.text).toMatch(/^新内容 1 行/)
-    expect(fresh.some((row) => row.text.includes('覆盖'))).toBe(false)
+    expect(fresh[0]!.text).toMatch(/^New content: 1 line/)
+    expect(fresh.some((row) => row.text.includes('overwrite'))).toBe(false)
   })
 
   it('flags large Edit changes per §4.6 (>100 lines)', () => {
@@ -185,7 +185,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
     const rows = permissionDiffPreview('Edit', { old_string: old, new_string: next }, 60)
     expect(rows[0]).toEqual({
       tone: 'meta',
-      text: '⚠ 大规模变更：共 240 行改动，请审阅后再批准',
+      text: '⚠ Large change: 240 lines in total — review before approving',
     })
     // 99 行改动不触发。
     const small = Array.from({ length: 50 }, (_, i) => `o${i}`).join('\n')
@@ -195,7 +195,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
       { old_string: small, new_string: smallNext },
       60,
     )
-    expect(rowsSmall.every((row) => !row.text.includes('大规模'))).toBe(true)
+    expect(rowsSmall.every((row) => !row.text.includes('Large change'))).toBe(true)
   })
 
   it('flags large MultiEdit batches per §4.6', () => {
@@ -207,7 +207,7 @@ describe('permissionDiffPreview (权限卡 diff 预览)', () => {
     const rows = permissionDiffPreview('MultiEdit', { edits }, 60)
     expect(rows[0]).toEqual({
       tone: 'meta',
-      text: '⚠ 大规模变更：共 120 行改动，请审阅后再批准',
+      text: '⚠ Large change: 120 lines in total — review before approving',
     })
   })
 })

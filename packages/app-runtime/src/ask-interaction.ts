@@ -52,7 +52,7 @@ export function createAskUserInteraction(
         .join('\n')
       const answer = (
         await options.linePrompt?.(
-          `${request.question}\n${menu}\n选择 1-${request.options.length}（回车跳过）: `,
+          `${request.question}\n${menu}\nSelect 1-${request.options.length} (Enter to skip): `,
         )
       )?.trim()
       if (!answer) return undefined

@@ -50,7 +50,7 @@ describe('changeEntrySummary', () => {
         lastModifiedAt: '',
         allConsumed: false,
       }),
-    ).toBe('新建')
+    ).toBe('new')
     expect(
       changeEntrySummary({
         path: 'a',
@@ -59,7 +59,7 @@ describe('changeEntrySummary', () => {
         lastModifiedAt: '',
         allConsumed: false,
       }),
-    ).toBe('修改')
+    ).toBe('edited')
   })
 
   it('notes batch counts and consumed state', () => {
@@ -71,7 +71,7 @@ describe('changeEntrySummary', () => {
         lastModifiedAt: '',
         allConsumed: false,
       }),
-    ).toBe('修改 · 3 批')
+    ).toBe('edited · 3 batches')
     expect(
       changeEntrySummary({
         path: 'a',
@@ -80,6 +80,6 @@ describe('changeEntrySummary', () => {
         lastModifiedAt: '',
         allConsumed: true,
       }),
-    ).toBe('已撤销 · 2 批')
+    ).toBe('undone · 2 batches')
   })
 })

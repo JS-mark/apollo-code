@@ -802,7 +802,7 @@ describe('renderInteractiveApp', () => {
       },
     })
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('explore subagent 完成')
+    expect(stdout.output).toContain('explore subagent Done')
     expect(stdout.output).toContain('1m05s')
     expect(stdout.output).toContain('4 tool calls')
     expect(stdout.output).toContain('$0.0123')
@@ -838,7 +838,7 @@ describe('renderInteractiveApp', () => {
     })
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('◆')
-    expect(stdout.output).toContain('正在读取')
+    expect(stdout.output).toContain('Reading')
     // cwd 前缀相对化：/repo/src/app.tsx → src/app.tsx
     expect(stdout.output).toContain('src/app.tsx')
 
@@ -849,7 +849,7 @@ describe('renderInteractiveApp', () => {
       version: 1,
     })
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('已读取')
+    expect(stdout.output).toContain('Read')
     expect(stdout.output).toContain('0.3s')
 
     await events.emit({
@@ -865,7 +865,7 @@ describe('renderInteractiveApp', () => {
       version: 1,
     })
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('运行失败')
+    expect(stdout.output).toContain('Run failed')
     expect(stdout.output).toContain('$ rm -rf /tmp/x')
 
     app.unmount()
@@ -3055,7 +3055,7 @@ describe('renderInteractiveApp', () => {
 
     // Multiple pending requests render as a tab strip: one tab per request,
     // first tab focused with its (escaped) details shown.
-    expect(stdout.output).toContain('权限请求')
+    expect(stdout.output).toContain('Permission request')
     expect(stdout.output).toContain('1:Bash')
     expect(stdout.output).toContain('2:Write')
     expect(stdout.output).toContain('touch x\\u{202E}')
@@ -3095,14 +3095,14 @@ describe('renderInteractiveApp', () => {
 
     // Structured specs render as capability lines instead of raw JSON, with
     // quick keys intact.
-    expect(stdout.output).toContain('权限请求')
-    expect(stdout.output).toContain('写入')
+    expect(stdout.output).toContain('Permission request')
+    expect(stdout.output).toContain('Write')
     expect(stdout.output).toContain('out.md')
     expect(stdout.output).not.toContain('{"fs"')
-    expect(stdout.output).toContain('允许一次')
+    expect(stdout.output).toContain('Allow once')
     // 次要范围选项（always/full-access/never）收进底部暗字提示，数字键仍直接生效
-    expect(stdout.output).toContain('5 始终允许 · 6 全部放行（本会话） · 7 永不询问')
-    expect(stdout.output).toContain('路径记为 <repo>/**')
+    expect(stdout.output).toContain('5 Always allow · 6 Allow all (this session) · 7 Never ask')
+    expect(stdout.output).toContain('as <repo>/**')
   })
 
   it('exposes all seven decision kinds and decides instantly via quick keys', async () => {
@@ -3143,13 +3143,13 @@ describe('renderInteractiveApp', () => {
 
     // 全部七种决策都可见：主列表 1-4 + 底部次要行 5-7。
     for (const label of [
-      '允许一次',
-      '本会话内允许',
-      '项目内记住',
-      '拒绝',
-      '始终允许',
-      '全部放行（本会话）',
-      '永不询问',
+      'Allow once',
+      'Allow for this session',
+      'Remember for this project',
+      'Deny',
+      'Always allow',
+      'Allow all (this session)',
+      'Never ask',
     ])
       expect(stdout.output).toContain(label)
 
@@ -3352,7 +3352,7 @@ describe('renderInteractiveApp', () => {
 
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('[sensitive permission details hidden - deny only]')
-    expect(stdout.output).not.toContain('允许一次')
+    expect(stdout.output).not.toContain('Allow once')
     stdin.write('a')
     await app.waitUntilRenderFlush()
     expect(settled).toBe(false)
@@ -3387,7 +3387,7 @@ describe('renderInteractiveApp', () => {
     )
 
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('◆ 提问')
+    expect(stdout.output).toContain('◆ Question')
     expect(stdout.output).toContain('用哪个方案')
     expect(stdout.output).toContain('方案 A')
     expect(stdout.output).toContain('快但糙')
@@ -3395,8 +3395,8 @@ describe('renderInteractiveApp', () => {
     stdin.write('2')
     await expect(pending).resolves.toBe('方案 B')
     await app.waitUntilRenderFlush()
-    const cleared = stdout.output.slice(stdout.output.lastIndexOf('◆ 提问') + 1)
-    expect(cleared).not.toContain('◆ 提问')
+    const cleared = stdout.output.slice(stdout.output.lastIndexOf('◆ Question') + 1)
+    expect(cleared).not.toContain('◆ Question')
 
     // 第二问：esc = 跳过（undefined），模型自选默认继续。
     const second = asks.request({

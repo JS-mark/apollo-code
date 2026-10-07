@@ -79,11 +79,11 @@ export function relativizeChangePath(path: string, cwd: string | undefined): str
   return path.startsWith(prefix) ? path.slice(prefix.length) : path
 }
 
-/** 列表行摘要：`+ 新建 · 2 批` / `~ 修改` / `· 已撤销`。 */
+/** 列表行摘要：`+ new · 2 batches` / `~ edited` / `· undone`。 */
 export function changeEntrySummary(entry: ChangesPanelEntry): string {
   const parts: string[] = []
-  if (entry.allConsumed) parts.push('已撤销')
-  else parts.push(entry.created ? '新建' : '修改')
-  if (entry.batches > 1) parts.push(`${entry.batches} 批`)
+  if (entry.allConsumed) parts.push('undone')
+  else parts.push(entry.created ? 'new' : 'edited')
+  if (entry.batches > 1) parts.push(`${entry.batches} batches`)
   return parts.join(' · ')
 }

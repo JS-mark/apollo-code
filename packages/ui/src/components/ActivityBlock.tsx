@@ -59,7 +59,7 @@ function activitySuffix(item: ActivityItem): string {
     parts.push(formatActivityDuration(item.durationMs))
   if (item.status === 'done' && (item.linesAdded || item.linesRemoved))
     parts.push(`+${item.linesAdded ?? 0} −${item.linesRemoved ?? 0}`)
-  if (item.status === 'error' && item.blocked) parts.push('已被拦截')
+  if (item.status === 'error' && item.blocked) parts.push('blocked')
   return parts.length ? ` · ${parts.join(' · ')}` : ''
 }
 

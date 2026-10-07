@@ -91,7 +91,7 @@ export async function listModels(ports: VolundPorts, cwd: string): Promise<CliMo
       }
     )?.aliases ?? {}
   const options = [
-    ...(current ? [{ id: current, label: `${current}（默认）` }] : []),
+    ...(current ? [{ id: current, label: `${current} (default)` }] : []),
     ...Object.entries(aliases)
       // 与 cli.ts buildModelPicker 同规则：只收当前 provider（anthropic）的别名。
       .filter(([, target]) => target.provider === 'anthropic')
