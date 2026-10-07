@@ -31,7 +31,10 @@ const LARGE_CHANGE_LINES = 100
 
 /** 大规模变更提示行（§4.6；tone=meta 由渲染层配色，此处只给文本）。 */
 function largeChangeRow(totalLines: number): PermissionDiffRow {
-  return { tone: 'meta', text: `⚠ 大规模变更：共 ${totalLines} 行改动，请审阅后再批准` }
+  return {
+    tone: 'meta',
+    text: `⚠ Large change: ${totalLines} lines in total — review before approving`,
+  }
 }
 
 function escapeLine(line: string, maxWidth: number): string {
@@ -103,14 +106,14 @@ export function permissionDiffPreview(
         ...rows,
         {
           tone: 'meta',
-          text: `… 共 +${counts.linesAdded} −${counts.linesRemoved} 行变更${replaceAll ? '（替换全部出现处）' : ''}`,
+          text: `… +${counts.linesAdded} −${counts.linesRemoved} lines in total${replaceAll ? ' (replace all occurrences)' : ''}`,
         },
       ]
     return [
       ...large,
       ...warnings,
       ...rows,
-      ...(replaceAll ? [{ tone: 'meta' as const, text: '（替换全部出现处）' }] : []),
+      ...(replaceAll ? [{ tone: 'meta' as const, text: '(replace all occurrences)' }] : []),
     ]
   }
   if (toolName === 'Write') {
@@ -122,12 +125,12 @@ export function permissionDiffPreview(
     const existingSize = cwd && path !== undefined ? existingFileSize(cwd, path) : undefined
     const overwriteNote =
       path !== undefined && existingSize !== undefined
-        ? `将覆盖现有文件 ${escapeLine(path, width)}（现有 ${formatBytes(existingSize)}）`
+        ? `Will overwrite existing file ${escapeLine(path, width)} (currently ${formatBytes(existingSize)})`
         : undefined
     if (content === '')
       return [
         ...(overwriteNote ? [{ tone: 'meta' as const, text: overwriteNote }] : []),
-        { tone: 'meta' as const, text: '写入空文件' },
+        { tone: 'meta' as const, text: 'Writing an empty file' },
       ]
     const lines = content.split('\n')
     // 末尾换行不算一行（与 diff 的 splitLines 约定一致）。
@@ -135,10 +138,11 @@ export function permissionDiffPreview(
     const head = lines.slice(0, Math.min(WRITE_HEAD_LINES, total))
     const rows: PermissionDiffRow[] = [
       ...(overwriteNote ? [{ tone: 'meta' as const, text: overwriteNote }] : []),
-      { tone: 'meta', text: `新内容 ${total} 行（预览前 ${head.length} 行）` },
+      { tone: 'meta', text: `New content: ${total} lines (showing first ${head.length})` },
       ...head.map((line) => ({ tone: 'add' as const, text: escapeLine(line, width) })),
     ]
-    if (total > head.length) rows.push({ tone: 'meta', text: `… 其余 ${total - head.length} 行` })
+    if (total > head.length)
+      rows.push({ tone: 'meta', text: `… ${total - head.length} more lines` })
     return rows
   }
   if (toolName === 'MultiEdit') {
@@ -173,13 +177,16 @@ export function permissionDiffPreview(
       const { rows: editRows } = rowsOfOps(ops, budget, width)
       rows.push(...editRows)
       if (countChanges(ops) > editRows.length)
-        rows.push({ tone: 'meta', text: `… 此处 +${counts.linesAdded} −${counts.linesRemoved} 行` })
+        rows.push({
+          tone: 'meta',
+          text: `… +${counts.linesAdded} −${counts.linesRemoved} lines here`,
+        })
     }
     if (rows.length === 0) return []
     const totalLines = linesAdded + linesRemoved
     if (totalLines > LARGE_CHANGE_LINES) rows.unshift(largeChangeRow(totalLines))
-    if (truncated) rows.push({ tone: 'meta', text: '… 其余编辑已省略' })
-    rows.push({ tone: 'meta', text: `合计 +${linesAdded} −${linesRemoved} 行变更` })
+    if (truncated) rows.push({ tone: 'meta', text: '… remaining edits omitted' })
+    rows.push({ tone: 'meta', text: `Total: +${linesAdded} −${linesRemoved} lines` })
     return rows
   }
   return []
@@ -227,14 +234,19 @@ function editProbeWarnings(
   }
   const occurrences = content.split(oldString).length - 1
   if (occurrences === 0)
-    return [{ tone: 'meta', text: '⚠ 目标文件当前内容不含该文本（可能已被外部修改）' }]
+    return [
+      {
+        tone: 'meta',
+        text: '⚠ The target file no longer contains this text (may have been modified externally)',
+      },
+    ]
   if (replaceAll && occurrences > 1)
-    return [{ tone: 'meta', text: `将替换全部 ${occurrences} 处出现` }]
+    return [{ tone: 'meta', text: `Will replace all ${occurrences} occurrences` }]
   if (!replaceAll && occurrences > 1)
     return [
       {
         tone: 'meta',
-        text: `⚠ 该文本在文件中出现 ${occurrences} 处；未指定 replace_all，执行将失败`,
+        text: `⚠ This text appears ${occurrences} times in the file; replace_all is not set, so the edit will fail`,
       },
     ]
   return []

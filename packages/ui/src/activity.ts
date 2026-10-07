@@ -37,19 +37,19 @@ interface ActivityVerbs {
 }
 
 const TOOL_VERBS: Record<string, ActivityVerbs> = {
-  Read: { running: '正在读取', done: '已读取', error: '读取失败' },
-  Write: { running: '正在写入', done: '已写入', error: '写入失败' },
-  Edit: { running: '正在修改', done: '已修改', error: '修改失败' },
-  MultiEdit: { running: '正在修改', done: '已修改', error: '修改失败' },
-  Bash: { running: '正在运行', done: '已运行', error: '运行失败' },
-  Glob: { running: '正在查找', done: '查找完成', error: '查找失败' },
-  Grep: { running: '正在搜索', done: '搜索完成', error: '搜索失败' },
-  WebFetch: { running: '正在抓取', done: '抓取完成', error: '抓取失败' },
-  WebSearch: { running: '正在联网搜索', done: '搜索完成', error: '搜索失败' },
-  Task: { running: '正在运行子代理', done: '子代理完成', error: '子代理失败' },
-  Todo: { running: '正在更新待办', done: '待办已更新', error: '待办更新失败' },
-  ShellOutput: { running: '正在读取输出', done: '已读取输出', error: '读取失败' },
-  KillShell: { running: '正在终止进程', done: '已终止进程', error: '终止失败' },
+  Read: { running: 'Reading', done: 'Read', error: 'Read failed' },
+  Write: { running: 'Writing', done: 'Wrote', error: 'Write failed' },
+  Edit: { running: 'Editing', done: 'Edited', error: 'Edit failed' },
+  MultiEdit: { running: 'Editing', done: 'Edited', error: 'Edit failed' },
+  Bash: { running: 'Running', done: 'Ran', error: 'Run failed' },
+  Glob: { running: 'Finding files', done: 'Found files', error: 'Find failed' },
+  Grep: { running: 'Searching', done: 'Search done', error: 'Search failed' },
+  WebFetch: { running: 'Fetching page', done: 'Fetched page', error: 'Fetch failed' },
+  WebSearch: { running: 'Searching the web', done: 'Search done', error: 'Search failed' },
+  Task: { running: 'Running subagent', done: 'Subagent done', error: 'Subagent failed' },
+  Todo: { running: 'Updating todos', done: 'Todos updated', error: 'Todo update failed' },
+  ShellOutput: { running: 'Reading output', done: 'Read output', error: 'Read failed' },
+  KillShell: { running: 'Stopping process', done: 'Stopped process', error: 'Stop failed' },
 }
 
 /**
@@ -74,12 +74,12 @@ export function activityVerbs(tool: string): ActivityVerbs {
   const mcp = mcpToolDisplayName(tool)
   if (mcp)
     return {
-      running: `正在调用 MCP ${mcp}`,
-      done: `MCP ${mcp} 完成`,
-      error: `MCP ${mcp} 失败`,
+      running: `Calling MCP ${mcp}`,
+      done: `MCP ${mcp} done`,
+      error: `MCP ${mcp} failed`,
     }
   return (
-    TOOL_VERBS[tool] ?? { running: `正在使用 ${tool}`, done: `${tool} 完成`, error: `${tool} 失败` }
+    TOOL_VERBS[tool] ?? { running: `Using ${tool}`, done: `${tool} done`, error: `${tool} failed` }
   )
 }
 

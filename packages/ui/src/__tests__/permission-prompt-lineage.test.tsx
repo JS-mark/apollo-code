@@ -67,25 +67,25 @@ async function renderStack(requests: readonly InteractivePermissionRequest[]): P
 }
 
 describe('PermissionPromptStack lineage badge（§2.7bis.5 U4）', () => {
-  it('renders 「子代理 · <agentType>」 badge row when lineage carries agentType', async () => {
+  it('renders "Subagent · <agentType>" badge row when lineage carries agentType', async () => {
     const { output, unmount } = await renderStack([
       request({ lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-3' } }),
     ])
-    expect(output).toContain('子代理 · explore')
+    expect(output).toContain('Subagent · explore')
     unmount()
   })
 
-  it('renders bare 「子代理」 badge when lineage has no agentType', async () => {
+  it('renders bare "Subagent" badge when lineage has no agentType', async () => {
     const { output, unmount } = await renderStack([request({ lineage: { sessionId: 'sub-2' } })])
-    expect(output).toContain('子代理')
-    expect(output).not.toContain('子代理 ·')
+    expect(output).toContain('Subagent')
+    expect(output).not.toContain('Subagent ·')
     unmount()
   })
 
   it('renders no badge for main-agent requests（无 lineage 回归面）', async () => {
     const { output, unmount } = await renderStack([request()])
-    expect(output).toContain('权限请求')
-    expect(output).not.toContain('子代理')
+    expect(output).toContain('Permission')
+    expect(output).not.toContain('Subagent')
     unmount()
   })
 })

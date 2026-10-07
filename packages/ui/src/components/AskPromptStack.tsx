@@ -98,7 +98,7 @@ export function AskPromptStack({ controller, asks }: AskPromptStackProps) {
     >
       <Box marginTop={1}>
         <Text bold color="cyan">
-          ◆ 提问
+          ◆ Question
         </Text>
         {asks.length > 1 ? (
           <Text color="gray">
@@ -168,7 +168,8 @@ export function AskPromptStack({ controller, asks }: AskPromptStackProps) {
       </Box>
       <Box flexDirection="column" marginBottom={1}>
         <Text color="gray">
-          ↑↓ 选择 · enter 确认 · 数字键直选{asks.length > 1 ? ' · ←/→ 切换提问' : ''} · esc 跳过
+          ↑↓ select · enter confirm · number keys{asks.length > 1 ? ' · ←/→ switch question' : ''} ·
+          esc skip
         </Text>
       </Box>
     </Box>

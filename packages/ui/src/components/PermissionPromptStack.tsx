@@ -1,3 +1,4 @@
+import { PERMISSION_DECISION_LABELS, SPEC_KIND_LABELS } from '@volund/shared'
 import { Box, Text, useInput, useStdout } from 'ink'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -31,10 +32,10 @@ interface DecisionOption {
 
 /** Escaped-newline token produced by the injective permission formatter. */
 const NEWLINE_TOKEN = '\\u{000A}'
-/** spec gutter 中文标签的最大显示宽度（自定义 = 3 CJK = 6 列）。 */
-const GUTTER_LABEL_WIDTH = 6
-/** 主选项标签列的显示宽度（本会话内允许 = 6 CJK = 12 列）。 */
-const OPTION_LABEL_WIDTH = 12
+/** spec gutter 标签的最大显示宽度（英文口径：Network = 7 列）。 */
+const GUTTER_LABEL_WIDTH = 7
+/** 主选项标签列的显示宽度（英文口径：Remember for this project = 25 列）。 */
+const OPTION_LABEL_WIDTH = 25
 const MIN_INNER_WIDTH = 40
 const MAX_INNER_WIDTH = 96
 const MAX_SPEC_ROWS = 8
@@ -48,65 +49,65 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
   {
     color: 'green',
     id: 'allow-once',
-    hint: '仅本次运行',
-    label: '允许一次',
+    hint: 'For this run only',
+    label: PERMISSION_DECISION_LABELS['allow-once'].full.en,
     quickKey: 'a',
   },
   {
     color: 'cyan',
     id: 'allow-session',
-    hint: '相同操作在本会话内不再询问',
-    label: '本会话内允许',
+    hint: "Same action won't ask again this session",
+    label: PERMISSION_DECISION_LABELS['allow-session'].full.en,
     quickKey: 's',
   },
   {
     color: 'blue',
     id: 'allow-project',
-    hint: '写入 .volund/permissions.toml；路径记为 <repo>/**，bash 记为命令前缀',
-    label: '项目内记住',
+    hint: 'Saved as <repo>/** or command prefix',
+    label: PERMISSION_DECISION_LABELS['allow-project'].full.en,
     quickKey: 'p',
   },
   {
     color: 'red',
     id: 'deny',
-    hint: '本次不执行',
-    label: '拒绝',
+    hint: 'Skip this time',
+    label: PERMISSION_DECISION_LABELS['deny'].full.en,
     quickKey: 'd',
   },
   {
     color: 'magenta',
     id: 'allow-forever',
-    hint: '写入全局 ~/.volund/permissions.toml',
-    label: '始终允许',
+    hint: 'Writes global ~/.volund/permissions.toml',
+    label: PERMISSION_DECISION_LABELS['allow-forever'].full.en,
     quickKey: 'f',
     secondary: true,
   },
   {
     color: 'yellow',
     id: 'allow-all-session',
-    hint: '本会话不再询问任何操作；deny 规则仍生效',
-    label: '全部放行（本会话）',
+    hint: 'No more prompts this session; deny rules still apply',
+    label: PERMISSION_DECISION_LABELS['allow-all-session'].full.en,
     quickKey: 'g',
     secondary: true,
   },
   {
     color: 'red',
     id: 'deny-forever',
-    hint: '全局拉黑此操作',
-    label: '永不询问',
+    hint: 'Deny this action globally',
+    label: PERMISSION_DECISION_LABELS['deny-forever'].full.en,
     quickKey: 'x',
     secondary: true,
   },
 ]
 
-/** spec 能力行的中文 gutter 标签与风险配色（写/运行类用黄色提示副作用）。 */
+/** spec 能力行 gutter 标签（shared 权威，TUI 取 en）与风险配色（写/运行类用黄色提示副作用）。 */
 const SPEC_KIND_PRESENTATION: Record<string, { label: string; tone: string }> = {
-  read: { label: '读取', tone: 'cyan' },
-  write: { label: '写入', tone: 'yellow' },
-  run: { label: '运行', tone: 'yellow' },
-  net: { label: '网络', tone: 'cyan' },
-  env: { label: '环境', tone: 'magenta' },
-  custom: { label: '自定义', tone: 'gray' },
+  read: { label: SPEC_KIND_LABELS.read.en, tone: 'cyan' },
+  write: { label: SPEC_KIND_LABELS.write.en, tone: 'yellow' },
+  run: { label: SPEC_KIND_LABELS.run.en, tone: 'yellow' },
+  net: { label: SPEC_KIND_LABELS.net.en, tone: 'cyan' },
+  env: { label: SPEC_KIND_LABELS.env.en, tone: 'magenta' },
+  custom: { label: SPEC_KIND_LABELS.custom.en, tone: 'gray' },
 }
 
 /** One human-readable capability line of the permission summary. */
@@ -336,7 +337,7 @@ export function PermissionPromptStack({ controller, requests, cwd }: PermissionP
     >
       <Box marginTop={1}>
         <Text key="title" bold color="yellow">
-          ◆ 权限请求
+          ◆ Permission request
         </Text>
         {request.display.toolName.length > 0 ? (
           <Text key="tool" bold>
@@ -360,7 +361,7 @@ export function PermissionPromptStack({ controller, requests, cwd }: PermissionP
       {request.lineage ? (
         <Box marginTop={1}>
           <Text bold color="magenta">
-            {'◈ 子代理'}
+            {'◈ Subagent'}
             {request.lineage.agentType ? ` · ${escapeText(request.lineage.agentType)}` : ''}
           </Text>
         </Box>
@@ -460,9 +461,9 @@ export function PermissionPromptStack({ controller, requests, cwd }: PermissionP
       </Box>
       <Box flexDirection="column" marginBottom={1}>
         <Text color="gray">
-          {approvable ? '↑↓ 选择 · enter 确认 · 数字/字母键直选' : 'enter 确认'}
-          {requests.length > 1 ? ' · ←/→ 切换请求' : ''}
-          {' · esc 拒绝'}
+          {approvable ? '↑↓ select · enter confirm · number/letter keys' : 'enter confirm'}
+          {requests.length > 1 ? ' · ←/→ switch request' : ''}
+          {' · esc deny'}
         </Text>
         {secondaryOptions.length > 0 ? (
           <Text color="gray" wrap="truncate">

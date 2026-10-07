@@ -440,7 +440,7 @@ export async function runCli(
                 `hooks: ${names(result.contributions.hooks)}`,
                 `prompts: ${names(result.contributions.prompts)}`,
                 `linked (${result.linked.mode}): ${result.linked.dir}`,
-                '新会话生效（重载 REPL；daemon 触发的任务子会话自动装载）。',
+                'Takes effect in new sessions (REPL reloaded; daemon-spawned task subsessions pick it up automatically).',
               ].join('\n') + '\n'
           }
           if (args.watch) {
@@ -475,13 +475,13 @@ export async function runCli(
           const result = await installGithubSpec(authoring, dirArg)
           stdout += args.json
             ? `${JSON.stringify(result)}\n`
-            : `Installed ${result.name}@${result.version} (${result.source}@${result.tag}) → ${result.dir}\n发布者签名验讫；新会话生效。\n`
+            : `Installed ${result.name}@${result.version} (${result.source}@${result.tag}) → ${result.dir}\nPublisher signature verified; takes effect in new sessions.\n`
           return { exitCode: 0, stdout, stderr }
         }
         const result = await installVolundArchive(authoring, dirArg)
         stdout += args.json
           ? `${JSON.stringify(result)}\n`
-          : `Installed ${result.name}@${result.version} → ${result.dir}\n新会话生效。\n`
+          : `Installed ${result.name}@${result.version} → ${result.dir}\nTakes effect in new sessions.\n`
         return { exitCode: 0, stdout, stderr }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

@@ -50,7 +50,7 @@ export function MessageBlock({ entry }: MessageBlockProps) {
           {entry.role === 'assistant' && entry.truncated ? (
             <Box flexDirection="column">
               <Text color="yellow">[truncated: max_tokens reached]</Text>
-              <Text color="gray">输入 continue 可继续</Text>
+              <Text color="gray">type continue to proceed</Text>
             </Box>
           ) : null}
         </Box>

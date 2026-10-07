@@ -171,7 +171,7 @@ export function createRemoteCommand(): CommandDefinition {
           exitCode: 0,
           stdout:
             `registered as ${credentials.client_id}; [remote] configured and enabled.\n` +
-            `remote control dials out on the next start (or toggle 远程控制 in the web console).\n`,
+            `remote control dials out on the next start (or toggle remote control in the web console).\n`,
           stderr: '',
         }
       }

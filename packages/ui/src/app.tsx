@@ -533,10 +533,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             subagentAgentTypes.current.delete(settledId)
             const status =
               payload.status === 'failed'
-                ? '失败'
+                ? 'Failed'
                 : payload.status === 'cancelled'
-                  ? '已取消'
-                  : '完成'
+                  ? 'Cancelled'
+                  : 'Done'
             const seconds = Math.max(0, Math.round(Number(payload.durationMs ?? 0) / 1000))
             const durationText =
               seconds >= 60
