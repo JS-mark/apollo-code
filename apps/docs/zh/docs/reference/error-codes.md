@@ -312,11 +312,12 @@ packages/gateway-server 域（HTTP 状态码映射见括号）：
 | `mcp_tool_unapproved`          | MCP server 工具集变更未重新批准（信任门）时模型侧看到的工具结果 |
 
 ::: tip 审批卡与提问卡超时
-经由网关的权限审批卡默认 **120 秒无人决策自动拒绝**，提问卡（ask）共用同一时钟、
-无人作答自动关闭（`GATEWAY_PERMISSION_TIMEOUT_MS`，设为 `0` 关闭兜底）。此时模型
-看到的工具结果是 `permission_timeout: <工具名> approval timed out …`（提问为
-`ask_timeout: …`）——它表示「超时无人处理」，不是权限配置错误。远程任务频繁卡住时
-优先检查卡片是否有人处理。
+权限审批卡默认 **120 秒无人决策自动拒绝**，提问卡（ask）共用同一时钟、无人作答自动
+关闭——这是核心审批队列的内建兜底（TUI / Web / 移动端 / line 模式问询一致），经网关
+的场景另受 `GATEWAY_PERMISSION_TIMEOUT_MS` 控制，二者都可用用户级 config
+`[permissions] request_timeout_ms` 调整（毫秒，`0` 关闭兜底）。此时模型看到的工具
+结果是 `permission_timeout: <工具名> approval timed out …`（提问为 `ask_timeout: …`）
+——它表示「超时无人处理」，不是权限配置错误。远程任务频繁卡住时优先检查卡片是否有人处理。
 :::
 
 ## UI（主题 / 斜杠命令）

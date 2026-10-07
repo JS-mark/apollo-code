@@ -317,13 +317,17 @@ packages/gateway-server domain (HTTP status mapping in parentheses):
 | `mcp_tool_unapproved`          | Model-facing tool result when an MCP server's tool set changed without re-approval (trust gate)         |
 
 ::: tip Approval and question cards
-Permission approval cards that travel through the gateway are **auto-denied after
-120 seconds** without a decision, and question (ask) cards are **auto-closed** on
-the same clock (`GATEWAY_PERMISSION_TIMEOUT_MS`; set it to `0` to disable the
-fallback). The model then sees `permission_timeout: <tool> approval timed out …`
-or `ask_timeout: …` as the tool result — that means "nobody answered in time",
-not "permissions are misconfigured". If remote tasks keep stalling, check whether
-anyone answered the card.
+Permission approval cards are **auto-denied after 120 seconds** without a
+decision, and question (ask) cards are **auto-closed** on the same clock when
+unanswered — this is the core approval queue's built-in fallback (identical
+across the TUI, Web console, mobile, and line-mode prompts). Gateway scenarios
+are additionally governed by `GATEWAY_PERMISSION_TIMEOUT_MS`, and both can be
+adjusted with the user-level config `[permissions] request_timeout_ms`
+(milliseconds; set it to `0` to disable the fallback). The model then sees
+`permission_timeout: <tool> approval timed out …` or `ask_timeout: …` as the
+tool result — that means "nobody answered in time", not "permissions are
+misconfigured". If remote tasks keep stalling, check whether anyone answered
+the card.
 :::
 
 ## UI (themes / slash commands)

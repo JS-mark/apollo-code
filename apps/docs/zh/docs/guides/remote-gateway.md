@@ -113,10 +113,12 @@ chat/completions 共享同一个活动会话；chat/completions 在无活动会�
 ## 权限审批
 
 审批在本机侧按桌面权限模式进行：审批卡经隧道同时推到本机 TUI、Web 控制台与手机，
-任一端决策全端清卡；审批卡无人决策超过 `GATEWAY_PERMISSION_TIMEOUT_MS`（默认
-120s）自动 deny，提问卡共用同一时钟、无人作答自动关闭——模型侧工具结果带
-`permission_timeout` / `ask_timeout` 码，不再是笼统的拒绝。Web 控制台与手机的
-提问卡还支持在选项之外键入自定义回答，原文透传给模型（`User answered: "…"`）。
+任一端决策全端清卡；审批卡无人决策默认 120s 自动 deny（核心队列内建兜底，网关腿
+受 `GATEWAY_PERMISSION_TIMEOUT_MS` 控制，两端都可用用户级 config
+`[permissions] request_timeout_ms` 调整），提问卡共用同一时钟、无人作答自动关闭
+——模型侧工具结果带 `permission_timeout` / `ask_timeout` 码，不再是笼统的拒绝。
+Web 控制台与手机的提问卡还支持在选项之外键入自定义回答，原文透传给模型
+（`User answered: "…"`）。
 
 ## 设备配对
 

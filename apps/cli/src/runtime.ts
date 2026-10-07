@@ -36,6 +36,7 @@ import {
   createStatusSnapshotAdapter,
   AskPromptController,
   createAskUserInteraction,
+  DEFAULT_PROMPT_TIMEOUT_MS,
   PermissionPromptController,
   ProductionPermissionSessionPolicy,
   SessionController,
@@ -882,6 +883,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 优先级：CLI flag / /mode 的 override > [permissions] mode 用户级 config > 'ask'。
   let overridePermissionMode: PermissionSessionMode | undefined
   let configPermissionMode: PermissionSessionMode | undefined
+  // 审批/提问卡无人决策的兜底超时：控制器自带 120s 默认，[permissions]
+  // request_timeout_ms 装载后回填（0 = 关闭兜底）；line 模式问询同钟。
+  let configPromptTimeoutMs: number | undefined
   // §4.4 档位变更广播（TUI /mode、Web composer、权限卡 g 授权共用）：web 端
   // SSE 推 permission.mode 帧，多端选择器实时同步（此前只在挂载时拉一次会脱钩）。
   const permissionModeListeners = new Set<(mode: PermissionSessionMode) => void>()
@@ -905,6 +909,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         if (mode === 'ask' || mode === 'auto' || mode === 'full') {
           configPermissionMode = mode
           if (!overridePermissionMode) permissionPolicy.configureMode({ mode })
+        }
+        const requestTimeoutMs = (permissions as Record<string, JsonValue>).request_timeout_ms
+        if (typeof requestTimeoutMs === 'number' && requestTimeoutMs >= 0) {
+          configPromptTimeoutMs = requestTimeoutMs
+          permissionPrompts.configure({ timeoutMs: requestTimeoutMs })
+          askPrompts.configure({ timeoutMs: requestTimeoutMs })
         }
       }
       const subagent = config.subagent
@@ -1118,6 +1128,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       logger,
       interactivePermissionPrompt: () => interactivePermissionPrompt,
       rules: permissionRules,
+      // line 模式问询的无人应答兜底：默认 120s（config request_timeout_ms 可调/关）。
+      promptTimeoutMs: configPromptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS,
       // P1-05：line 模式的 TTY 接缝显式注入（app-runtime 不再回退模块级 readline 默认）。
       terminalIsInteractive: isInteractiveTerminal,
       linePermissionPrompt: promptLineMaybe,

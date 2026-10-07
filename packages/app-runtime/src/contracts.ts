@@ -57,13 +57,36 @@ export interface InteractivePermissionRequest {
 
 export type PermissionPromptListener = (requests: readonly InteractivePermissionRequest[]) => void
 
+/** 审批/提问卡无人决策的默认超时：到点自动 deny/关闭（网关卡同钟语义下沉到核心队列）。 */
+export const DEFAULT_PROMPT_TIMEOUT_MS = 120_000
+
+export interface PromptControllerOptions {
+  /**
+   * 无人决策的自动兜底超时（毫秒）。默认 {@link DEFAULT_PROMPT_TIMEOUT_MS}；
+   * 0 = 不兜底（卡挂到回合中断/进程退出为止）。
+   */
+  timeoutMs?: number
+}
+
 /**
  * 待决权限请求队列：TUI 渲染为审批卡片，Web 渲染为全局审批队列（§22 W-07）。
  * 决策按 request id 精确匹配；重复/过期 decision 静默忽略（调用方幂等）。
+ * 无人决策的卡到点由队列自动 deny（reason=timeout）——走正常 decide 通道，
+ * 订阅端照常收队列更新（全端清卡），权限链拿到带码拒绝（模型侧 permission_timeout）。
  */
 export class PermissionPromptController {
   private readonly pending: PendingPermissionRequest[] = []
   private readonly listeners = new Set<PermissionPromptListener>()
+  private timeoutMs: number
+
+  constructor(options: PromptControllerOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS
+  }
+
+  /** 运行时调整超时（启动期 config 异步装载后回填；只影响其后入队的卡）。 */
+  configure(input: PromptControllerOptions): void {
+    if (typeof input.timeoutMs === 'number') this.timeoutMs = input.timeoutMs
+  }
 
   subscribe(listener: PermissionPromptListener): () => void {
     this.listeners.add(listener)
@@ -79,21 +102,29 @@ export class PermissionPromptController {
       const entry: PendingPermissionRequest = { request, resolve }
       // 回合中断 → 撤卡并立即 settle deny：否则中断被在途审批挂住（三端一直
       // 「运行中」，点中断像没反应）。订阅者随 notify 收到空队列，全端清卡。
-      const onAbort = () => {
+      const settle = (decision: InteractivePermissionDecision): void => {
         const index = this.pending.indexOf(entry)
         if (index < 0) return
         this.pending.splice(index, 1)
-        resolve({ kind: 'deny' })
+        if (entry.timer) clearTimeout(entry.timer)
+        if (signal) signal.removeEventListener('abort', onAbort)
+        resolve(decision)
         this.notify()
       }
+      const onAbort = () => settle({ kind: 'deny' })
       if (signal?.aborted) {
         onAbort()
         return
       }
       if (signal) {
-        const cleanup = () => signal.removeEventListener('abort', onAbort)
-        entry.cleanup = cleanup
+        entry.signal = signal
+        entry.onAbort = onAbort
         signal.addEventListener('abort', onAbort, { once: true })
+      }
+      if (this.timeoutMs > 0) {
+        const timer = setTimeout(() => settle({ kind: 'deny', reason: 'timeout' }), this.timeoutMs)
+        timer.unref?.()
+        entry.timer = timer
       }
       this.pending.push(entry)
       this.notify()
@@ -104,7 +135,9 @@ export class PermissionPromptController {
     const index = this.pending.findIndex((item) => item.request.id === id)
     if (index < 0) return
     const [pending] = this.pending.splice(index, 1)
-    pending?.cleanup?.()
+    if (pending?.timer) clearTimeout(pending.timer)
+    if (pending?.signal && pending.onAbort)
+      pending.signal.removeEventListener('abort', pending.onAbort)
     pending?.resolve(decision)
     this.notify()
   }
@@ -122,8 +155,11 @@ export class PermissionPromptController {
 interface PendingPermissionRequest {
   request: InteractivePermissionRequest
   resolve(decision: InteractivePermissionDecision): void
-  /** 移除 abort 监听（decide 正常落定时防泄漏）。 */
-  cleanup?: () => void
+  /** 无人决策自动 deny 的兜底钟（decide/abort 落定时拆除）。 */
+  timer?: ReturnType<typeof setTimeout>
+  /** 回合中断撤卡监听（decide 正常落定时拆除）。 */
+  signal?: AbortSignal
+  onAbort?: () => void
 }
 
 /** 提问卡的一个候选项（AskUserQuestion 工具的 options 投影）。 */
@@ -147,13 +183,24 @@ export type AskPromptListener = (requests: readonly InteractiveAskRequest[]) => 
 /**
  * 待决提问队列（§22 W-07 同款多路分发）：TUI/Web/Mobile 都订阅它——任一端
  * 作答全端清卡。decide 的 value 为 undefined = 用户关闭/未作答；重复/过期
- * answer 静默忽略（调用方幂等）。
+ * answer 静默忽略（调用方幂等）。无人作答的卡到点自动关闭（reason=timeout，
+ * 与权限卡同钟；消费侧经 consumeTimedOut 给出 ask_timeout 带码文案）。
  */
 export class AskPromptController {
   private readonly pending: PendingAskRequest[] = []
   private readonly listeners = new Set<AskPromptListener>()
   /** 网关超时自动关闭的提问 id：交互层在 await request() 后消费，模型侧据此给出 ask_timeout。 */
   private readonly timedOut = new Set<string>()
+  private timeoutMs: number
+
+  constructor(options: PromptControllerOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS
+  }
+
+  /** 运行时调整超时（启动期 config 异步装载后回填；只影响其后入队的卡）。 */
+  configure(input: PromptControllerOptions): void {
+    if (typeof input.timeoutMs === 'number') this.timeoutMs = input.timeoutMs
+  }
 
   subscribe(listener: AskPromptListener): () => void {
     this.listeners.add(listener)
@@ -166,21 +213,30 @@ export class AskPromptController {
       const entry: PendingAskRequest = { request, resolve }
       // 同权限卡：回合中断撤卡并 settle undefined（=未作答），工具立即返回、
       // 回合以 user_interrupt 收尾；订阅者收到空队列，全端清卡。
-      const onAbort = () => {
+      const settle = (value: string | undefined, reason?: 'timeout'): void => {
         const index = this.pending.indexOf(entry)
         if (index < 0) return
         this.pending.splice(index, 1)
-        resolve(undefined)
+        if (reason === 'timeout' && value === undefined) this.timedOut.add(entry.request.id)
+        if (entry.timer) clearTimeout(entry.timer)
+        if (signal) signal.removeEventListener('abort', onAbort)
+        resolve(value)
         this.notify()
       }
+      const onAbort = () => settle(undefined)
       if (signal?.aborted) {
         onAbort()
         return
       }
       if (signal) {
-        const cleanup = () => signal.removeEventListener('abort', onAbort)
-        entry.cleanup = cleanup
+        entry.signal = signal
+        entry.onAbort = onAbort
         signal.addEventListener('abort', onAbort, { once: true })
+      }
+      if (this.timeoutMs > 0) {
+        const timer = setTimeout(() => settle(undefined, 'timeout'), this.timeoutMs)
+        timer.unref?.()
+        entry.timer = timer
       }
       this.pending.push(entry)
       this.notify()
@@ -191,8 +247,10 @@ export class AskPromptController {
     const index = this.pending.findIndex((item) => item.request.id === id)
     if (index < 0) return
     const [pending] = this.pending.splice(index, 1)
+    if (pending?.timer) clearTimeout(pending.timer)
+    if (pending?.signal && pending.onAbort)
+      pending.signal.removeEventListener('abort', pending.onAbort)
     if (reason === 'timeout' && value === undefined) this.timedOut.add(id)
-    pending?.cleanup?.()
     pending?.resolve(value)
     this.notify()
   }
@@ -215,8 +273,11 @@ export class AskPromptController {
 interface PendingAskRequest {
   request: InteractiveAskRequest
   resolve(value: string | undefined): void
-  /** 移除 abort 监听（decide 正常落定时防泄漏）。 */
-  cleanup?: () => void
+  /** 无人作答自动关闭的兜底钟（decide/abort 落定时拆除）。 */
+  timer?: ReturnType<typeof setTimeout>
+  /** 回合中断撤卡监听（decide 正常落定时拆除）。 */
+  signal?: AbortSignal
+  onAbort?: () => void
 }
 
 export type PermissionInteractionMode = 'none' | 'line' | 'tui'

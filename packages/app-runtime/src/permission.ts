@@ -139,18 +139,30 @@ async function permissionPrompt(
   request: InteractivePermissionRequest,
   terminalIsInteractive?: () => boolean,
   linePrompt?: (question: string) => Promise<string | undefined>,
+  /** 无人应答的自动 deny 超时（毫秒；与审批卡兜底同语义，0/缺省 = 不兜底）。 */
+  timeoutMs?: number,
 ): Promise<PermissionDecision> {
   // 无终端接缝 = 无法安全问询，fail closed（P1-05：模块级 TTY 默认已移除）。
   if (!terminalIsInteractive?.() || !linePrompt) return { kind: 'deny' }
-  const answer = (
-    (await linePrompt(
+  const timedOut = Symbol('permission line prompt timed out')
+  const answer = await Promise.race([
+    linePrompt(
       request.display.approvable
         ? `Permission required: ${request.display.toolName} ${request.display.spec}\nin-repo file paths are remembered as <repo>/**, bash commands as "<first two words> *"; net stays exact\n[a]llow once, allow [s]ession, [g]rant full access, [d]eny · more: allow [p]roject, for [e]ver, deny forever [x]: `
         : `Permission required: ${request.display.toolName} ${request.display.spec}\n[d]eny: `,
-    )) ?? ''
-  )
-    .trim()
-    .toLowerCase()
+    ),
+    // 到点自动 deny（reason=timeout）：line 模式同样不许无人值守的请求挂死回合。
+    ...(timeoutMs && timeoutMs > 0
+      ? [
+          new Promise<typeof timedOut>((resolve) => {
+            const timer = setTimeout(() => resolve(timedOut), timeoutMs)
+            timer.unref?.()
+          }),
+        ]
+      : []),
+  ])
+  if (answer === timedOut) return { kind: 'deny', reason: 'timeout' }
+  const choice = (typeof answer === 'string' ? answer : '').trim().toLowerCase()
   if (!request.display.approvable) return { kind: 'deny' }
   const byAnswer: Record<string, PermissionDecision['kind']> = {
     a: 'allow-once',
@@ -161,7 +173,7 @@ async function permissionPrompt(
     d: 'deny',
     x: 'deny-forever',
   }
-  return { kind: byAnswer[answer] ?? 'deny' }
+  return { kind: byAnswer[choice] ?? 'deny' }
 }
 const MAX_PERMISSION_APPROVAL_DEPTH = 32
 const MAX_PERMISSION_APPROVAL_NODES = 4_096
@@ -392,6 +404,8 @@ export async function requestPermission(input: {
   terminalIsInteractive?: () => boolean
   /** Deterministic line-input seam; production uses promptLineMaybe. */
   linePermissionPrompt?: (question: string) => Promise<string | undefined>
+  /** line 模式问询的无人应答超时（毫秒；审批卡路径由 PermissionPromptController 兜底）。 */
+  promptTimeoutMs?: number
   /** §2.7bis.5 U4 审批归属：子代理会话的请求携带；主代理省略（卡面无徽标）。 */
   lineage?: PermissionRequestLineage
   version: number
@@ -431,7 +445,12 @@ export async function requestPermission(input: {
   })
   if (input.interactionMode === 'none') return { kind: 'deny' }
   if (input.interactionMode === 'line')
-    return permissionPrompt(uiRequest, input.terminalIsInteractive, input.linePermissionPrompt)
+    return permissionPrompt(
+      uiRequest,
+      input.terminalIsInteractive,
+      input.linePermissionPrompt,
+      input.promptTimeoutMs,
+    )
   if (!input.interactivePermissionPrompt) return { kind: 'deny' }
   const decision = await input.interactivePermissionPrompt(uiRequest, input.signal)
   if (!approvalAllowed) return { kind: 'deny' }
@@ -458,6 +477,8 @@ export interface ProductionToolPermissionChainOptions {
   terminalIsInteractive?: () => boolean
   /** Deterministic line-input seam; production uses promptLineMaybe. */
   linePermissionPrompt?: (question: string) => Promise<string | undefined>
+  /** line 模式问询的无人应答自动 deny 超时（毫秒；0/缺省 = 不兜底）。 */
+  promptTimeoutMs?: number
   /** 持久化 project/global 权限规则（spec §4.4 决策链 1/2/4/5）；必须已完成装载
    * （生产路径 createRunner 先 await ready()），确定型测试可省略。 */
   rules?: PermissionRuleSource
@@ -546,6 +567,7 @@ export function createProductionToolPermissionChain(
       ...(options.linePermissionPrompt
         ? { linePermissionPrompt: options.linePermissionPrompt }
         : {}),
+      ...(options.promptTimeoutMs ? { promptTimeoutMs: options.promptTimeoutMs } : {}),
       ...(requestLineage ? { lineage: requestLineage } : {}),
       version: options.state.version,
     })

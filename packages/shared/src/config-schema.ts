@@ -137,6 +137,8 @@ export const configKeyRegistry = {
   'preferences.*': 'allowed',
   // §4.4 权限模式只能用户级决定：项目级 config 不得提升（auto/full 属提权面）
   'permissions.mode': 'forbidden',
+  // 无人决策审批/提问卡的超时兜底：项目级 forbidden（过短超时 = 变相拒绝一切权限请求）
+  'permissions.request_timeout_ms': 'forbidden',
 } as const satisfies Record<string, ProjectOverride>
 
 export type ConfigKeyId = keyof typeof configKeyRegistry
@@ -388,10 +390,13 @@ export const ConfigSchema = z.strictObject({
     .catchall(z.json())
     .optional(),
   // [permissions] 段（§4.4 三档会话模式）：用户级默认档；mode 项目级禁止
-  // （clone 来的仓库不得给自己提权），未知 key 按 C.1 fail
+  // （clone 来的仓库不得给自己提权），未知 key 按 C.1 fail。
+  // request_timeout_ms = 无人决策的审批/提问卡自动 deny 兜底（默认 120s，0 = 不兜底）；
+  // 项目级 forbidden——过短超时等于 clone 来的仓库变相拒绝一切权限请求。
   permissions: z
     .strictObject({
       mode: z.enum(['ask', 'auto', 'full']).optional(),
+      request_timeout_ms: z.number().int().min(0).optional(),
     })
     .optional(),
   preferences: openSection.optional(),
