@@ -46,7 +46,7 @@ import {
   type InputHistoryState,
 } from '../lib/input-history'
 import type { ChatImage, ChatMessage, SubagentActivity, ToolCard } from '../lib/session-stream'
-import { chatImageSrc, chatFeed, toolLabel, useSessionStream } from '../lib/session-stream'
+import { chatImageSrc, chatFeedGrouped, toolLabel, useSessionStream } from '../lib/session-stream'
 import { slashCandidates, slashQueryAt } from '../lib/slash-commands'
 import { BrandMark } from './BrandMark'
 import { ChangesCard } from './ChangesCard'
@@ -256,6 +256,53 @@ function ToolRowCard({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * 连续工具行分组：相邻 ≥2 张工具卡默认折成「N 次工具调用」一行，展开后逐行
+ * 渲染原 ToolRowCard（行内仍可再展开详情卡）。分组头是折叠态唯一的状态面，
+ * 聚合展示进度——部分完成「K 个完成 · M 个运行中」（带 spinner）、有失败红标
+ * 「F 个失败」；全部收口且无失败时只剩条数。key 由 chatFeedGrouped 取首卡
+ * toolUseId——运行中追加新卡不换 key，展开态跨重渲染保持。
+ */
+function ToolGroupCard({
+  tools,
+  subagents,
+}: {
+  tools: ToolCard[]
+  subagents: Record<string, SubagentActivity>
+}) {
+  const [open, setOpen] = useState(false)
+  const running = tools.filter((tool) => tool.status === 'running').length
+  const failed = tools.filter((tool) => tool.status === 'error').length
+  const done = tools.length - running - failed
+  const progress = [
+    ...(running > 0 && done > 0 ? [`${done} 个完成`] : []),
+    ...(running > 0 ? [`${running} 个运行中`] : []),
+  ]
+  return (
+    <div className="tool-block">
+      <button
+        type="button"
+        className="tool-row"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {running > 0 ? <LoadingOutlined className="tool-spin" /> : null}
+        <span className="tool-name">{tools.length} 次工具调用</span>
+        {progress.length > 0 ? <span className="tool-target">{progress.join(' · ')}</span> : null}
+        {failed > 0 ? <span className="tool-status error">{failed} 个失败</span> : null}
+        <RightOutlined className={`tool-chevron${open ? ' open' : ''}`} />
+      </button>
+      <div className={`tool-group-wrap${open ? ' open' : ''}`} aria-hidden={!open}>
+        <div className="tool-group-body">
+          {tools.map((tool) => (
+            <ToolRowCard key={tool.toolUseId} tool={tool} subagents={subagents} />
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -834,7 +881,8 @@ export function ChatPanel({
 
   // 会话流混排：消息与工具卡按到达 seq 合并渲染——工具卡跟随其发生的时点，
   // 不再整体沉到消息流末尾（多回合/中途工具调用的时序靠它保住）。
-  const feed = chatFeed(chat)
+  // 连续 ≥2 的工具行再折成一个「N 次工具调用」分组（展开才是逐行卡）。
+  const feed = chatFeedGrouped(chat)
 
   // 「已思考」摘要行的插入点：最后一个 user 消息之后的首条 assistant（即本回合回复）。
   const lastUserIndex = chat.messages.findLastIndex((message) => message.role === 'user')
@@ -1305,6 +1353,8 @@ export function ChatPanel({
             {feed.map((entry) =>
               entry.kind === 'tool' ? (
                 <ToolRowCard key={entry.key} tool={entry.tool} subagents={chat.subagents} />
+              ) : entry.kind === 'tool-group' ? (
+                <ToolGroupCard key={entry.key} tools={entry.tools} subagents={chat.subagents} />
               ) : (
                 renderMessage(entry.message)
               ),

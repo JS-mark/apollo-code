@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatState } from '../session-stream'
 import {
   chatFeed,
+  chatFeedGrouped,
   initialChatState,
   reduceChatState,
   toolBodyLabel,
@@ -894,5 +895,82 @@ describe('chatFeed 会话流混排（工具卡跟随其发生的时点）', () =
     state = reduceChatState(state, { type: 'echo', text: '三', images: [] })
     expect(state.messages.map((message) => message.seq)).toEqual([1, 2, 3])
     expect(state.nextSeq).toBe(4)
+  })
+})
+
+describe('chatFeedGrouped 连续工具行分组折叠', () => {
+  /** 两工具一消息的最小混排态（t1/t2 相邻，m1/m2 切在两侧）。 */
+  function mixedState() {
+    return reduceMany(initialChatState, [
+      envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm1', role: 'user', content: [{ type: 'text', text: '开工' }] },
+      }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Read' } }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't2', tool: 'Edit' } }),
+      envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm2', role: 'assistant', content: [{ type: 'text', text: '完成' }] },
+      }),
+    ])
+  }
+
+  it('相邻 ≥2 的工具卡合并成组（key = grp:首卡），消息原样保留', () => {
+    const feed = chatFeedGrouped(mixedState())
+    expect(feed.map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2'])
+    const group = feed[1]
+    if (group?.kind !== 'tool-group') throw new Error('expected tool-group')
+    expect(group.tools.map((tool) => tool.toolUseId)).toEqual(['t1', 't2'])
+  })
+
+  it('单条工具不分组（保持平铺 key）；消息切断不相邻的工具', () => {
+    const single = reduceMany(initialChatState, [
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Bash' } }),
+      envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm1', role: 'assistant', content: [{ type: 'text', text: '好' }] },
+      }),
+    ])
+    expect(chatFeedGrouped(single).map((entry) => entry.key)).toEqual(['t1', 'm1'])
+
+    // t1 与 t2 之间隔着 m2：两个平铺卡，不成组。
+    const split = reduceMany(initialChatState, [
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Bash' } }),
+      envelope('core', {
+        type: 'message.appended',
+        payload: { messageId: 'm2', role: 'assistant', content: [{ type: 'text', text: '中' }] },
+      }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't3', tool: 'Read' } }),
+    ])
+    expect(chatFeedGrouped(split).map((entry) => entry.key)).toEqual(['t1', 'm2', 't3'])
+  })
+
+  it('运行中追加新卡并入组且 key 不变（展开态跨重渲染保持的前提）', () => {
+    let state = reduceMany(initialChatState, [
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Read' } }),
+    ])
+    expect(chatFeedGrouped(state).map((entry) => entry.key)).toEqual(['t1'])
+    state = reduceChatState(
+      state,
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't2', tool: 'Edit' } }),
+    )
+    const feed = chatFeedGrouped(state)
+    expect(feed.map((entry) => entry.key)).toEqual(['grp:t1'])
+    const group = feed[0]
+    if (group?.kind !== 'tool-group') throw new Error('expected tool-group')
+    expect(group.tools).toHaveLength(2)
+  })
+
+  it('组内状态随事件流动（完成/失败在组内卡上原地更新）', () => {
+    let state = mixedState()
+    state = reduceChatState(
+      state,
+      envelope('core', { type: 'tool.completed', payload: { toolUseId: 't1', isError: true } }),
+    )
+    const feed = chatFeedGrouped(state)
+    const group = feed[1]
+    if (group?.kind !== 'tool-group') throw new Error('expected tool-group')
+    expect(group.tools.find((tool) => tool.toolUseId === 't1')?.status).toBe('error')
+    expect(group.tools.find((tool) => tool.toolUseId === 't2')?.status).toBe('running')
   })
 })

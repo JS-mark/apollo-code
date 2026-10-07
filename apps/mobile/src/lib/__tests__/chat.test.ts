@@ -1000,6 +1000,83 @@ describe('chatFeed 会话流混排（工具卡进消息流）', () => {
   })
 })
 
+describe('chatFeedGrouped 连续工具行分组折叠', () => {
+  /** 两工具一消息的最小混排态（t1/t2 相邻，m1/m2 切在两侧）。 */
+  function mixedState() {
+    return [
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: { messageId: 'm1', role: 'user', content: [{ type: 'text', text: '开工' }] },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't1', tool: 'Read' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't2', tool: 'Edit' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm2',
+            role: 'assistant',
+            content: [{ type: 'text', text: '完成' }],
+          },
+        }),
+      },
+    ]
+  }
+
+  it('相邻 ≥2 的工具卡合并成组（key = grp:首卡），单条与被消息切断的不成组', async () => {
+    const { chatFeedGrouped } = await import('../chat')
+    const feed = chatFeedGrouped(mixedState().reduce(reduceChatState, initialChatState))
+    expect(feed.map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2'])
+    const group = feed[1]
+    if (group?.kind !== 'tool-group') throw new Error('expected tool-group')
+    expect(group.tools.map((tool) => tool.toolUseId)).toEqual(['t1', 't2'])
+
+    const single = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 't1', tool: 'Bash' },
+      }),
+    })
+    expect(chatFeedGrouped(single).map((entry) => entry.key)).toEqual(['t1'])
+  })
+
+  it('运行中追加新卡并入组且 key 不变；组内状态随事件流动', async () => {
+    const { chatFeedGrouped } = await import('../chat')
+    let state = mixedState().reduce(reduceChatState, initialChatState)
+    expect(chatFeedGrouped(state).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2'])
+    state = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('core', {
+        type: 'tool.completed',
+        payload: { toolUseId: 't1', isError: true },
+      }),
+    })
+    const feed = chatFeedGrouped(state)
+    expect(feed.map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2'])
+    const group = feed[1]
+    if (group?.kind !== 'tool-group') throw new Error('expected tool-group')
+    expect(group.tools.find((tool) => tool.toolUseId === 't1')?.status).toBe('error')
+    expect(group.tools.find((tool) => tool.toolUseId === 't2')?.status).toBe('running')
+  })
+})
+
 describe('ask.request / ask.resolved（AskUserQuestion 问答卡）与 MCP 标签', () => {
   const ask = {
     id: 'ask-1',

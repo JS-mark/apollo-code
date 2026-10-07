@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { initialChatState, type ChatState, type ToolCard } from '../../lib/chat'
 import type { StagedAttachment } from '../../lib/gateway'
-import { ChatView, ToolRow } from '../ChatView'
+import { ChatView, ToolGroupRow, ToolRow } from '../ChatView'
 
 const staged: StagedAttachment = { kind: 'image', mime: 'image/png', size: 1, handle: 'h-1' }
 
@@ -84,5 +84,58 @@ describe('ChatView 会话流空态（有会话无消息）', () => {
     expect(html).toContain('tool-chevron')
     expect(html).not.toContain('tool-card-wrap open')
     expect(html).toContain('aria-hidden="true"')
+  })
+})
+
+describe('ToolGroupRow 连续工具行分组', () => {
+  const tool = (id: string, status: ToolCard['status']): ToolCard => ({
+    toolUseId: id,
+    tool: 'Read',
+    status,
+    target: 'a.ts',
+  })
+
+  it('默认折叠：只显示「N 次工具调用」头，行卡与详情卡都收起', () => {
+    const html = renderToStaticMarkup(
+      <ToolGroupRow
+        tools={[tool('t1', 'done'), { ...tool('t2', 'error'), body: 'x' }]}
+        subagents={{}}
+      />,
+    )
+    expect(html).toContain('2 次工具调用')
+    expect(html).toContain('1 个失败')
+    expect(html).toContain('tool-group-wrap')
+    expect(html).not.toContain('tool-group-wrap open')
+    // 逐行卡仍在 DOM（展开即现），标签走各自行卡的中文映射。
+    expect(html).toContain('读取')
+  })
+
+  it('分组头聚合进度：全部运行中 / 部分完成 / 全部收口三态', () => {
+    const allRunning = renderToStaticMarkup(
+      <ToolGroupRow
+        tools={[tool('t1', 'running'), tool('t2', 'running'), tool('t3', 'running')]}
+        subagents={{}}
+      />,
+    )
+    expect(allRunning).toContain('3 次工具调用')
+    expect(allRunning).toContain('3 个运行中')
+
+    const partial = renderToStaticMarkup(
+      <ToolGroupRow
+        tools={[tool('t1', 'done'), tool('t2', 'done'), tool('t3', 'running')]}
+        subagents={{}}
+      />,
+    )
+    expect(partial).toContain('2 个完成 · 1 个运行中')
+
+    const settled = renderToStaticMarkup(
+      <ToolGroupRow
+        tools={[tool('t1', 'done'), tool('t2', 'done'), tool('t3', 'done')]}
+        subagents={{}}
+      />,
+    )
+    expect(settled).toContain('3 次工具调用')
+    expect(settled).not.toContain('个完成')
+    expect(settled).not.toContain('个运行中')
   })
 })

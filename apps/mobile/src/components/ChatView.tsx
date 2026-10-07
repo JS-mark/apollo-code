@@ -30,7 +30,7 @@ import { Virtuoso } from 'react-virtuoso'
 import remarkGfm from 'remark-gfm'
 
 import {
-  chatFeed,
+  chatFeedGrouped,
   type ChatMessage,
   type ChatMessageImage,
   type ChatState,
@@ -68,7 +68,7 @@ export interface SubmitImage extends ChatMessageImage {
  */
 function toolChipLabel(tool: ToolCard, subagents: Record<string, SubagentActivity>): string {
   if (tool.tool !== 'Task') return tool.tool
-  const name = `🤖 ${tool.task?.agentType ?? 'subagent'}`
+  const name = `🤖 ${tool.task?.agentType ?? '子代理'}`
   const activity = tool.turnId ? subagents[tool.turnId] : undefined
   if (!activity) return name
   if (tool.status === 'running' && activity.lastTool) return `${name} · ${activity.lastTool}`
@@ -322,6 +322,56 @@ const ToolRow = memo(function ToolRowInner({
 /** 导出仅供测试（静态渲染断言折叠/展开面）。 */
 export { ToolRow }
 
+/**
+ * 连续工具行分组：相邻 ≥2 张工具卡默认折成「N 次工具调用」一行，展开后逐行
+ * 渲染原 ToolRow（行内仍可再展开详情卡）。分组头是折叠态唯一的状态面，聚合
+ * 展示进度——部分完成「K 个完成 · M 个运行中」（带 spinner）、有失败红标
+ * 「F 个失败」；全部收口且无失败时只剩条数。key 由 chatFeedGrouped 取首卡
+ * toolUseId——运行中追加新卡不换 key，Virtuoso 复用项不闪。
+ */
+const ToolGroupRow = memo(function ToolGroupRowInner({
+  tools,
+  subagents,
+}: {
+  tools: ToolCard[]
+  subagents: Record<string, SubagentActivity>
+}) {
+  const [open, setOpen] = useState(false)
+  const running = tools.filter((tool) => tool.status === 'running').length
+  const failed = tools.filter((tool) => tool.status === 'error').length
+  const done = tools.length - running - failed
+  const progress = [
+    ...(running > 0 && done > 0 ? [`${done} 个完成`] : []),
+    ...(running > 0 ? [`${running} 个运行中`] : []),
+  ]
+  return (
+    <div className="tool-block">
+      <button
+        type="button"
+        className="tool-row"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {running > 0 ? <LoadingOutlined style={{ fontSize: 10, flexShrink: 0 }} /> : null}
+        <span className="tool-name">{tools.length} 次工具调用</span>
+        {progress.length > 0 ? <span className="tool-target">{progress.join(' · ')}</span> : null}
+        {failed > 0 ? <span className="tool-status error">{failed} 个失败</span> : null}
+        <RightOutlined className={`tool-chevron${open ? ' open' : ''}`} />
+      </button>
+      <div className={`tool-group-wrap${open ? ' open' : ''}`} aria-hidden={!open}>
+        <div className="tool-group-body">
+          {tools.map((tool) => (
+            <ToolRow key={tool.toolUseId} tool={tool} subagents={subagents} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+})
+
+/** 导出仅供测试（静态渲染断言分组折叠面）。 */
+export { ToolGroupRow }
+
 /** 水合期骨架气泡的形状（宽×高，模拟即将到来的消息轮廓）。 */
 const HYDRATE_BUBBLES = [
   { role: 'assistant', width: 96, height: 40 },
@@ -537,7 +587,7 @@ export function ChatView({
   }
 
   const messages = state.messages
-  const feed = chatFeed(state)
+  const feed = chatFeedGrouped(state)
   const showSkeleton = loading && messages.length === 0 && state.tools.length === 0
   // 状态提示（对齐 TUI StreamingStatus：动词 · 秒数 · ↑ tokens）：阶段取最后一个
   // 运行中的工具卡（无则思考/等待模型）；中断入口在 composer 的「中断」按钮。
@@ -610,6 +660,8 @@ export function ChatView({
             <div className="chat-item">
               {entry.kind === 'message' ? (
                 <MessageBubble entry={entry.message} resolveAttachment={resolveAttachment} />
+              ) : entry.kind === 'tool-group' ? (
+                <ToolGroupRow tools={entry.tools} subagents={state.subagents} />
               ) : (
                 <ToolRow tool={entry.tool} subagents={state.subagents} />
               )}

@@ -173,20 +173,53 @@ export const initialChatState: ChatState = {
  * 会话流混排：消息气泡与工具卡按到达序号排序渲染（工具卡跟随其发生的时点，
  * 完成/失败只更新状态不挪位置）。缺 seq 的历史数据（旧持久化）排最后保底。
  */
-export type FeedEntry =
+type FlatEntry =
   | { kind: 'message'; key: string; message: ChatMessage }
   | { kind: 'tool'; key: string; tool: ToolCard }
 
-export function chatFeed(state: ChatState): FeedEntry[] {
-  const entries: FeedEntry[] = [
-    ...state.messages.map((message): FeedEntry => ({ kind: 'message', key: message.id, message })),
-    ...state.tools.map((tool): FeedEntry => ({ kind: 'tool', key: tool.toolUseId, tool })),
+export type FeedEntry = FlatEntry | { kind: 'tool-group'; key: string; tools: ToolCard[] }
+
+export function chatFeed(state: ChatState): FlatEntry[] {
+  const entries: FlatEntry[] = [
+    ...state.messages.map((message): FlatEntry => ({ kind: 'message', key: message.id, message })),
+    ...state.tools.map((tool): FlatEntry => ({ kind: 'tool', key: tool.toolUseId, tool })),
   ]
   return entries.toSorted((a, b) => {
     const seqA = a.kind === 'message' ? a.message.seq : a.tool.seq
     const seqB = b.kind === 'message' ? b.message.seq : b.tool.seq
     return (seqA ?? Number.MAX_SAFE_INTEGER) - (seqB ?? Number.MAX_SAFE_INTEGER)
   })
+}
+
+/**
+ * 会话流渲染投影：在 chatFeed 混排之上把相邻 ≥2 的工具行合并成一个可折叠分组
+ * （默认只显示「N 次工具调用」一行，展开才是逐行卡——长工具链不再刷屏）。
+ * 单条工具保持原样（「1 次工具调用」是纯噪音）；助手/用户消息天然切断分组。
+ * key 取 `grp:` + 首卡 toolUseId——运行中追加新卡不换 key，展开态跨重渲染保持。
+ */
+export function chatFeedGrouped(state: ChatState): FeedEntry[] {
+  const grouped: FeedEntry[] = []
+  let run: ToolCard[] = []
+  const flush = () => {
+    const first = run[0]
+    if (first === undefined) {
+      run = []
+      return
+    }
+    if (run.length === 1) grouped.push({ kind: 'tool', key: first.toolUseId, tool: first })
+    else grouped.push({ kind: 'tool-group', key: `grp:${first.toolUseId}`, tools: run })
+    run = []
+  }
+  for (const entry of chatFeed(state)) {
+    if (entry.kind === 'tool') {
+      run.push(entry.tool)
+      continue
+    }
+    flush()
+    grouped.push(entry)
+  }
+  flush()
+  return grouped
 }
 
 type Envelope = {

@@ -370,7 +370,8 @@ div.tool-row:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .tool-chevron,
-  .tool-card-wrap {
+  .tool-card-wrap,
+  .tool-group-wrap {
     transition: none;
   }
 }
@@ -418,6 +419,33 @@ div.tool-row:hover {
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* 连续工具行分组（≥2）：默认折成「N 次工具调用」一行；展开沿左缩进线逐行排卡
+   （展开动画与详情卡同款 grid 0fr→1fr）。 */
+.tool-group-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin: 1px 0 2px;
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.645, 0.045, 0.355, 1),
+    opacity 0.2s cubic-bezier(0.215, 0.61, 0.355, 1),
+    visibility 0.24s;
+}
+.tool-group-wrap.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+}
+.tool-group-body {
+  min-height: 0;
+  overflow: hidden;
+  margin-left: 13px;
+  padding-left: 10px;
+  border-left: 2px solid var(--ant-color-border-secondary);
+  display: flex;
+  flex-direction: column;
 }
 /* 权限请求卡片 */
 .perm-card {
