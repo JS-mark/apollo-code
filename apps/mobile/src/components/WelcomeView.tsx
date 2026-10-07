@@ -8,7 +8,10 @@
 import { SoundOutlined } from '@ant-design/icons'
 import { Button, Spin, Typography } from 'antd'
 
+import { useI18n } from '../lib/i18n'
+
 export function WelcomeView({ connected, onSkip }: { connected: boolean; onSkip(): void }) {
+  const { t } = useI18n()
   return (
     <div
       style={{
@@ -22,18 +25,20 @@ export function WelcomeView({ connected, onSkip }: { connected: boolean; onSkip(
     >
       <SoundOutlined style={{ fontSize: 40, color: '#1677ff' }} />
       <Typography.Title level={3} style={{ margin: 0 }}>
-        Volund 远程
+        {t('common.appTitle')}
       </Typography.Title>
       <Typography.Text type="secondary" style={{ textAlign: 'center' }}>
-        远程控制你的 Volund 桌面端
+        {t('welcome.subtitle')}
       </Typography.Text>
       {!connected && <Spin size="small" style={{ marginTop: 6 }} />}
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {connected ? '已连接，正在进入…' : `正在连接网关 ${window.location.host}…`}
+        {connected
+          ? t('welcome.entering')
+          : t('welcome.connecting', { host: window.location.host })}
       </Typography.Text>
       {!connected && (
         <Button type="link" size="small" onClick={onSkip}>
-          暂不连接，直接进入
+          {t('welcome.skip')}
         </Button>
       )}
     </div>

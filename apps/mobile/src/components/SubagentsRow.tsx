@@ -8,15 +8,17 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 
+import type { DictKey } from '../lib/dict'
 import type { GatewayApi, SubagentRunRow } from '../lib/gateway'
+import { useI18n } from '../lib/i18n'
 
-const STATUS_LABEL: Record<SubagentRunRow['status'], string> = {
-  running: '运行中',
-  completed: '已完成',
-  partial: '部分结果',
-  failed: '失败',
-  cancelled: '已取消',
-  interrupted: '已中断',
+const STATUS_KEY: Record<SubagentRunRow['status'], DictKey> = {
+  running: 'common.running',
+  completed: 'subagents.completed',
+  partial: 'subagents.partial',
+  failed: 'common.failed',
+  cancelled: 'subagents.cancelled',
+  interrupted: 'subagents.interrupted',
 }
 
 function duration(row: SubagentRunRow, now: number): string {
@@ -40,6 +42,7 @@ export function SubagentsRow({
   /** 测试种子：初始展开（静态渲染无交互）；生产不传。 */
   initialOpen?: boolean
 }) {
+  const { t } = useI18n()
   const [runs, setRuns] = useState<readonly SubagentRunRow[]>(initialRuns ?? [])
   const [open, setOpen] = useState(initialOpen ?? false)
   const [cancelling, setCancelling] = useState<string | undefined>()
@@ -91,7 +94,7 @@ export function SubagentsRow({
   }
 
   return (
-    <div className="subagents-row" role="region" aria-label="subagent 运行">
+    <div className="subagents-row" role="region" aria-label={t('subagents.region')}>
       <button
         type="button"
         className="subagents-row-head"
@@ -99,7 +102,7 @@ export function SubagentsRow({
         onClick={() => setOpen((value) => !value)}
       >
         <span className="subagents-row-pulse" aria-hidden />
-        Subagents · {runningCount} 运行中 / {runs.length} 总计
+        {t('subagents.header', { running: runningCount, total: runs.length })}
         <span className="subagents-row-chevron" aria-hidden>
           {open ? '▾' : '▸'}
         </span>
@@ -108,7 +111,7 @@ export function SubagentsRow({
         <div className="subagents-row-list">
           {runs.map((row) => (
             <div key={row.sessionId} className="subagents-row-item">
-              <span className="subagents-row-status">{STATUS_LABEL[row.status]}</span>
+              <span className="subagents-row-status">{t(STATUS_KEY[row.status])}</span>
               <span className="subagents-row-name">{row.agentType ?? 'task-agent'}</span>
               <span className="subagents-row-preview">{row.promptPreview}</span>
               <span className="subagents-row-duration">{duration(row, now)}</span>
@@ -119,7 +122,7 @@ export function SubagentsRow({
                   disabled={cancelling !== undefined}
                   onClick={() => void cancel(row.sessionId)}
                 >
-                  {cancelling === row.sessionId ? '取消中…' : '取消'}
+                  {cancelling === row.sessionId ? t('subagents.cancelling') : t('common.cancel')}
                 </button>
               )}
             </div>

@@ -8,6 +8,10 @@
  * bash.command、net.method+url、env.read、custom.*。
  */
 
+import { pickCopy, SPEC_KIND_LABELS } from '@volund/shared/ui-copy'
+
+import { currentLocale } from './i18n'
+
 /** 一条能力行：kind 决定配色（write/run 提示副作用，read/net 偏中性）。 */
 export interface PermissionSpecLine {
   kind: 'read' | 'write' | 'run' | 'net' | 'env' | 'custom'
@@ -15,14 +19,9 @@ export interface PermissionSpecLine {
   value: string
 }
 
-/** 能力行标签（中文 gutter，与 TUI 卡面同文案）。 */
-export const SPEC_KIND_LABELS: Record<PermissionSpecLine['kind'], string> = {
-  read: '读取',
-  write: '写入',
-  run: '运行',
-  net: '网络',
-  env: '环境',
-  custom: '自定义',
+/** 能力行标签（shared 跨端文案表权威，i18n-r1 收编双份手抄；TUI 取 en）。 */
+export function specKindLabel(kind: PermissionSpecLine['kind']): string {
+  return pickCopy(SPEC_KIND_LABELS[kind], currentLocale())
 }
 
 /**
@@ -62,7 +61,7 @@ export function summarizePermissionSpec(spec: unknown): readonly PermissionSpecL
   if (!record) return []
   const lines: PermissionSpecLine[] = []
   const push = (kind: PermissionSpecLine['kind'], value: string) =>
-    lines.push({ kind, label: SPEC_KIND_LABELS[kind], value })
+    lines.push({ kind, label: specKindLabel(kind), value })
   const fs = asRecord(record.fs)
   for (const key of ['read', 'write'] as const) {
     const paths = fs ? stringArrayOf(fs, key) : undefined

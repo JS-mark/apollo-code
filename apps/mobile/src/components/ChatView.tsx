@@ -39,6 +39,7 @@ import {
   toolLabel,
 } from '../lib/chat'
 import type { GatewayApi, StagedAttachment } from '../lib/gateway'
+import { currentLocale, translate, useI18n } from '../lib/i18n'
 import { AskStack } from './AskStack'
 import { ChangesCard } from './ChangesCard'
 import { PermissionStack } from './PermissionStack'
@@ -73,7 +74,7 @@ function toolChipLabel(tool: ToolCard, subagents: Record<string, SubagentActivit
   if (!activity) return name
   if (tool.status === 'running' && activity.lastTool) return `${name} · ${activity.lastTool}`
   if (tool.status !== 'running' && activity.toolCalls > 0)
-    return `${name} · ${activity.toolCalls} 次调用`
+    return `${name} · ${translate(currentLocale(), 'chat.toolCallCount', { count: activity.toolCalls })}`
   return name
 }
 
@@ -96,6 +97,7 @@ const MessageBubble = memo(function MessageBubble({
   entry: ChatMessage
   resolveAttachment: (handle: string) => Promise<string>
 }) {
+  const { t } = useI18n()
   if (entry.role === 'user' || entry.role === 'system') {
     return (
       <div className={`bubble-row ${entry.role}`}>
@@ -122,7 +124,7 @@ const MessageBubble = memo(function MessageBubble({
         {entry.thinking && (
           <details className="thinking">
             <summary>
-              思考过程
+              {t('chat.thinkingLabel')}
               {entry.streaming && !entry.text && <TypingDots />}
             </summary>
             <div className="thinking-body">{entry.thinking}</div>
@@ -146,6 +148,7 @@ function AttachmentImage({
   image: ChatMessageImage
   resolveAttachment: (handle: string) => Promise<string>
 }) {
+  const { t } = useI18n()
   const [src, setSrc] = useState<string | undefined>(image.previewUrl)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
@@ -173,7 +176,7 @@ function AttachmentImage({
   if (failed || (!image.previewUrl && !image.handle)) return <span>{image.chip}</span>
   if (src === undefined)
     return (
-      <span className="msg-image-loading" aria-label={`加载 ${image.chip}`}>
+      <span className="msg-image-loading" aria-label={t('chat.imageLoading', { name: image.chip })}>
         <LoadingOutlined />
       </span>
     )
@@ -228,14 +231,15 @@ function ToolGlyph({ tool }: { tool: string }) {
 
 /** 展开卡头部的复制按钮：Copy→Check +「已复制」（全产品统一惯例）。 */
 function ToolCopyButton({ text }: { text: string }) {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   return (
-    <Tooltip title={copied ? '已复制' : '复制'}>
+    <Tooltip title={copied ? t('common.copied') : t('common.copy')}>
       <Button
         size="small"
         type="text"
         icon={copied ? <CheckOutlined /> : <CopyOutlined />}
-        aria-label={copied ? '已复制' : '复制'}
+        aria-label={copied ? t('common.copied') : t('common.copy')}
         onClick={(event) => {
           event.stopPropagation()
           void navigator.clipboard.writeText(text).then(() => {
@@ -260,6 +264,7 @@ const ToolRow = memo(function ToolRowInner({
   tool: ToolCard
   subagents: Record<string, SubagentActivity>
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const isTask = tool.tool === 'Task'
   const expandable = tool.body !== undefined
@@ -281,7 +286,7 @@ const ToolRow = memo(function ToolRowInner({
           <LoadingOutlined style={{ fontSize: 10, flexShrink: 0 }} />
         )
       ) : tool.status === 'error' ? (
-        <span className="tool-status error">失败</span>
+        <span className="tool-status error">{t('common.failed')}</span>
       ) : null}
       {expandable ? <RightOutlined className={`tool-chevron${open ? ' open' : ''}`} /> : null}
     </>
@@ -305,9 +310,11 @@ const ToolRow = memo(function ToolRowInner({
           <div className="tool-card">
             <div className="tool-card-head">
               <span className="tool-card-title">{tool.tool.toLowerCase()}</span>
-              {tool.status === 'running' ? <span className="tool-card-status">运行中</span> : null}
+              {tool.status === 'running' ? (
+                <span className="tool-card-status">{t('common.running')}</span>
+              ) : null}
               {tool.status === 'error' ? (
-                <span className="tool-card-status error">失败</span>
+                <span className="tool-card-status error">{t('common.failed')}</span>
               ) : null}
               <ToolCopyButton text={tool.body} />
             </div>
@@ -381,6 +388,7 @@ const HYDRATE_BUBBLES = [
 
 /** transcript 水合期：俏皮加载（骨架气泡依次漂浮 + 「正在输入」气泡呼吸）。 */
 function HydratingSkeleton() {
+  const { t } = useI18n()
   return (
     <div aria-busy="true" className="chat-hydrate">
       {HYDRATE_BUBBLES.map(({ role, width, height }, index) => (
@@ -396,13 +404,14 @@ function HydratingSkeleton() {
         <span />
         <span />
       </div>
-      <div className="chat-hydrate-caption">对话加载中…</div>
+      <div className="chat-hydrate-caption">{t('chat.loadingConversation')}</div>
     </div>
   )
 }
 
 /** 会话流空态：会话里还没有任何消息时的俏皮引导（主气泡悬浮 + 三点弹跳 + 迷你气泡绕游）。 */
 function EmptyStream() {
+  const { t } = useI18n()
   return (
     <div className="chat-blank-stream">
       <div className="chat-blank-scene" aria-hidden>
@@ -414,8 +423,8 @@ function EmptyStream() {
           <span className="chat-blank-dot" />
         </div>
       </div>
-      <div className="chat-blank-title">这里静悄悄的…</div>
-      <div className="chat-blank-sub">发条消息，唤醒你的助手 ✨</div>
+      <div className="chat-blank-title">{t('chat.emptyTitle')}</div>
+      <div className="chat-blank-sub">{t('chat.emptySubtitle')}</div>
     </div>
   )
 }
@@ -488,6 +497,7 @@ export function ChatView({
   /** 停摆兜底触发（turn 在跑但长窗口无事件且无运行中工具）：进 reducer 收口流式气泡。 */
   onStall(): void
 }) {
+  const { t } = useI18n()
   const [text, setText] = useState('')
   const [images, setImages] = useState<PendingImage[]>([])
   const chipSeqRef = useRef(0)
@@ -565,7 +575,7 @@ export function ChatView({
     // 带图片的消息不排队（staged handle 有时效），提示等空闲再发。
     if (state.turn === 'running') {
       if (ready.length > 0) {
-        onNotice('当前回合进行中：带图片的消息请等回合结束后再发送')
+        onNotice(t('chat.imageBusyNotice'))
         return
       }
       onQueuePush(`q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, value)
@@ -594,16 +604,16 @@ export function ChatView({
   const runningTool = state.tools.findLast((tool) => tool.status === 'running')
   const runningToolLabel = runningTool
     ? runningTool.tool === 'Task'
-      ? '子代理'
+      ? t('chat.subagent')
       : toolLabel(runningTool.tool)
     : undefined
   const streamedTokens = Math.round(state.streamedChars / 4)
   const runningHint =
     runningToolLabel !== undefined
-      ? `正在运行 ${runningToolLabel}…`
+      ? t('chat.runningTool', { name: runningToolLabel })
       : elapsed < 2
-        ? '正在思考…'
-        : '思考中…'
+        ? t('chat.thinkingInitial')
+        : t('chat.thinkingOngoing')
 
   // 中断提示上的「重试」：重发最后一条已收口的 user 消息（乐观回显不重发；
   // 纯图消息 chip 剥离后 text 为空，没有可重发的文本，不出现按钮）。
@@ -618,9 +628,9 @@ export function ChatView({
   if (activeSessionId === undefined && !loading) {
     return (
       <div className="chat-empty">
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有进行中的会话">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('chat.noSessionEmpty')}>
           <Button type="primary" onClick={onGoSessions}>
-            去选择会话
+            {t('chat.goSessions')}
           </Button>
         </Empty>
         {state.notice && (
@@ -676,16 +686,19 @@ export function ChatView({
           !messages.some((message) => message.streaming && message.text) && (
             <div className="overlay-hint">
               {runningHint}
-              {elapsed >= 2 ? `（${elapsed}s` : ''}
-              {elapsed >= 2 && streamedTokens > 0 ? ` · ↑ ${streamedTokens} tokens` : ''}
-              {elapsed >= 2 ? '）' : ''}
+              {elapsed >= 2
+                ? t('chat.elapsedSuffix', {
+                    seconds: elapsed,
+                    tokens: streamedTokens > 0 ? ` · ↑ ${streamedTokens} tokens` : '',
+                  })
+                : ''}
               <TypingDots />
             </div>
           )}
         {/* 用户主动中断：灰字弱化 + 重试（不是报错，不进警示条）。 */}
         {state.interrupted && (
           <div className="overlay-hint chat-interrupted">
-            <span>已中断本次回复</span>
+            <span>{t('chat.interrupted')}</span>
             {lastUserText && (
               <Button
                 type="link"
@@ -693,7 +706,7 @@ export function ChatView({
                 style={{ padding: 0, height: 'auto' }}
                 onClick={retryLast}
               >
-                重试
+                {t('common.retry')}
               </Button>
             )}
           </div>
@@ -734,11 +747,13 @@ export function ChatView({
               <span key={image.chip} className={`chip ${image.status}`}>
                 <img src={image.previewUrl} alt={image.chip} />
                 {image.status === 'uploading' && <LoadingOutlined className="chip-status" />}
-                {image.status === 'error' && <span className="chip-status">失败</span>}
+                {image.status === 'error' && (
+                  <span className="chip-status">{t('common.failed')}</span>
+                )}
                 <button
                   type="button"
                   className="chip-remove"
-                  aria-label={`移除 ${image.chip}`}
+                  aria-label={t('chat.removeImage', { name: image.chip })}
                   onClick={() => removeImage(image.chip)}
                 >
                   <CloseOutlined style={{ fontSize: 10 }} />
@@ -751,7 +766,7 @@ export function ChatView({
           <button
             type="button"
             className="attach-btn"
-            aria-label="添加图片"
+            aria-label={t('chat.addImage')}
             disabled={!connected}
             onClick={() => fileRef.current?.click()}
           >
@@ -772,7 +787,7 @@ export function ChatView({
           <Input
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder={connected ? '发消息…' : '连接中…'}
+            placeholder={connected ? t('chat.placeholder') : t('chat.connecting')}
             disabled={!connected}
             onPressEnter={send}
             enterKeyHint="send"
@@ -780,7 +795,7 @@ export function ChatView({
           />
           {state.turn === 'running' ? (
             <Button type="text" danger icon={<StopOutlined />} onClick={onInterrupt}>
-              中断
+              {t('chat.interrupt')}
             </Button>
           ) : (
             <Button
@@ -793,7 +808,7 @@ export function ChatView({
               onClick={send}
               style={{ borderRadius: 18 }}
             >
-              发送
+              {t('common.send')}
             </Button>
           )}
         </div>
@@ -836,6 +851,7 @@ export function SendQueueList({
   onRemove(id: string): void
   onReorder(order: readonly string[]): void
 }) {
+  const { t } = useI18n()
   const [drag, setDrag] = useState<SendQueueDrag | undefined>(undefined)
   const dragRef = useRef<SendQueueDrag | undefined>(undefined)
   const [removing, setRemoving] = useState<readonly string[]>([])
@@ -906,7 +922,7 @@ export function SendQueueList({
   }
 
   return (
-    <div className="send-queue" aria-label="发送队列">
+    <div className="send-queue" aria-label={t('chat.sendQueue')}>
       {(() => {
         // 拖拽期间徽标按视觉位次实时重排（数组真实顺序要等落位才提交）。
         const visualOrder = Array.from({ length: queue.length }, (_, i) => i)
@@ -948,7 +964,7 @@ export function SendQueueList({
             >
               <span
                 className="send-queue-handle"
-                aria-label={`拖动排序：${item.text}`}
+                aria-label={t('chat.dragReorder', { name: item.text })}
                 onTouchStart={(event) => {
                   if (removeTimers.current.has(item.id)) return
                   commitSettle()
@@ -992,7 +1008,7 @@ export function SendQueueList({
               <button
                 type="button"
                 className="send-queue-remove"
-                aria-label="移出队列"
+                aria-label={t('chat.removeFromQueue')}
                 onClick={() => handleRemove(item.id)}
               >
                 <CloseOutlined style={{ fontSize: 10 }} />

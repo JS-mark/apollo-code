@@ -13,25 +13,36 @@
  * - 不可审批（display.approvable=false）：细节不可安全展示，仅可拒绝（fail closed）。
  */
 import { LoadingOutlined } from '@ant-design/icons'
+import {
+  PERMISSION_DECISION_LABELS,
+  pickCopy,
+  type PermissionDecisionKind,
+} from '@volund/shared/ui-copy'
 import { useEffect, useRef, useState } from 'react'
 
 import type { PermissionCard } from '../lib/chat'
+import { currentLocale, translate, useI18n } from '../lib/i18n'
 import { parsePermissionDisplaySpec, type PermissionSpecLine } from '../lib/permission-spec'
 import { PermissionLineageBadge } from './PermissionLineageBadge'
 
+/** 档位标签：shared 跨端文案表权威（与 TUI/web 同源），mobile 取 short 紧凑变体。 */
+function decisionLabel(kind: PermissionDecisionKind): string {
+  return pickCopy(PERMISSION_DECISION_LABELS[kind].short, currentLocale())
+}
+
 /** 主操作（大按钮，一键生效）。 */
 const PRIMARY_ACTIONS = [
-  { kind: 'allow-once', label: '允许本次', tone: 'approve' },
-  { kind: 'deny', label: '拒绝', tone: 'deny' },
+  { kind: 'allow-once', tone: 'approve' },
+  { kind: 'deny', tone: 'deny' },
 ] as const
 
 /** 次要档位（小 pill，同样一键生效）：放行族在前，危险档靠后。 */
 const SECONDARY_ACTIONS = [
-  { kind: 'allow-session', label: '本会话', tone: 'allow' },
-  { kind: 'allow-project', label: '项目', tone: 'allow' },
-  { kind: 'allow-forever', label: '永久', tone: 'allow' },
-  { kind: 'allow-all-session', label: '全放行', tone: 'warn' },
-  { kind: 'deny-forever', label: '永不', tone: 'deny' },
+  { kind: 'allow-session', tone: 'allow' },
+  { kind: 'allow-project', tone: 'allow' },
+  { kind: 'allow-forever', tone: 'allow' },
+  { kind: 'allow-all-session', tone: 'warn' },
+  { kind: 'deny-forever', tone: 'deny' },
 ] as const
 
 /** spec 能力行的色调（write/run 提示副作用）。 */
@@ -104,8 +115,8 @@ function SpecValueRows({ line }: { line: PermissionSpecLine }) {
 /** 审批倒计时文案：剩余秒数；归零后到局前（网关 deny → resolved 清卡）的过渡文案。 */
 function countdownLabel(expiresAt: number, now: number): string {
   const remaining = Math.round((expiresAt - now) / 1000)
-  if (remaining <= 0) return '自动拒绝中…'
-  return `${remaining}s 后自动拒绝`
+  if (remaining <= 0) return translate(currentLocale(), 'perm.autoDenying')
+  return translate(currentLocale(), 'perm.autoDenyIn', { seconds: remaining })
 }
 
 export function PermissionStack({
@@ -115,6 +126,7 @@ export function PermissionStack({
   permissions: readonly PermissionCard[]
   onDecide(requestId: string, kind: string): void
 }) {
+  const { t } = useI18n()
   const [activeIndex, setActiveIndex] = useState(0)
   /** 在途决策（点过的档位）：锁全部按钮直到了局投影变化；超时兜底解锁。 */
   const [pendingKind, setPendingKind] = useState<string | undefined>()
@@ -173,10 +185,10 @@ export function PermissionStack({
   )
 
   return (
-    <section className="permstack" aria-label="权限请求">
+    <section className="permstack" aria-label={t('perm.title')}>
       <div className="perm-head">
         <span className="perm-pulse" aria-hidden />
-        <span className="perm-title">权限请求</span>
+        <span className="perm-title">{t('perm.title')}</span>
         <span className="perm-tool">{request.display.toolName}</span>
         <PermissionLineageBadge lineage={request.lineage} />
         {request.expiresAt !== undefined && (
@@ -190,7 +202,7 @@ export function PermissionStack({
       </div>
 
       {permissions.length > 1 && (
-        <div className="perm-reqtabs" role="tablist" aria-label="待审批队列">
+        <div className="perm-reqtabs" role="tablist" aria-label={t('perm.queueTabs')}>
           {permissions.map((entry, index) => (
             <button
               key={entry.id}
@@ -220,7 +232,7 @@ export function PermissionStack({
         )}
         {spec.pretty !== undefined && (
           <details className="perm-details">
-            <summary>详情</summary>
+            <summary>{t('perm.details')}</summary>
             <pre className="perm-json">{highlightJson(spec.pretty)}</pre>
           </details>
         )}
@@ -232,23 +244,31 @@ export function PermissionStack({
             {PRIMARY_ACTIONS.map((action) =>
               decideButton(
                 action.kind,
-                action.label,
+                decisionLabel(action.kind),
                 action.tone === 'approve' ? 'perm-approve' : 'perm-deny',
               ),
             )}
           </div>
           <div className="perm-pills">
             {SECONDARY_ACTIONS.map((action) =>
-              decideButton(action.kind, action.label, `perm-pill tone-${action.tone}`),
+              decideButton(
+                action.kind,
+                decisionLabel(action.kind),
+                `perm-pill tone-${action.tone}`,
+              ),
             )}
           </div>
         </>
       ) : (
         <>
-          <div className="perm-denonly-hint">该请求细节无法安全展示，仅可拒绝（fail closed）</div>
+          <div className="perm-denonly-hint">{t('perm.denyOnlyHint')}</div>
           <div className="perm-actions">
-            {decideButton('deny', '拒绝', 'perm-deny perm-deny-wide')}
-            {decideButton('deny-forever', '永不询问', 'perm-pill tone-deny perm-pill-standalone')}
+            {decideButton('deny', decisionLabel('deny'), 'perm-deny perm-deny-wide')}
+            {decideButton(
+              'deny-forever',
+              pickCopy(PERMISSION_DECISION_LABELS['deny-forever'].full, currentLocale()),
+              'perm-pill tone-deny perm-pill-standalone',
+            )}
           </div>
         </>
       )}
