@@ -26,7 +26,7 @@ import {
 } from '@volund/core'
 import type { Runner, SessionState } from '@volund/core'
 import type { ClipboardReader, ClipboardPayload } from '@volund/native-bridge'
-import { VolundError, contentPartChipLabel } from '@volund/shared'
+import { VolundError, contentPartChipLabel, type Locale } from '@volund/shared'
 import { AttachmentStore } from '@volund/storage'
 import { SessionStore } from '@volund/storage'
 import type { ResolvedAgentDefinition } from '@volund/subagent'
@@ -81,6 +81,8 @@ export interface SessionTerminalHost {
 
 export interface SessionControllerOptions<TStatusView = unknown> {
   readonly sessionsDir: string
+  /** [ui].locale 探针（i18n-r1）：会话列表「未命名会话」等服务端用户可见文案的取值面；缺省按 zh。 */
+  readonly uiLocale?: (() => Locale | undefined) | undefined
   readonly createRunner: RunnerFactory
   readonly onSecurity?: ((input: { skipPermissions: boolean }) => void) | undefined
   readonly onPermissionInteraction?:
@@ -409,7 +411,9 @@ export class SessionController<TStatusView = unknown> extends Service {
           id: state.id,
           cwd: state.cwd,
           updatedAt: entries.at(-1)?.at ?? new Date().toISOString(),
-          title: summary?.slice(0, 72) || '未命名会话',
+          title:
+            summary?.slice(0, 72) ||
+            (this.options.uiLocale?.() === 'en' ? 'Untitled session' : '未命名会话'),
           ...(summary ? { summary } : {}),
         })
       } catch {

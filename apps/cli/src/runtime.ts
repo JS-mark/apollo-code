@@ -70,7 +70,7 @@ import {
   SingleProviderRouter,
 } from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
-import { sanitize, VolundError, type JsonValue } from '@volund/shared'
+import { sanitize, VolundError, type JsonValue, type Locale } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import {
   AttachmentStore,
@@ -913,6 +913,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     defaultBudget?: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number }
   } = {}
   let configModelAliases: Record<string, { provider: string; model: string }> = {}
+  // [ui].locale（i18n-r1）：会话列表「未命名会话」等服务端文案的取值面（web/mobile
+  // 控制台自身语言走浏览器 localStorage，不读此值）。
+  let configUiLocale: Locale | undefined
   void readConfigFileOrEmpty(join(home, 'config.toml'))
     .then((config) => {
       const permissions = config.permissions
@@ -928,6 +931,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           permissionPrompts.configure({ timeoutMs: requestTimeoutMs })
           askPrompts.configure({ timeoutMs: requestTimeoutMs })
         }
+      }
+      const ui = config.ui
+      if (ui && typeof ui === 'object' && !Array.isArray(ui)) {
+        const locale = (ui as Record<string, JsonValue>).locale
+        if (locale === 'zh' || locale === 'en') configUiLocale = locale
       }
       const subagent = config.subagent
       if (subagent && typeof subagent === 'object' && !Array.isArray(subagent)) {
@@ -1814,6 +1822,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // cordis 的 Context 增强只能声明非泛型形态，这里按实际装配取回类型化实例。
   appKernel.plugin(SessionController, {
     sessionsDir: join(home, 'sessions'),
+    uiLocale: () => configUiLocale,
     createRunner,
     onSecurity: (input) => permissionPolicy.configureSecurity(input),
     onPermissionInteraction: (input) => permissionPolicy.configureInteraction(input),

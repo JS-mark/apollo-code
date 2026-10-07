@@ -6,6 +6,7 @@ import { updateSession, toEventContent } from '@volund/core'
 import type { EventBus, Runner, SessionState } from '@volund/core'
 import type { ContentPart } from '@volund/provider-kit'
 import type { JsonValue } from '@volund/shared'
+import type { Locale } from '@volund/shared'
 import { SessionStore } from '@volund/storage'
 import type { BackgroundShells } from '@volund/tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -395,6 +396,28 @@ describe('SessionController', () => {
     const resumed = await controller.resumeInteractive(session.id)
     expect(resumed.model).toBe('anthropic/mimo-v2.5')
     await resumed.end()
+  })
+
+  it('list() 未命名标题按 [ui].locale 探针取值（i18n-r1：缺省 zh，en 探针回 Untitled session）', async () => {
+    let locale: Locale | undefined
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: fakeFactory(),
+      uiLocale: () => locale,
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    await session.submit('hello')
+    await session.end()
+    // zh（缺省）：未命名标题走中文兜底。
+    expect((await controller.list())[0]?.title).toBe('hello')
+    // en：探针只在无 summary 时生效——这里首条有 summary，构造无 summary 会话验证。
+    const empty = await controller.startInteractive({ cwd: process.cwd() })
+    await empty.end()
+    expect((await controller.list()).some((entry) => entry.title === '未命名会话')).toBe(true)
+    locale = 'en'
+    expect((await controller.list()).some((entry) => entry.title === 'Untitled session')).toBe(true)
+    locale = undefined
+    expect((await controller.list()).some((entry) => entry.title === '未命名会话')).toBe(true)
   })
 
   it('deletes an inactive session archive (events, attachments, backup hook)', async () => {
