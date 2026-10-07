@@ -9,6 +9,8 @@
  */
 import { open, readFile, rm, stat } from 'node:fs/promises'
 
+import { VolundError } from './errors'
+
 const REAP_AGE_MS = 60_000
 const MAX_ATTEMPTS = 4
 const RETRY_DELAY_MS = 1_000
@@ -61,7 +63,9 @@ export async function acquireFileLock(
         continue
       }
       if (attempt === MAX_ATTEMPTS - 1)
-        throw new Error(await conflictMessage(lockPath), { cause: error })
+        throw new VolundError('filelock_conflict', await conflictMessage(lockPath), undefined, {
+          cause: error,
+        })
       attempt++
       await new Promise((resolveDelay) => setTimeout(resolveDelay, RETRY_DELAY_MS))
     }

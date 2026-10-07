@@ -1,4 +1,4 @@
-import type { VolundErrorCategory, JsonValue } from '@volund/shared'
+import { VolundError, type VolundErrorCategory, type JsonValue } from '@volund/shared'
 
 export interface Usage {
   input: number
@@ -97,7 +97,8 @@ export function assertStreamResumeSupported(
   capabilities: ProviderCapabilities,
   request: unknown,
 ): asserts request is StreamResumeRequest {
-  if (!capabilities.streamResume) throw new Error('stream_resume_unsupported')
+  if (!capabilities.streamResume)
+    throw new VolundError('stream_resume_unsupported', 'stream_resume_unsupported')
   if (
     typeof request !== 'object' ||
     request === null ||
@@ -107,7 +108,7 @@ export function assertStreamResumeSupported(
     typeof (request as { idempotencyKey?: unknown }).idempotencyKey !== 'string' ||
     !(request as { idempotencyKey: string }).idempotencyKey
   )
-    throw new Error('stream_resume_invalid')
+    throw new VolundError('stream_resume_invalid', 'stream_resume_invalid')
 }
 export interface RawMeta {
   anthropic?: {
@@ -214,12 +215,13 @@ export class InMemoryProviderRegistry implements ProviderRegistry {
   private readonly providers = new Map<string, RegisteredProvider>()
 
   register(client: ProviderClient, source: ProviderSource, meta: ProviderMeta): Disposable {
-    if (this.providers.has(client.name)) throw new Error(`provider_name_conflict: ${client.name}`)
+    if (this.providers.has(client.name))
+      throw new VolundError('provider_name_conflict', client.name)
     if (
       client.capabilities !== meta.capabilities &&
       JSON.stringify(client.capabilities) !== JSON.stringify(meta.capabilities)
     )
-      throw new Error(`provider_capabilities_mismatch: ${client.name}`)
+      throw new VolundError('provider_capabilities_mismatch', client.name)
     const registered = Object.freeze({
       name: client.name,
       source: Object.freeze({ ...source }),

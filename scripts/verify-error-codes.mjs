@@ -16,6 +16,24 @@ const appendixRelativePath =
  * 否则等同于绕过登记制——verify 会对豁免项本身做"必须在表"校验。
  */
 export const emittedWithoutLiteral = new Map([
+  // VolundError 迁移批次（2026-10-06）：域错误类改继承 VolundError 后，码在
+  // subclass constructor 的 super() 调用里——静态规则只扫 `new XxxError('…')`
+  // 字面量，看不见 super emit，按真实来源登记于此。
+  [
+    'permission_net_url_invalid',
+    'packages/permission/src/net-origin.ts InvalidNetUrlError super()',
+  ],
+  [
+    'permission_path_pattern_invalid',
+    'packages/permission/src/path-pattern.ts PathPatternError super()',
+  ],
+  [
+    'permission_parent_snapshot_missing',
+    'packages/app-runtime/src/permission.ts PermissionSessionInvariantError super()',
+  ],
+  ['mcp_oauth_failed', 'packages/auth/src/mcp-oauth.ts McpOAuthError super()'],
+  ['market_validation_failed', 'apps/market/src/lib/validate.ts ValidationError super()'],
+  ['market_conflict', 'apps/market/src/lib/http.ts ConflictError super()'],
   ['VOLUND_SUBAGENT_DEPTH_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
   ['VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
   ['plugin_internal_error', 'apps/cli/src/cli.ts plugin JSON unknown-error fallback'],
@@ -63,7 +81,6 @@ export const reservedContractCodes = new Map([
   ['plugin_host_exited', legacyHostRemovalGate],
   ['plugin_not_enabled', legacyHostRemovalGate],
   ['plugin_permission_denied', legacyHostRemovalGate],
-  ['plugin_rpc_frame_too_large', legacyHostRemovalGate],
   ['plugin_rpc_invalid_json', legacyHostRemovalGate],
   ['plugin_rpc_version', legacyHostRemovalGate],
   [

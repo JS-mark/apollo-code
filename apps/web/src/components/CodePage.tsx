@@ -8,6 +8,7 @@
  * AppShell 让本页常驻挂载（切走只是 display:none），本组件自身不再卸载重建。
  */
 import { ReloadOutlined } from '@ant-design/icons'
+import { VolundError } from '@volund/shared/errors'
 import { Button, Spin, Typography } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 
@@ -25,7 +26,11 @@ export function CodePage({ api, cwd }: { api: WebApi; cwd: string }) {
     void import('../lib/vscode-workbench')
       .then((module) => {
         const host = hostRef.current
-        if (!host) throw new Error('workbench container is not mounted')
+        if (!host)
+          throw new VolundError(
+            'web_workbench_container_missing',
+            'workbench container is not mounted',
+          )
         return module.startVscodeWorkbench({ container: host, cwd, api, dark: resolved === 'dark' })
       })
       .then(() => {

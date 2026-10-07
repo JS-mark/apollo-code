@@ -19,6 +19,7 @@ import {
   isCredentialKeyForSecretDetection,
   normalizeForSecretDetection,
   sanitize,
+  VolundError,
 } from '@volund/shared'
 import type { JsonValue, Logger } from '@volund/shared'
 import type { ToolContext } from '@volund/tool-kit'
@@ -52,11 +53,10 @@ export interface ProductionPermissionSessionSnapshot {
   readonly mode?: PermissionSessionMode
 }
 
-export class PermissionSessionInvariantError extends Error {
-  readonly code = 'permission_parent_snapshot_missing'
-
+export class PermissionSessionInvariantError extends VolundError {
   constructor(parentSessionId: string) {
     super(
+      'permission_parent_snapshot_missing',
       `Permission policy invariant failed: parent session snapshot not found (${parentSessionId})`,
     )
     this.name = 'PermissionSessionInvariantError'
@@ -562,7 +562,11 @@ export function createProductionToolPermissionChain(
     grantEphemeral: (rules) => permissions.grantEphemeral(rules),
     clearEphemeral: () => permissions.clearEphemeral(),
     bindExecutor(context, dispatchHook) {
-      if (bound) throw new Error('Production permission executor is already bound')
+      if (bound)
+        throw new VolundError(
+          'permission_executor_already_bound',
+          'Production permission executor is already bound',
+        )
       bound = true
       const executor = new ToolExecutor(permissions, context, dispatchHook)
       return Object.freeze({ execute: executor.execute.bind(executor) })

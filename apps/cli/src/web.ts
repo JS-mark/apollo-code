@@ -11,6 +11,7 @@ import { join } from 'node:path'
 
 import { createMemoryPanelController, projectMemoryScope } from '@volund/app-runtime'
 import { standaloneArtifactDir } from '@volund/native-bridge'
+import { VolundError } from '@volund/shared'
 import { TaskStore } from '@volund/storage'
 import { mutateFiles } from '@volund/tools'
 import { createWebServer } from '@volund/web-server'
@@ -125,7 +126,7 @@ function createTasksPort(home: string, ports: VolundPorts, cwd: string): TasksPo
     // W-17 r1.5：定义表 mutation（与 CLI/schedule_task 工具同 TaskStore 同锁）。
     setEnabled: async (id, enabled) => {
       const existing = await store.getTask(id)
-      if (!existing) throw new Error(`no such task: ${id}`)
+      if (!existing) throw new VolundError('task_not_found', `no such task: ${id}`)
       const updated = await store.upsertTask({ ...existing, enabled })
       return { id: updated.id, enabled: updated.enabled }
     },
@@ -221,11 +222,9 @@ function buildServerOptions(
           write: async (updates) => {
             const sessionId = sessionHub.getActiveSessionId?.()
             if (!sessionId)
-              throw Object.assign(
-                new Error(
-                  'no active session to attribute this save; start or resume a session first',
-                ),
-                { code: 'web_session_invalid' },
+              throw new VolundError(
+                'web_session_invalid',
+                'no active session to attribute this save; start or resume a session first',
               )
             await mutateFiles(
               { id: sessionId },

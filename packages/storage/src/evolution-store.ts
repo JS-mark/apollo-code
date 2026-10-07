@@ -19,7 +19,7 @@ import {
   isContextTunableValue,
   isValidContextTuningSnapshot,
 } from '@volund/core'
-import { sanitize } from '@volund/shared'
+import { sanitize, VolundError } from '@volund/shared'
 
 const EVOLUTION_RECORD_LINE_MAX_BYTES = 16 * 1024
 const EVOLUTION_REASON_MAX_BYTES = 1024
@@ -435,7 +435,8 @@ async function readRange(path: string, start: number, end: number): Promise<Buff
   try {
     const buffer = Buffer.alloc(end - start)
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, start)
-    if (bytesRead !== buffer.length) throw new Error('evolution file shrank during recovery')
+    if (bytesRead !== buffer.length)
+      throw new VolundError('evolution_file_shrank', 'evolution file shrank during recovery')
     return buffer
   } finally {
     await handle.close()

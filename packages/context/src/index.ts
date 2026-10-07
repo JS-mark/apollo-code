@@ -10,6 +10,7 @@ import type {
   Message,
   ProviderClient,
 } from '@volund/provider-kit'
+import { VolundError } from '@volund/shared'
 
 export interface TokenCounter {
   countTokens(text: string, model: string): number | Promise<number>
@@ -230,7 +231,10 @@ export class SummaryPolicy implements ContextPolicy {
     })
     try {
       if (!this.#options.provider.complete)
-        throw new Error('summary provider does not support complete')
+        throw new VolundError(
+          'context_summary_provider_complete_unsupported',
+          'summary provider does not support complete',
+        )
       const response = await this.#options.provider.complete(
         {
           model,

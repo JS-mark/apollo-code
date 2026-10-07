@@ -1,4 +1,4 @@
-import { sanitize } from '@volund/shared'
+import { sanitize, VolundError } from '@volund/shared'
 export interface AuthTelemetry {
   emit(name: string, source: string, payload: Record<string, unknown>): Promise<void>
 }
@@ -116,10 +116,11 @@ export class AuthManager {
           outcome: ok ? 'ok' : '4xx',
           duration_ms: Date.now() - verifyStart,
         })
-        if (!ok) throw new Error('Credential verification failed')
+        if (!ok) throw new VolundError('auth_verification_failed', 'Credential verification failed')
       } else await this.event('auth.dangerously.skip_verify', { provider })
       const store = this.options.keychain ?? this.options.encrypted
-      if (!store) throw new Error('No secure credential store available')
+      if (!store)
+        throw new VolundError('auth_store_unavailable', 'No secure credential store available')
       await store.set(provider, credential)
       this.#cache.set(provider, credential)
       await this.event('auth.login.stored', {

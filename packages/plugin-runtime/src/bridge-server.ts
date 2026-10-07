@@ -1,3 +1,5 @@
+import { VolundError } from '@volund/shared'
+
 /**
  * 沙箱插件宿主的 fd3 JSONRPC 桥（crates/volund-sandbox/src/plugin_host.mjs 协议）
  * 的主进程侧实现。协议要点（v1）：
@@ -37,12 +39,12 @@ const PROTOCOL_VERSION = 1
 const DEFAULT_FRAME_BYTES = 1024 * 1024
 const DEFAULT_CALL_TIMEOUT_MS = 10_000
 
-export class PluginBridgeError extends Error {
+export class PluginBridgeError extends VolundError {
   constructor(
-    readonly code: string,
+    override readonly code: string,
     message: string,
   ) {
-    super(message)
+    super(code, message)
     this.name = 'PluginBridgeError'
   }
 }

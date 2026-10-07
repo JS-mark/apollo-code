@@ -7,9 +7,11 @@
  * 默认端口被剥除（`https://a:443` ≡ `https://a`）；非特殊 scheme（如 `git://`，其
  * `URL.origin` 为 `"null"`）显式保留 host[:port]。userinfo 不进入 origin。
  */
-export class InvalidNetUrlError extends Error {
+import { VolundError } from '@volund/shared'
+
+export class InvalidNetUrlError extends VolundError {
   constructor(message: string) {
-    super(message)
+    super('permission_net_url_invalid', message)
     this.name = 'InvalidNetUrlError'
   }
 }

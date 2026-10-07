@@ -122,7 +122,8 @@ function parseTomlValue(text: string): JsonValue {
   const position = { index: 0 }
   const value = scanTomlValue(text, position)
   skipTomlSeparators(text, position)
-  if (position.index !== text.length) throw new Error(`Unsupported TOML value: ${text}`)
+  if (position.index !== text.length)
+    throw new VolundError('config_toml_invalid', `Unsupported TOML value: ${text}`)
   return value
 }
 
@@ -147,7 +148,7 @@ function scanTomlString(text: string, position: { index: number }): string {
   const quote = text[position.index]!
   if (quote === "'") {
     const end = text.indexOf("'", position.index + 1)
-    if (end < 0) throw new Error('Unterminated TOML literal string')
+    if (end < 0) throw new VolundError('config_toml_invalid', 'Unterminated TOML literal string')
     const raw = text.slice(position.index, end + 1)
     position.index = end + 1
     return raw.slice(1, -1)
@@ -159,7 +160,8 @@ function scanTomlString(text: string, position: { index: number }): string {
     else if (text[end] === '"') break
     else end += 1
   }
-  if (end >= text.length) throw new Error('Unterminated TOML basic string')
+  if (end >= text.length)
+    throw new VolundError('config_toml_invalid', 'Unterminated TOML basic string')
   const raw = text.slice(position.index, end + 1)
   position.index = end + 1
   return JSON.parse(raw) as string
@@ -171,7 +173,11 @@ function scanTomlKey(text: string, position: { index: number }): string {
   if (start === '"' || start === "'") return scanTomlString(text, position)
   let end = position.index
   while (end < text.length && /[A-Za-z0-9_-]/.test(text[end]!)) end += 1
-  if (end === position.index) throw new Error(`Invalid TOML key at: ${text.slice(position.index)}`)
+  if (end === position.index)
+    throw new VolundError(
+      'config_toml_invalid',
+      `Invalid TOML key at: ${text.slice(position.index)}`,
+    )
   const key = text.slice(position.index, end)
   position.index = end
   return key
@@ -188,7 +194,8 @@ function scanTomlInlineTable(text: string, position: { index: number }): Record<
   while (true) {
     const key = scanTomlKey(text, position)
     skipTomlSeparators(text, position)
-    if (text[position.index] !== '=') throw new Error(`Expected = in TOML inline table: ${text}`)
+    if (text[position.index] !== '=')
+      throw new VolundError('config_toml_invalid', `Expected = in TOML inline table: ${text}`)
     position.index += 1
     out[key] = scanTomlValue(text, position)
     skipTomlSeparators(text, position)
@@ -200,7 +207,7 @@ function scanTomlInlineTable(text: string, position: { index: number }): Record<
       position.index += 1
       return out
     }
-    throw new Error(`Unterminated TOML inline table: ${text}`)
+    throw new VolundError('config_toml_invalid', `Unterminated TOML inline table: ${text}`)
   }
 }
 
@@ -223,7 +230,7 @@ function scanTomlArray(text: string, position: { index: number }): JsonValue[] {
       position.index += 1
       return out
     }
-    throw new Error(`Unterminated TOML array: ${text}`)
+    throw new VolundError('config_toml_invalid', `Unterminated TOML array: ${text}`)
   }
 }
 
@@ -244,14 +251,14 @@ export function parseTomlContent(text: string): Config {
     }
     // key 允许引号形态（"quoted key" / 'literal'），引号内可含空格与 =
     const pair = /^("[^"]*"|'[^']*'|[\w.-]+)\s*=\s*(.+)$/.exec(line)
-    if (!pair) throw new Error(`Invalid TOML line: ${raw}`)
+    if (!pair) throw new VolundError('config_toml_invalid', `Invalid TOML line: ${raw}`)
     const rawKey = pair[1]!
     const pairKey = rawKey.startsWith('"') || rawKey.startsWith("'") ? rawKey.slice(1, -1) : rawKey
     let value: JsonValue
     try {
       value = parseTomlValue(pair[2]!)
     } catch {
-      throw new Error(`Unsupported TOML value: ${pair[2]}`)
+      throw new VolundError('config_toml_invalid', `Unsupported TOML value: ${pair[2]}`)
     }
     assign(out, [...section, pairKey].join('.'), value)
   }

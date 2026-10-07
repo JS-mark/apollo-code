@@ -1,3 +1,5 @@
+import { VolundError } from '@volund/shared'
+
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
 export * from './permission-display'
 export * from './permission-diff'
@@ -56,23 +58,24 @@ export const BUILTIN_THEMES: Readonly<Record<'dark' | 'light', ThemeDefinition>>
   }),
 })
 export function validateTheme(value: unknown): ThemeDefinition {
-  if (!value || typeof value !== 'object') throw new Error('theme_invalid: expected an object')
+  if (!value || typeof value !== 'object')
+    throw new VolundError('theme_invalid', 'expected an object')
   const theme = value as Partial<ThemeDefinition>
   if (theme.schemaVersion !== THEME_SCHEMA_VERSION)
-    throw new Error(`theme_version_unsupported: ${String(theme.schemaVersion)}`)
+    throw new VolundError('theme_version_unsupported', String(theme.schemaVersion))
   if (typeof theme.name !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(theme.name))
-    throw new Error('theme_invalid: invalid name')
+    throw new VolundError('theme_invalid', 'invalid name')
   if (!theme.tokens || typeof theme.tokens !== 'object')
-    throw new Error('theme_invalid: tokens are required')
+    throw new VolundError('theme_invalid', 'tokens are required')
   const entries = Object.entries(theme.tokens)
   if (
     entries.length !== THEME_TOKEN_NAMES.length ||
     entries.some(([key]) => !THEME_TOKEN_NAMES.includes(key as ThemeTokenName))
   )
-    throw new Error('theme_invalid: token set must match schema v1')
+    throw new VolundError('theme_invalid', 'token set must match schema v1')
   for (const token of THEME_TOKEN_NAMES)
     if (!themeColor.test(theme.tokens[token]))
-      throw new Error(`theme_invalid: invalid token ${token}`)
+      throw new VolundError('theme_invalid', `invalid token ${token}`)
   return Object.freeze({
     schemaVersion: 1,
     name: theme.name,

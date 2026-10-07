@@ -62,6 +62,7 @@
     "@codingame/monaco-vscode-workbench-service-override": "catalog:",
     "@codingame/monaco-vscode-working-copy-service-override": "catalog:",
     "@codingame/monaco-vscode-workspace-trust-service-override": "catalog:",
+    "@volund/shared": "workspace:*",
     "@xterm/addon-fit": "catalog:",
     "@xterm/xterm": "catalog:",
     "antd": "catalog:",

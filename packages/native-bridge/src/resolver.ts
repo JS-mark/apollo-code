@@ -4,6 +4,8 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { VolundError } from '@volund/shared'
+
 import nativePackage from '../package.json' with { type: 'json' }
 
 const packageVersion = nativePackage.version
@@ -90,7 +92,10 @@ async function bundledBinary(kind: BinaryKind, triple: string): Promise<string |
     if (!asset || asset.file !== releaseAssetName(kind, triple)) return null
     const path = join(root, asset.file)
     if (!(await verifiedPath(path, asset.sha256)))
-      throw new Error(`Checksum mismatch for bundled native asset ${asset.file}`)
+      throw new VolundError(
+        'native_bridge_checksum_mismatch',
+        `Checksum mismatch for bundled native asset ${asset.file}`,
+      )
     await chmod(path, 0o755).catch(() => undefined)
     return path
   } catch (error) {
@@ -159,7 +164,10 @@ async function fetchReleaseBinary(
   try {
     await writeFile(temporaryPath, Buffer.from(await binaryResponse.arrayBuffer()), { mode: 0o755 })
     if ((await sha256(temporaryPath)) !== expected)
-      throw new Error(`Checksum mismatch for native asset ${assetName}`)
+      throw new VolundError(
+        'native_bridge_checksum_mismatch',
+        `Checksum mismatch for native asset ${assetName}`,
+      )
     await chmod(temporaryPath, 0o755)
     await rename(temporaryPath, binaryPath)
     return { path: binaryPath, source: 'download' }

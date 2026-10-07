@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path'
 import { loadTomlFile } from '@volund/config'
 import { PluginError, validateManifest, verifyBundle } from '@volund/plugin-runtime'
 import type { PluginManifest } from '@volund/plugin-sdk'
+import { VolundError } from '@volund/shared'
 
 /** 与 plugin-runtime 的 PLUGIN_NAME 同源约束（模块私有，这里重声明）。 */
 const PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
@@ -89,12 +90,13 @@ export async function readMarketSource(home: string): Promise<string | undefined
   const plugins = config.plugins
   if (plugins === undefined) return undefined
   if (!plugins || typeof plugins !== 'object' || Array.isArray(plugins))
-    throw new Error('config_invalid: [plugins] must be a table')
+    throw new VolundError('config_invalid', '[plugins] must be a table')
   const market = (plugins as Record<string, unknown>).market
   if (market === undefined) return undefined
   if (typeof market !== 'string' || !isTrustedMarketSource(market))
-    throw new Error(
-      'config_invalid: [plugins] market must be an HTTPS URL (or loopback http for local sources)',
+    throw new VolundError(
+      'config_invalid',
+      '[plugins] market must be an HTTPS URL (or loopback http for local sources)',
     )
   return market
 }

@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
 
+import { VolundError } from '@volund/shared'
+
 import { nativeProbes } from './probe'
 import { resolveBinary } from './resolver'
 import type { ExecOptions, ExecResult, PluginHost, PluginHostOptions, SandboxInfo } from './types'
@@ -37,7 +39,13 @@ function invoke(
     child.on('close', (code) => {
       clearTimeout(timeout)
       if (code === 0) resolve(Buffer.concat(stdout).toString('utf8'))
-      else reject(new Error(Buffer.concat(stderr).toString('utf8') || `sandbox exited ${code}`))
+      else
+        reject(
+          new VolundError(
+            'native_bridge_sandbox_exec_failed',
+            Buffer.concat(stderr).toString('utf8') || `sandbox exited ${code}`,
+          ),
+        )
     })
     child.stdin.end(input)
   })
@@ -79,15 +87,26 @@ export function probeSandbox(): Promise<Readonly<SandboxInfo>> {
  */
 async function awaitSandboxProbe(): Promise<void> {
   if (!(await nativeProbes.waitFor('sandbox')))
-    throw new Error('sandbox unavailable; refusing unsandboxed execution')
+    throw new VolundError(
+      'sandbox_unavailable',
+      'sandbox unavailable; refusing unsandboxed execution',
+    )
 }
 
 export async function execSandbox(options: ExecOptions, signal?: AbortSignal): Promise<ExecResult> {
   await awaitSandboxProbe()
   const info = await probeSandbox()
-  if (info.tier === 'none') throw new Error('sandbox unavailable; refusing unsandboxed execution')
+  if (info.tier === 'none')
+    throw new VolundError(
+      'sandbox_unavailable',
+      'sandbox unavailable; refusing unsandboxed execution',
+    )
   const binary = await resolveBinary('sandbox')
-  if (!binary) throw new Error('sandbox binary disappeared after frozen probe; restart required')
+  if (!binary)
+    throw new VolundError(
+      'native_bridge_sandbox_binary_missing',
+      'sandbox binary disappeared after frozen probe; restart required',
+    )
   return JSON.parse(await invoke(binary, ['exec'], JSON.stringify(options), signal)) as ExecResult
 }
 
@@ -95,9 +114,17 @@ export async function execSandbox(options: ExecOptions, signal?: AbortSignal): P
 export async function startPluginHost(options: PluginHostOptions): Promise<PluginHost> {
   await awaitSandboxProbe()
   const info = await probeSandbox()
-  if (info.tier === 'none') throw new Error('sandbox unavailable; refusing unsandboxed plugin host')
+  if (info.tier === 'none')
+    throw new VolundError(
+      'sandbox_unavailable',
+      'sandbox unavailable; refusing unsandboxed plugin host',
+    )
   const binary = await resolveBinary('sandbox')
-  if (!binary) throw new Error('sandbox binary disappeared after frozen probe; restart required')
+  if (!binary)
+    throw new VolundError(
+      'native_bridge_sandbox_binary_missing',
+      'sandbox binary disappeared after frozen probe; restart required',
+    )
   const child = spawn(
     binary,
     [
@@ -116,7 +143,10 @@ export async function startPluginHost(options: PluginHostOptions): Promise<Plugi
   const bridge = child.stdio[3]
   if (!bridge || typeof bridge === 'string') {
     child.kill('SIGKILL')
-    throw new Error('plugin bridge fd unavailable')
+    throw new VolundError(
+      'native_bridge_plugin_bridge_fd_unavailable',
+      'plugin bridge fd unavailable',
+    )
   }
   // Plugin stdout is never a protocol channel. Drain bounded stderr for
   // diagnostics without allowing an untrusted plugin to fill parent memory.

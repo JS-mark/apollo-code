@@ -1,6 +1,7 @@
 import { Context, Service } from '@cordisjs/core'
 import type { EventBus, SessionState } from '@volund/core'
 import { InMemoryProviderRegistry } from '@volund/provider-kit'
+import { VolundError } from '@volund/shared'
 import type { NativeBridge } from '@volund/tool-kit'
 import { ToolRegistry } from '@volund/tool-kit'
 
@@ -130,7 +131,8 @@ export class UiService extends Service {
   /** 取面板控制器；未注册即抛（登记顺序错误要炸在装配期而不是渲染期）。 */
   panel<T = unknown>(id: string): T {
     const controller = this.panels.get(id)
-    if (controller === undefined) throw new Error(`UI panel not registered: ${id}`)
+    if (controller === undefined)
+      throw new VolundError('kernel_panel_missing', `UI panel not registered: ${id}`)
     return controller as T
   }
   peek<T = unknown>(id: string): T | undefined {

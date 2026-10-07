@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
+import { VolundError } from '@volund/shared'
 import picomatch from 'picomatch'
 
 /**
@@ -23,9 +24,9 @@ export interface PathPatternOptions {
 }
 
 /** 不受支持的权限路径模式（裸名 / 否定 / `~user`）。 */
-export class PathPatternError extends Error {
+export class PathPatternError extends VolundError {
   constructor(message: string) {
-    super(message)
+    super('permission_path_pattern_invalid', message)
     this.name = 'PathPatternError'
   }
 }

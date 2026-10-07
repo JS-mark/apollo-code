@@ -13,6 +13,7 @@ import {
   UserOutlined,
   WifiOutlined,
 } from '@ant-design/icons'
+import { VolundError } from '@volund/shared/errors'
 import { App as AntApp, Badge, ConfigProvider, Select, theme as antdTheme, Typography } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -311,7 +312,7 @@ function MobileApp() {
   const stageImage = useCallback(
     async (file: File): Promise<StagedAttachment> => {
       const current = sessionRef.current
-      if (!current) throw new Error('未配对')
+      if (!current) throw new VolundError('gateway_not_paired', '未配对')
       await ensureActiveSession()
       return new GatewayApi(current.token).uploadAttachment(file, file.type)
     },
@@ -414,7 +415,7 @@ function MobileApp() {
   /** handle 引用图片 → objectURL（字节缓存留在 gateway 层；objectURL 生命周期归组件）。 */
   const resolveAttachment = useCallback(async (handle: string): Promise<string> => {
     const current = sessionRef.current
-    if (!current) throw new Error('未配对')
+    if (!current) throw new VolundError('gateway_not_paired', '未配对')
     const blob = await new GatewayApi(current.token).downloadAttachment(handle)
     return URL.createObjectURL(blob)
   }, [])

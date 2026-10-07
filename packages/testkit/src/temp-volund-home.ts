@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 
+import { VolundError } from '@volund/shared'
 import { onTestFinished } from 'vitest'
 
 export interface TempvolundHomeOptions {
@@ -59,7 +60,8 @@ export async function tempvolundHome(options: TempvolundHomeOptions = {}): Promi
     for (const [path, content] of Object.entries(options.files ?? {})) {
       const target = resolve(volundDir, path)
       const offset = relative(volundDir, target)
-      if (offset.startsWith('..') || offset === '') throw new Error(`testkit_path_escape: ${path}`)
+      if (offset.startsWith('..') || offset === '')
+        throw new VolundError('testkit_path_escape', path)
       await mkdir(dirname(target), { recursive: true })
       await writeFile(target, content, 'utf8')
     }
@@ -106,12 +108,12 @@ function isTable(value: unknown): value is Record<string, unknown> {
 function tomlScalar(value: unknown): string {
   if (typeof value === 'string') return JSON.stringify(value)
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error(`toml_unsupported_number: ${value}`)
+    if (!Number.isFinite(value)) throw new VolundError('toml_unsupported_number', `${value}`)
     return String(value)
   }
   if (typeof value === 'boolean') return String(value)
   if (value instanceof Date) return JSON.stringify(value.toISOString())
-  throw new Error(`toml_unsupported_type: ${typeof value}`)
+  throw new VolundError('toml_unsupported_type', `${typeof value}`)
 }
 
 function renderTable(table: Record<string, unknown>, path: string): string {

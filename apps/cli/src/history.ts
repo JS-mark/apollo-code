@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 
 import { replaySessionState } from '@volund/core'
 import type { SessionState } from '@volund/core'
-import { contentPartChipLabel } from '@volund/shared'
+import { contentPartChipLabel, VolundError } from '@volund/shared'
 import { SessionStore } from '@volund/storage'
 import type { StoredEvent } from '@volund/storage'
 import type { SessionCandidate } from '@volund/ui'
@@ -32,7 +32,7 @@ function messageFullText(content: SessionState['messages'][number]['content']): 
 }
 
 function notFound(id: string): Error {
-  return Object.assign(new Error(`Session not found: ${id}`), { code: 'session_not_found' })
+  return new VolundError('session_not_found', `Session not found: ${id}`)
 }
 
 /**
@@ -46,7 +46,7 @@ export function createHistoryPort(input: {
 }): HistoryPort {
   const pathFor = (id: string): string => {
     if (!sessionIdPattern.test(id))
-      throw Object.assign(new Error(`Invalid session id: ${id}`), { code: 'session_id_invalid' })
+      throw new VolundError('session_id_invalid', `Invalid session id: ${id}`)
     return join(input.sessionsDir, `${id}.jsonl`)
   }
   const loadSession = async (
@@ -121,7 +121,10 @@ export function createHistoryPort(input: {
       try {
         parsed = JSON.parse(content)
       } catch {
-        throw new Error('Invalid history export: not a JSON document')
+        throw new VolundError(
+          'history_import_invalid',
+          'Invalid history export: not a JSON document',
+        )
       }
       const candidate = parsed as {
         version?: unknown
@@ -133,7 +136,10 @@ export function createHistoryPort(input: {
         typeof candidate.sessionId !== 'string' ||
         !Array.isArray(candidate.events)
       )
-        throw new Error('Invalid history export: expected {version: 1, sessionId, events[]}')
+        throw new VolundError(
+          'history_import_invalid',
+          'Invalid history export: expected {version: 1, sessionId, events[]}',
+        )
       const id = candidate.sessionId
       const file = pathFor(id)
       const events = candidate.events as Array<Record<string, unknown>>
@@ -148,9 +154,13 @@ export function createHistoryPort(input: {
           typeof event.at !== 'string' ||
           !('payload' in event)
         )
-          throw new Error('Invalid history export: malformed event entry')
+          throw new VolundError(
+            'history_import_invalid',
+            'Invalid history export: malformed event entry',
+          )
       }
-      if (existsSync(file)) throw new Error(`Session already exists: ${id}`)
+      if (existsSync(file))
+        throw new VolundError('history_session_exists', `Session already exists: ${id}`)
       await mkdir(input.sessionsDir, { recursive: true })
       const temporary = `${file}.${process.pid}.tmp`
       await writeFile(temporary, events.map((event) => JSON.stringify(event)).join('\n') + '\n', {

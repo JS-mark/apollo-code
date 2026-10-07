@@ -14,6 +14,8 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
+import { VolundError } from '@volund/shared'
+
 /** 存储形态的客户端：只有哈希，没有明文。 */
 export interface GatewayOAuthClient {
   readonly id: string
@@ -119,51 +121,64 @@ export function parseGatewayClients(source: string): ParsedGatewayClients {
   try {
     raw = JSON.parse(source)
   } catch {
-    throw new Error('gateway clients must be a JSON array')
+    throw new VolundError('config_invalid', 'gateway clients must be a JSON array')
   }
-  if (!Array.isArray(raw)) throw new Error('gateway clients must be a JSON array')
+  if (!Array.isArray(raw))
+    throw new VolundError('config_invalid', 'gateway clients must be a JSON array')
   const seen = new Set<string>()
   const clients: GatewayOAuthClient[] = []
   const migratedPlaintextIds: string[] = []
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry))
-      throw new Error('gateway client entries must be objects')
+      throw new VolundError('config_invalid', 'gateway client entries must be objects')
     const candidate = entry as Record<string, unknown>
     if (typeof candidate.id !== 'string' || !/^[\w.-]{1,128}$/.test(candidate.id))
-      throw new Error('gateway client requires id (/^[\\w.-]{1,128}$/)')
+      throw new VolundError('config_invalid', 'gateway client requires id (/^[\\w.-]{1,128}$/)')
     const hasPlaintext = typeof candidate.secret === 'string'
     const hasHash = typeof candidate.secretHash === 'string'
     if (hasPlaintext === hasHash)
-      throw new Error(
+      throw new VolundError(
+        'config_invalid',
         `gateway client ${candidate.id}: exactly one of secret / secretHash is required`,
       )
     let secretHash: string
     if (hasPlaintext) {
       const secret = candidate.secret as string
       if (secret.length < 16)
-        throw new Error(`gateway client ${candidate.id}: secret must be 16+ chars`)
+        throw new VolundError(
+          'config_invalid',
+          `gateway client ${candidate.id}: secret must be 16+ chars`,
+        )
       secretHash = hashGatewayClientREFID_014Q(secret)
       migratedPlaintextIds.push(candidate.id)
     } else {
       secretHash = candidate.secretHash as string
       if (!/^[0-9a-f]{64}$/.test(secretHash))
-        throw new Error(`gateway client ${candidate.id}: secretHash must be 64 lowercase hex chars`)
+        throw new VolundError(
+          'config_invalid',
+          `gateway client ${candidate.id}: secretHash must be 64 lowercase hex chars`,
+        )
     }
-    if (seen.has(candidate.id)) throw new Error(`duplicate gateway client id: ${candidate.id}`)
+    if (seen.has(candidate.id))
+      throw new VolundError('config_invalid', `duplicate gateway client id: ${candidate.id}`)
     seen.add(candidate.id)
     const scopes = candidate.scopes
     if (
       scopes !== undefined &&
       (!Array.isArray(scopes) || scopes.some((scope) => typeof scope !== 'string'))
     )
-      throw new Error(`gateway client ${candidate.id}: scopes must be a string array`)
+      throw new VolundError(
+        'config_invalid',
+        `gateway client ${candidate.id}: scopes must be a string array`,
+      )
     clients.push({
       id: candidate.id,
       secretHash,
       scopes: (scopes as readonly string[] | undefined) ?? ['chat'],
     })
   }
-  if (clients.length === 0) throw new Error('gateway clients must not be empty')
+  if (clients.length === 0)
+    throw new VolundError('config_invalid', 'gateway clients must not be empty')
   return { clients, migratedPlaintextIds }
 }
 
@@ -205,7 +220,8 @@ export class GatewayOAuthServer {
 
   /** 运行时登记新客户端（机器注册的落点）；同 id 视为装配错误直接抛。 */
   addClient(client: GatewayOAuthClient): void {
-    if (this.clients.has(client.id)) throw new Error(`duplicate gateway client id: ${client.id}`)
+    if (this.clients.has(client.id))
+      throw new VolundError('gateway_internal', `duplicate gateway client id: ${client.id}`)
     this.clients.set(client.id, client)
   }
 

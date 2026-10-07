@@ -51,7 +51,7 @@ describe('SingleProviderRouter', () => {
       new SingleProviderRouter(client, 'default', undefined, registry).pick(ctx, {
         explicitModel: 'missing/model',
       }),
-    ).rejects.toThrow('provider_not_registered')
+    ).rejects.toMatchObject({ code: 'provider_not_registered' })
   })
   it('retries retryable errors and gives up otherwise', async () => {
     const sleep = vi.fn(async () => {})
@@ -443,7 +443,7 @@ describe('RoleRouter', () => {
     expect(() => new RoleRouter(registry, {})).toThrow('role_router_default_missing')
     expect(
       () => new RoleRouter(registry, { default: { provider: 'missing', model: 'x' } }),
-    ).toThrow('provider_not_registered: missing')
+    ).toThrow('missing')
     expect(
       () =>
         new RoleRouter(registry, {
@@ -455,19 +455,19 @@ describe('RoleRouter', () => {
           },
           default: { provider: 'fake', model: 'chat' },
         }),
-    ).toThrow('fallback_provider_duplicate: fake')
+    ).toThrow('fake')
     expect(() =>
       parseRoleRouterConfig({ default: { provider: 'fake', model: 'chat' }, roles: { coder: [] } }),
-    ).toThrow('role_router_candidates_empty: coder')
+    ).toThrow('coder')
     expect(() => parseRoleRouterConfig({ default: { provider: 'fake', model: '' } })).toThrow(
-      'role_router_route_invalid: default',
+      'default',
     )
     expect(() =>
       parseRoleRouterConfig({
         default: { provider: 'fake', model: 'chat' },
         roles: { typo: { provider: 'fake', model: 'x' } },
       }),
-    ).toThrow('role_router_role_unknown: typo')
+    ).toThrow('typo')
   })
 
   it('bounds remembered turn routes to prevent unbounded routing state', async () => {

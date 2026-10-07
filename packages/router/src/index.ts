@@ -1,4 +1,5 @@
 import type { ProviderClient, ProviderError, ProviderRegistry } from '@volund/provider-kit'
+import { VolundError } from '@volund/shared'
 
 export interface RouterSessionSnapshot {
   id: string
@@ -64,7 +65,7 @@ export class SingleProviderRouter implements RouterPolicy {
     if (explicit?.includes('/')) {
       const [providerName, ...modelParts] = explicit.split('/')
       const provider = this.registry?.get(providerName!)
-      if (!provider) throw new Error(`provider_not_registered: ${providerName}`)
+      if (!provider) throw new VolundError('provider_not_registered', `${providerName}`)
       return { provider, model: modelParts.join('/'), reason: 'explicit-provider' }
     }
     return {
@@ -136,11 +137,11 @@ export class FallbackRouter implements RouterPolicy {
   readonly #decisionMetadata?: FallbackRouterOptions['decisionMetadata']
 
   constructor(chain: readonly FallbackRoute[], options: FallbackRouterOptions = {}) {
-    if (chain.length === 0) throw new Error('fallback_chain_empty')
+    if (chain.length === 0) throw new VolundError('fallback_chain_empty', 'fallback_chain_empty')
     const names = new Set<string>()
     for (const route of chain) {
       if (names.has(route.provider.name))
-        throw new Error(`fallback_provider_duplicate: ${route.provider.name}`)
+        throw new VolundError('fallback_provider_duplicate', `${route.provider.name}`)
       names.add(route.provider.name)
       this.#health.set(route.provider.name, {
         retryCount: 0,
@@ -164,23 +165,25 @@ export class FallbackRouter implements RouterPolicy {
     const sticky = ctx.session.stickyProvider
     if (sticky) {
       const route = this.#route(sticky)
-      if (!route) throw new Error(`sticky_provider_not_in_fallback_chain: ${sticky}`)
-      if (!this.#routePolicy(route, ctx)) throw new Error('router_route_not_eligible')
+      if (!route) throw new VolundError('sticky_provider_not_in_fallback_chain', `${sticky}`)
+      if (!this.#routePolicy(route, ctx))
+        throw new VolundError('router_route_not_eligible', 'router_route_not_eligible')
       return this.#decision(route, 'sticky-provider', route.model, ctx)
     }
-    if (this.#exhausted(ctx)) throw new Error('router_budget_exhausted')
+    if (this.#exhausted(ctx))
+      throw new VolundError('router_budget_exhausted', 'router_budget_exhausted')
     const explicit = hint?.explicitModel
     if (explicit?.includes('/')) {
       const [providerName, ...model] = explicit.split('/')
       const route = this.#route(providerName!)
-      if (!route) throw new Error(`provider_not_in_fallback_chain: ${providerName}`)
+      if (!route) throw new VolundError('provider_not_in_fallback_chain', `${providerName}`)
       return {
         ...this.#decision(route, 'explicit-provider', route.model, ctx),
         model: model.join('/'),
       }
     }
     const route = this.#availableRoute(ctx)
-    if (!route) throw new Error('all_providers_cooling_down')
+    if (!route) throw new VolundError('all_providers_cooling_down', 'all_providers_cooling_down')
     return this.#decision(route, 'fallback-primary', explicit, ctx)
   }
 
@@ -320,9 +323,11 @@ export class CostAwareRouter implements RouterPolicy {
   readonly #defaultEstimatedUsage: { inputTokens: number; outputTokens: number } | undefined
 
   constructor(routes: readonly CostAwareRoute[], options: CostAwareRouterOptions = {}) {
-    if (routes.length === 0) throw new Error('cost_router_routes_empty')
+    if (routes.length === 0)
+      throw new VolundError('cost_router_routes_empty', 'cost_router_routes_empty')
     for (const route of routes) {
-      if (!route.pricing) throw new Error('cost_router_pricing_missing')
+      if (!route.pricing)
+        throw new VolundError('cost_router_pricing_missing', 'cost_router_pricing_missing')
       this.#assertNonNegativeFinite(route.pricing.inputUSDPerMillionTokens, 'input_pricing')
       this.#assertNonNegativeFinite(route.pricing.outputUSDPerMillionTokens, 'output_pricing')
     }
@@ -339,7 +344,7 @@ export class CostAwareRouter implements RouterPolicy {
   async pick(ctx: RouterContext, hint?: RouterHint): Promise<RouterDecision> {
     this.#preflight(ctx, hint)
     if (!this.#routes.some((route) => this.#isAffordable(route, ctx)))
-      throw new Error('cost_router_no_affordable_route')
+      throw new VolundError('cost_router_no_affordable_route', 'cost_router_no_affordable_route')
     return this.#explain(await this.#fallback.pick(ctx, hint))
   }
 
@@ -356,7 +361,10 @@ export class CostAwareRouter implements RouterPolicy {
   #preflight(ctx: RouterContext, hint?: RouterHint): void {
     const usage = this.#usage(ctx)
     if (ctx.budget?.costUSDMax !== undefined && !usage)
-      throw new Error('cost_router_usage_estimate_missing')
+      throw new VolundError(
+        'cost_router_usage_estimate_missing',
+        'cost_router_usage_estimate_missing',
+      )
     if (usage) this.#assertUsage(usage)
     if (hint?.explicitModel) {
       const parts = hint.explicitModel.split('/')
@@ -365,7 +373,11 @@ export class CostAwareRouter implements RouterPolicy {
       const matched = this.#routes.some(
         (route) => (!providerName || route.provider.name === providerName) && route.model === model,
       )
-      if (!matched) throw new Error('cost_router_explicit_model_unpriced')
+      if (!matched)
+        throw new VolundError(
+          'cost_router_explicit_model_unpriced',
+          'cost_router_explicit_model_unpriced',
+        )
     }
   }
 
@@ -424,7 +436,8 @@ export class CostAwareRouter implements RouterPolicy {
   }
 
   #assertNonNegativeFinite(value: number, label: string): void {
-    if (!Number.isFinite(value) || value < 0) throw new Error(`cost_router_${label}_invalid`)
+    if (!Number.isFinite(value) || value < 0)
+      throw new VolundError(`cost_router_${label}_invalid`, `cost_router_${label}_invalid`)
   }
 
   #explain(decision: RouterDecision): RouterDecision {
@@ -434,7 +447,10 @@ export class CostAwareRouter implements RouterPolicy {
 
 export function assertProviderMayBeDefault(registry: ProviderRegistry, providerName: string) {
   if (registry.describe(providerName)?.source.kind === 'plugin')
-    throw new Error('plugin_provider_cannot_be_default_v1')
+    throw new VolundError(
+      'plugin_provider_cannot_be_default_v1',
+      'plugin_provider_cannot_be_default_v1',
+    )
 }
 
 export type RouterRole = NonNullable<RouterHint['role']>
@@ -466,7 +482,8 @@ export class RoleRouter implements RouterPolicy {
     config: RoleRouterConfig,
     options: FallbackRouterOptions & { maxTrackedTurns?: number } = {},
   ) {
-    if (!config.default) throw new Error('role_router_default_missing')
+    if (!config.default)
+      throw new VolundError('role_router_default_missing', 'role_router_default_missing')
     this.#registry = registry
     this.#options = options
     this.#maxTrackedTurns = Math.max(1, options.maxTrackedTurns ?? 256)
@@ -489,7 +506,10 @@ export class RoleRouter implements RouterPolicy {
     if (ctx.session.stickyProvider) {
       const router = active ?? this.#providerRouters.get(ctx.session.stickyProvider)
       if (!router)
-        throw new Error(`sticky_provider_not_in_role_candidates: ${ctx.session.stickyProvider}`)
+        throw new VolundError(
+          'sticky_provider_not_in_role_candidates',
+          `${ctx.session.stickyProvider}`,
+        )
       this.#track(ctx.turnId, router)
       return router.pick(ctx)
     }
@@ -497,7 +517,7 @@ export class RoleRouter implements RouterPolicy {
     if (hint?.explicitModel?.includes('/')) {
       const [providerName, ...model] = hint.explicitModel.split('/')
       const provider = this.#registry.get(providerName!)
-      if (!provider) throw new Error(`provider_not_registered: ${providerName}`)
+      if (!provider) throw new VolundError('provider_not_registered', `${providerName}`)
       const router = new FallbackRouter(
         [{ provider, model: model.join('/'), priority: 0 }],
         this.#options,
@@ -530,7 +550,7 @@ export class RoleRouter implements RouterPolicy {
     label: string,
   ): readonly RoleRouteConfig[] {
     const routes = Array.isArray(configured) ? configured : [configured]
-    if (routes.length === 0) throw new Error(`role_router_candidates_empty: ${label}`)
+    if (routes.length === 0) throw new VolundError('role_router_candidates_empty', `${label}`)
     return routes
   }
 
@@ -538,7 +558,7 @@ export class RoleRouter implements RouterPolicy {
     return new FallbackRouter(
       configured.map((route, index) => {
         const provider = this.#registry.get(route.provider)
-        if (!provider) throw new Error(`provider_not_registered: ${route.provider}`)
+        if (!provider) throw new VolundError('provider_not_registered', `${route.provider}`)
         return { provider, model: route.model, priority: route.priority ?? -index }
       }),
       this.#options,
@@ -556,15 +576,15 @@ export class RoleRouter implements RouterPolicy {
 /** Validates the untyped `[router]` config before any provider can receive traffic. */
 export function parseRoleRouterConfig(value: unknown): RoleRouterConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('role_router_config_invalid')
+    throw new VolundError('role_router_config_invalid', 'role_router_config_invalid')
   const input = value as Record<string, unknown>
   const config: RoleRouterConfig = { default: parseConfiguredRoutes(input.default, 'default') }
   if (input.roles !== undefined) {
     if (!input.roles || typeof input.roles !== 'object' || Array.isArray(input.roles))
-      throw new Error('role_router_roles_invalid')
+      throw new VolundError('role_router_roles_invalid', 'role_router_roles_invalid')
     const roles = input.roles as Record<string, unknown>
     const unknown = Object.keys(roles).find((role) => !ROUTER_ROLES.includes(role as RouterRole))
-    if (unknown) throw new Error(`role_router_role_unknown: ${unknown}`)
+    if (unknown) throw new VolundError('role_router_role_unknown', `${unknown}`)
     const parsed: Partial<Record<RouterRole, RoleRouteConfig | readonly RoleRouteConfig[]>> = {}
     for (const role of ROUTER_ROLES)
       if (roles[role] !== undefined) parsed[role] = parseConfiguredRoutes(roles[role], role)
@@ -578,7 +598,7 @@ function parseConfiguredRoutes(
   label: string,
 ): RoleRouteConfig | readonly RoleRouteConfig[] {
   if (Array.isArray(value)) {
-    if (value.length === 0) throw new Error(`role_router_candidates_empty: ${label}`)
+    if (value.length === 0) throw new VolundError('role_router_candidates_empty', `${label}`)
     return value.map((route) => parseConfiguredRoute(route, label))
   }
   return parseConfiguredRoute(value, label)
@@ -586,7 +606,7 @@ function parseConfiguredRoutes(
 
 function parseConfiguredRoute(value: unknown, label: string): RoleRouteConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error(`role_router_route_invalid: ${label}`)
+    throw new VolundError('role_router_route_invalid', `${label}`)
   const route = value as Record<string, unknown>
   if (
     typeof route.provider !== 'string' ||
@@ -594,12 +614,12 @@ function parseConfiguredRoute(value: unknown, label: string): RoleRouteConfig {
     typeof route.model !== 'string' ||
     !route.model
   )
-    throw new Error(`role_router_route_invalid: ${label}`)
+    throw new VolundError('role_router_route_invalid', `${label}`)
   if (
     route.priority !== undefined &&
     (!Number.isFinite(route.priority) || typeof route.priority !== 'number')
   )
-    throw new Error(`role_router_priority_invalid: ${label}`)
+    throw new VolundError('role_router_priority_invalid', `${label}`)
   return {
     provider: route.provider,
     model: route.model,

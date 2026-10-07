@@ -1,6 +1,6 @@
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
-import type { Logger } from '@volund/shared'
+import { VolundError, type Logger } from '@volund/shared'
 import picomatch from 'picomatch'
 
 import { normalizeOrigin } from './net-origin'
@@ -280,14 +280,16 @@ export class PermissionManager {
     const decision = await this.request(request, signal)
     if (decision.kind.startsWith('deny')) {
       if (decision.reason === 'timeout')
-        throw new Error(
-          `permission_timeout: ${request.toolName} approval timed out without a response; the request was auto-denied. Ask the user again or proceed without it.`,
+        throw new VolundError(
+          'permission_timeout',
+          `${request.toolName} approval timed out without a response; the request was auto-denied. Ask the user again or proceed without it.`,
         )
       if (decision.reason === 'fatigue')
-        throw new Error(
-          `mcp_fatigue_rate_limited: ${request.toolName} was auto-denied — its MCP server is triggering approval prompts too quickly; inspect the server or raise its max_prompts_per_minute.`,
+        throw new VolundError(
+          'mcp_fatigue_rate_limited',
+          `${request.toolName} was auto-denied — its MCP server is triggering approval prompts too quickly; inspect the server or raise its max_prompts_per_minute.`,
         )
-      throw new Error(`Permission denied for ${request.toolName}`)
+      throw new VolundError('permission_denied', `Permission denied for ${request.toolName}`)
     }
     return operation()
   }

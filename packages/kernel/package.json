@@ -21,6 +21,7 @@
     "@cordisjs/core": "catalog:",
     "@volund/core": "workspace:*",
     "@volund/provider-kit": "workspace:*",
+    "@volund/shared": "workspace:*",
     "@volund/tool-kit": "workspace:*"
   },
   "devDependencies": {

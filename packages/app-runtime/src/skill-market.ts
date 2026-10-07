@@ -15,6 +15,7 @@
 import { join } from 'node:path'
 
 import { loadTomlFile } from '@volund/config'
+import { VolundError } from '@volund/shared'
 
 import { isTrustedMarketSource } from './plugin-market'
 
@@ -63,12 +64,13 @@ export async function readSkillMarketSource(home: string): Promise<string | unde
   const skills = config.skills
   if (skills === undefined) return undefined
   if (!skills || typeof skills !== 'object' || Array.isArray(skills))
-    throw new Error('config_invalid: [skills] must be a table')
+    throw new VolundError('config_invalid', '[skills] must be a table')
   const market = (skills as Record<string, unknown>).market
   if (market === undefined) return undefined
   if (typeof market !== 'string' || !isTrustedMarketSource(market))
-    throw new Error(
-      'config_invalid: [skills] market must be an HTTPS URL (or loopback http for local sources)',
+    throw new VolundError(
+      'config_invalid',
+      '[skills] market must be an HTTPS URL (or loopback http for local sources)',
     )
   return market
 }
@@ -76,23 +78,34 @@ export async function readSkillMarketSource(home: string): Promise<string | unde
 /** 索引形状校验（结构性上限 + 命名规则；name 必须能成为 skill 目录名）。 */
 export function parseSkillMarketIndex(value: unknown): readonly SkillMarketEntry[] {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('skill market index must be an object')
+    throw new VolundError('skill_market_index_invalid', 'skill market index must be an object')
   const record = value as Record<string, unknown>
-  if (record.version !== 1) throw new Error('skill market index version must be 1')
-  if (!Array.isArray(record.entries)) throw new Error('skill market index entries must be an array')
+  if (record.version !== 1)
+    throw new VolundError('skill_market_index_invalid', 'skill market index version must be 1')
+  if (!Array.isArray(record.entries))
+    throw new VolundError(
+      'skill_market_index_invalid',
+      'skill market index entries must be an array',
+    )
   if (record.entries.length > MAX_ENTRIES)
-    throw new Error(`too many skill entries (>${MAX_ENTRIES})`)
+    throw new VolundError('skill_market_index_invalid', `too many skill entries (>${MAX_ENTRIES})`)
   const entries: SkillMarketEntry[] = []
   for (const raw of record.entries) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-      throw new Error('skill market entry must be an object')
+      throw new VolundError('skill_market_index_invalid', 'skill market entry must be an object')
     const entry = raw as Record<string, unknown>
     const name = entry.name
     const source = entry.source
     if (typeof name !== 'string' || !SKILL_NAME.test(name) || name.length > 64)
-      throw new Error(`skill market entry has invalid name: ${String(name)}`)
+      throw new VolundError(
+        'skill_market_index_invalid',
+        `skill market entry has invalid name: ${String(name)}`,
+      )
     if (typeof source !== 'string' || !source.trim())
-      throw new Error(`skill market entry '${name}' has invalid source`)
+      throw new VolundError(
+        'skill_market_index_invalid',
+        `skill market entry '${name}' has invalid source`,
+      )
     entries.push({
       name,
       source,
@@ -116,13 +129,23 @@ export function parseClaudeSkillMarketplace(
   repoUrl: string,
 ): readonly SkillMarketEntry[] {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('claude skill marketplace must be an object')
+    throw new VolundError(
+      'skill_market_index_invalid',
+      'claude skill marketplace must be an object',
+    )
   const plugins = (value as Record<string, unknown>).plugins
-  if (!Array.isArray(plugins)) throw new Error('claude skill marketplace requires plugins[]')
+  if (!Array.isArray(plugins))
+    throw new VolundError(
+      'skill_market_index_invalid',
+      'claude skill marketplace requires plugins[]',
+    )
   const entries: SkillMarketEntry[] = []
   for (const raw of plugins) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-      throw new Error('claude skill marketplace plugin must be an object')
+      throw new VolundError(
+        'skill_market_index_invalid',
+        'claude skill marketplace plugin must be an object',
+      )
     const plugin = raw as Record<string, unknown>
     const description = typeof plugin.description === 'string' ? plugin.description : undefined
     const skillPaths = Array.isArray(plugin.skills) ? plugin.skills : []
@@ -151,7 +174,7 @@ export function parseSkillMarketDocument(
     if (record.version === 1 && Array.isArray(record.entries)) return parseSkillMarketIndex(value)
     if (Array.isArray(record.plugins)) return parseClaudeSkillMarketplace(value, repoUrl)
   }
-  throw new Error('unrecognized skill market document shape')
+  throw new VolundError('skill_market_index_invalid', 'unrecognized skill market document shape')
 }
 
 let cached: { source: string; view: SkillMarketView; at: number } | undefined
@@ -175,10 +198,17 @@ export async function fetchSkillMarketIndex(
   if (cached && cached.source === source && now - cached.at < INDEX_CACHE_TTL_MS) return cached.view
   try {
     const response = await fetch(source, { signal: AbortSignal.timeout(15_000) })
-    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    if (!response.ok)
+      throw new VolundError(
+        'skill_market_fetch_failed',
+        `HTTP ${response.status} ${response.statusText}`,
+      )
     const body = await response.text()
     if (Buffer.byteLength(body, 'utf8') > MAX_INDEX_BYTES)
-      throw new Error(`skill market index larger than ${MAX_INDEX_BYTES} bytes`)
+      throw new VolundError(
+        'skill_market_fetch_failed',
+        `skill market index larger than ${MAX_INDEX_BYTES} bytes`,
+      )
     const repoUrl =
       isDefault || source.includes('claude-plugin/marketplace.json')
         ? DEFAULT_SKILL_MARKET_REPO

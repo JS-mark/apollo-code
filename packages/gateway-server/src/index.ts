@@ -26,6 +26,8 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import type { Duplex } from 'node:stream'
 
+import { VolundError } from '@volund/shared'
+
 import { classifyHubError, handleChatCompletion } from './chat'
 import type { GatewayEnvelope, GatewayHubLike, GatewayModelListing, GatewayModelsView } from './hub'
 import type { GatewayOAuthClient, GatewayTokenClaims } from './oauth'
@@ -309,7 +311,10 @@ export async function createGatewayServer(
   options: GatewayServerOptions,
 ): Promise<GatewayServerHandle> {
   if (!options.hub && !options.relay)
-    throw new Error('gateway requires either hub (direct mode) or relay (relay mode)')
+    throw new VolundError(
+      'gateway_internal',
+      'gateway requires either hub (direct mode) or relay (relay mode)',
+    )
   const serverId = randomBytes(16).toString('base64url')
   const oauth = new GatewayOAuthServer(options.oauth)
   // 机器注册的铸造编排：生成 → 哈希落盘（装配侧 persist）→ 登记进认证面。

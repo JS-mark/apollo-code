@@ -180,7 +180,7 @@ export class SessionController<TStatusView = unknown> extends Service {
       await this.runTurnExclusive(input.prompt)
     } else {
       if (!this.options.terminal?.isInteractive())
-        throw new Error('Interactive chat requires a TTY or a prompt')
+        throw new VolundError('session_tty_required', 'Interactive chat requires a TTY or a prompt')
       for (;;) {
         const prompt = await this.options.terminal.promptLine('> ')
         if (prompt === undefined) break
@@ -347,7 +347,8 @@ export class SessionController<TStatusView = unknown> extends Service {
   }
 
   async resume(id: string): Promise<{ id: string }> {
-    if (!SESSION_ID_PATTERN.test(id)) throw new Error('Invalid session id')
+    if (!SESSION_ID_PATTERN.test(id))
+      throw new VolundError('session_id_invalid', 'Invalid session id')
     const store = new SessionStore(this.path(id))
     // §8.2 D1-1（REM-74）：resume 一律走事件 replay（附录 D 形状；legacy session.snapshot
     // 行作为旧数据的基线兜底），禁止再写全量快照。
@@ -370,7 +371,11 @@ export class SessionController<TStatusView = unknown> extends Service {
       maxTokens: 200_000,
       toolRegistrySnapshot: 'builtin:l1',
     })
-    if (!replay.found) throw new Error(`Session not found or has no resumable events: ${id}`)
+    if (!replay.found)
+      throw new VolundError(
+        'session_not_found',
+        `Session not found or has no resumable events: ${id}`,
+      )
     const state = updateSession(replay.state, (draft) => {
       draft.activeTurn = null
       draft.pendingInterrupt = false

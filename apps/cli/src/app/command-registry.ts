@@ -1,3 +1,5 @@
+import { VolundError } from '@volund/shared'
+
 import type { CommandContext, CommandDefinition, CliResult } from '../shared/cli-types'
 
 export class CommandRegistry {
@@ -5,7 +7,8 @@ export class CommandRegistry {
 
   constructor(commands: readonly CommandDefinition[]) {
     for (const command of commands) {
-      if (this.#commands.has(command.name)) throw new Error(`Duplicate command: ${command.name}`)
+      if (this.#commands.has(command.name))
+        throw new VolundError('cli_internal', `Duplicate command: ${command.name}`)
       this.#commands.set(command.name, command)
     }
   }
@@ -16,7 +19,7 @@ export class CommandRegistry {
 
   async dispatch(name: string, context: CommandContext): Promise<CliResult> {
     const command = this.#commands.get(name)
-    if (!command) throw new Error(`Unknown command: ${name}`)
+    if (!command) throw new VolundError('cli_internal', `Unknown command: ${name}`)
     return command.run(context)
   }
 }

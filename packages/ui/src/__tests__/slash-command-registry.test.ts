@@ -1,3 +1,4 @@
+import { VolundError } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MutableSlashCommandRegistry, normalizeSlashCommandName } from '../slash-command-registry'
@@ -8,6 +9,16 @@ const command = (name: string, aliases?: readonly string[]) => ({
   description: `${name} command`,
   run: vi.fn(),
 })
+
+const expectErrorCode = (run: () => unknown, code: string): void => {
+  try {
+    run()
+  } catch (error) {
+    expect((error as VolundError).code).toBe(code)
+    return
+  }
+  expect.unreachable(`expected VolundError code ${code}`)
+}
 
 describe('MutableSlashCommandRegistry', () => {
   it('normalizes names, aliases and sorts builtins before plugins', () => {
@@ -46,13 +57,15 @@ describe('MutableSlashCommandRegistry', () => {
     const registry = new MutableSlashCommandRegistry()
     registry.register(command('help', ['h']), { kind: 'builtin' })
 
-    expect(() => registry.register(command('/help'), { kind: 'plugin', plugin: 'p' })).toThrow(
+    expectErrorCode(
+      () => registry.register(command('/help'), { kind: 'plugin', plugin: 'p' }),
       'slash_command_builtin_reserved',
     )
-    expect(() =>
-      registry.register(command('plugin', ['h']), { kind: 'plugin', plugin: 'p' }),
-    ).toThrow('slash_command_builtin_reserved')
-    expect(() => normalizeSlashCommandName('../bad')).toThrow('slash_command_invalid_name')
+    expectErrorCode(
+      () => registry.register(command('plugin', ['h']), { kind: 'plugin', plugin: 'p' }),
+      'slash_command_builtin_reserved',
+    )
+    expectErrorCode(() => normalizeSlashCommandName('../bad'), 'slash_command_invalid_name')
   })
 
   it('publishes immutable snapshots on register and dispose', () => {

@@ -14,6 +14,7 @@
 import { join } from 'node:path'
 
 import { loadTomlFile } from '@volund/config'
+import { VolundError } from '@volund/shared'
 
 import { isTrustedMarketSource } from './plugin-market'
 
@@ -57,12 +58,13 @@ export async function readMcpMarketSource(home: string): Promise<string | undefi
   const mcp = config.mcp
   if (mcp === undefined) return undefined
   if (!mcp || typeof mcp !== 'object' || Array.isArray(mcp))
-    throw new Error('config_invalid: [mcp] must be a table')
+    throw new VolundError('config_invalid', '[mcp] must be a table')
   const market = (mcp as Record<string, unknown>).market
   if (market === undefined) return undefined
   if (typeof market !== 'string' || !isTrustedMarketSource(market))
-    throw new Error(
-      'config_invalid: [mcp] market must be an HTTPS URL (or loopback http for local sources)',
+    throw new VolundError(
+      'config_invalid',
+      '[mcp] market must be an HTTPS URL (or loopback http for local sources)',
     )
   return market
 }
@@ -70,33 +72,54 @@ export async function readMcpMarketSource(home: string): Promise<string | undefi
 /** 索引形状校验：stdio 条目必须有 command；http 条目必须有 url。 */
 export function parseMcpMarketIndex(value: unknown): readonly McpMarketEntry[] {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('mcp market index must be an object')
+    throw new VolundError('mcp_market_index_invalid', 'mcp market index must be an object')
   const record = value as Record<string, unknown>
-  if (record.version !== 1) throw new Error('mcp market index version must be 1')
-  if (!Array.isArray(record.entries)) throw new Error('mcp market index entries must be an array')
-  if (record.entries.length > MAX_ENTRIES) throw new Error(`too many mcp entries (>${MAX_ENTRIES})`)
+  if (record.version !== 1)
+    throw new VolundError('mcp_market_index_invalid', 'mcp market index version must be 1')
+  if (!Array.isArray(record.entries))
+    throw new VolundError('mcp_market_index_invalid', 'mcp market index entries must be an array')
+  if (record.entries.length > MAX_ENTRIES)
+    throw new VolundError('mcp_market_index_invalid', `too many mcp entries (>${MAX_ENTRIES})`)
   const entries: McpMarketEntry[] = []
   for (const raw of record.entries) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-      throw new Error('mcp market entry must be an object')
+      throw new VolundError('mcp_market_index_invalid', 'mcp market entry must be an object')
     const entry = raw as Record<string, unknown>
     const name = entry.name
     if (typeof name !== 'string' || !SERVER_NAME.test(name))
-      throw new Error(`mcp market entry has invalid name: ${String(name)}`)
+      throw new VolundError(
+        'mcp_market_index_invalid',
+        `mcp market entry has invalid name: ${String(name)}`,
+      )
     const transport = entry.transport
     if (transport !== 'stdio' && transport !== 'http')
-      throw new Error(`mcp market entry '${name}' transport must be 'stdio' or 'http'`)
+      throw new VolundError(
+        'mcp_market_index_invalid',
+        `mcp market entry '${name}' transport must be 'stdio' or 'http'`,
+      )
     if (transport === 'stdio' && typeof entry.command !== 'string')
-      throw new Error(`mcp market entry '${name}' (stdio) requires command`)
+      throw new VolundError(
+        'mcp_market_index_invalid',
+        `mcp market entry '${name}' (stdio) requires command`,
+      )
     if (transport === 'http' && typeof entry.url !== 'string')
-      throw new Error(`mcp market entry '${name}' (http) requires url`)
+      throw new VolundError(
+        'mcp_market_index_invalid',
+        `mcp market entry '${name}' (http) requires url`,
+      )
     const stringRecord = (value: object, field: string): Record<string, string> => {
       if (Array.isArray(value))
-        throw new Error(`mcp market entry '${name}' ${field} must be a table`)
+        throw new VolundError(
+          'mcp_market_index_invalid',
+          `mcp market entry '${name}' ${field} must be a table`,
+        )
       const out: Record<string, string> = {}
       for (const [key, item] of Object.entries(value)) {
         if (typeof item !== 'string')
-          throw new Error(`mcp market entry '${name}' ${field} values must be strings`)
+          throw new VolundError(
+            'mcp_market_index_invalid',
+            `mcp market entry '${name}' ${field} values must be strings`,
+          )
         out[key] = item
       }
       return out
@@ -130,9 +153,10 @@ export function parseMcpMarketIndex(value: unknown): readonly McpMarketEntry[] {
  */
 export function parseMcpRegistryDocument(value: unknown): readonly McpMarketEntry[] {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('mcp registry document must be an object')
+    throw new VolundError('mcp_market_index_invalid', 'mcp registry document must be an object')
   const servers = (value as Record<string, unknown>).servers
-  if (!Array.isArray(servers)) throw new Error('mcp registry document requires servers[]')
+  if (!Array.isArray(servers))
+    throw new VolundError('mcp_market_index_invalid', 'mcp registry document requires servers[]')
   const entries: McpMarketEntry[] = []
   const seen = new Set<string>()
   for (const raw of servers) {
@@ -208,7 +232,7 @@ export function parseMcpMarketDocument(value: unknown): readonly McpMarketEntry[
     if (record.version === 1 && Array.isArray(record.entries)) return parseMcpMarketIndex(value)
     if (Array.isArray(record.servers)) return parseMcpRegistryDocument(value)
   }
-  throw new Error('unrecognized mcp market document shape')
+  throw new VolundError('mcp_market_index_invalid', 'unrecognized mcp market document shape')
 }
 
 let cached: { source: string; view: McpMarketView; at: number } | undefined
@@ -232,10 +256,17 @@ export async function fetchMcpMarketIndex(
   if (cached && cached.source === source && now - cached.at < INDEX_CACHE_TTL_MS) return cached.view
   try {
     const response = await fetch(source, { signal: AbortSignal.timeout(15_000) })
-    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    if (!response.ok)
+      throw new VolundError(
+        'mcp_market_fetch_failed',
+        `HTTP ${response.status} ${response.statusText}`,
+      )
     const body = await response.text()
     if (Buffer.byteLength(body, 'utf8') > MAX_INDEX_BYTES)
-      throw new Error(`mcp market index larger than ${MAX_INDEX_BYTES} bytes`)
+      throw new VolundError(
+        'mcp_market_fetch_failed',
+        `mcp market index larger than ${MAX_INDEX_BYTES} bytes`,
+      )
     const view: McpMarketView = {
       source,
       entries: parseMcpMarketDocument(JSON.parse(body)),

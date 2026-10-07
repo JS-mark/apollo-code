@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 
-import { productIdentity, sanitize } from '@volund/shared'
+import { productIdentity, sanitize, VolundError } from '@volund/shared'
 import type {
   MemoryProvenance,
   MemoryRecord,
@@ -510,4 +510,8 @@ function failure(args: ParsedCliArgs, exitCode: number, code: string, message: s
     : { exitCode, stdout: '', stderr: safeMessage }
 }
 
-class UsageError extends Error {}
+class UsageError extends VolundError {
+  constructor(message: string) {
+    super('memory_validation', message)
+  }
+}

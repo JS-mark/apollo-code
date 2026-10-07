@@ -1,3 +1,4 @@
+import { VolundError } from '@volund/shared'
 import type { AskChoiceDismissal, ToolChoiceRequest } from '@volund/tool-kit'
 /**
  * AskUserQuestion 的宿主交互面：把 ToolUiPort 的可选 `requestChoice` 通道
@@ -41,7 +42,10 @@ export function createAskUserInteraction(
 ) => Promise<string | AskChoiceDismissal | undefined> {
   return async (request, signal) => {
     if (options.mode === 'none')
-      throw new Error('user interaction is unavailable in non-interactive mode')
+      throw new VolundError(
+        'ask_unavailable',
+        'user interaction is unavailable in non-interactive mode',
+      )
     if (options.mode === 'line') {
       const menu = request.options
         .map((option, index) => `${index + 1}) ${option.label}`)

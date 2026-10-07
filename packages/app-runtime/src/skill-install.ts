@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
+import { VolundError } from '@volund/shared'
+
 const execFileAsync = promisify(execFile)
 
 async function collectSkillDirectories(root: string): Promise<string[]> {
@@ -90,7 +92,10 @@ export async function resolveSkillSpecToDirectories(
       try {
         await readFile(join(sub, 'SKILL.md'), 'utf8')
       } catch {
-        throw new Error(`No SKILL.md at ${tree.subpath} in ${tree.repoUrl}`)
+        throw new VolundError(
+          'skill_source_invalid',
+          `No SKILL.md at ${tree.subpath} in ${tree.repoUrl}`,
+        )
       }
       return { directories: [sub], cleanup }
     } catch (error) {
@@ -115,7 +120,8 @@ export async function resolveSkillSpecToDirectories(
       return { directories: [temporary], cleanup }
     } catch {
       const withSkill = await collectSkillDirectories(temporary)
-      if (withSkill.length === 0) throw new Error(`No SKILL.md found in ${spec}`)
+      if (withSkill.length === 0)
+        throw new VolundError('skill_source_invalid', `No SKILL.md found in ${spec}`)
       return { directories: withSkill, cleanup }
     }
   } catch (error) {

@@ -144,9 +144,9 @@ describe('readMarketSource（[plugins] market 配置）', () => {
   it('throws config_invalid for malformed values', async () => {
     const home = await fixtureHome()
     await writeFile(join(home, 'config.toml'), '[plugins]\nmarket = "ftp://bad"\n')
-    await expect(readMarketSource(home)).rejects.toThrow('config_invalid')
+    await expect(readMarketSource(home)).rejects.toMatchObject({ code: 'config_invalid' })
     await writeFile(join(home, 'config.toml'), '[plugins]\nmarket = 42\n')
-    await expect(readMarketSource(home)).rejects.toThrow(/plugins.market/)
+    await expect(readMarketSource(home)).rejects.toMatchObject({ code: 'config_invalid' })
   })
 })
 

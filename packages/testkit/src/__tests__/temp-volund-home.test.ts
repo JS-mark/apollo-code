@@ -94,9 +94,9 @@ describe('tempvolundHome', () => {
   })
 
   it('rejects file paths that escape the .volund directory', async () => {
-    await expect(tempvolundHome({ files: { '../escape.txt': 'x' } })).rejects.toThrow(
-      'testkit_path_escape: ../escape.txt',
-    )
+    await expect(tempvolundHome({ files: { '../escape.txt': 'x' } })).rejects.toMatchObject({
+      code: 'testkit_path_escape',
+    })
   })
 
   it('overrides a pre-existing VOLUND_HOME during the test and restores it', async () => {

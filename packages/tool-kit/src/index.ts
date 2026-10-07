@@ -1,6 +1,6 @@
 import type { PermissionSpec } from '@volund/permission'
 import type { ContentPart } from '@volund/provider-kit'
-import type { JsonValue, Logger } from '@volund/shared'
+import { VolundError, type JsonValue, type Logger } from '@volund/shared'
 
 export interface SessionSnapshot {
   id: string
@@ -111,10 +111,11 @@ export class ToolRegistry {
   ): () => void {
     if (source.kind === 'mcp' && !tool.name.startsWith(`mcp__${source.server}__`))
       // SKILLS-MCPS-r1 §S3.5：命名对齐业界 mcp__<server>__<tool>（双下划线）。
-      throw new Error('MCP tools require mcp__<server>__ prefix')
+      throw new VolundError('toolkit_tool_invalid', 'MCP tools require mcp__<server>__ prefix')
     if (source.kind === 'plugin' && !tool.name.startsWith(`plugin:${source.plugin}:`))
-      throw new Error('Plugin tools require plugin:<name>: prefix')
-    if (this.#tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`)
+      throw new VolundError('toolkit_tool_invalid', 'Plugin tools require plugin:<name>: prefix')
+    if (this.#tools.has(tool.name))
+      throw new VolundError('toolkit_tool_conflict', `Tool already registered: ${tool.name}`)
     this.#tools.set(tool.name, tool)
     return () => this.#tools.delete(tool.name)
   }

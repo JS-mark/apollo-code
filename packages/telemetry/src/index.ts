@@ -1,7 +1,7 @@
 import { open, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { sanitize, type JsonValue, type Logger } from '@volund/shared'
+import { sanitize, VolundError, type JsonValue, type Logger } from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 export interface TelemetryEvent {
@@ -77,7 +77,7 @@ export class TelemetryStore {
       try {
         const value = JSON.parse(line) as TelemetryEvent
         if (value.v !== 1 || typeof value.name !== 'string' || typeof value.at !== 'string')
-          throw new Error()
+          throw new VolundError('telemetry_internal', '')
         events.push(value)
       } catch {
         corruptLines += 1

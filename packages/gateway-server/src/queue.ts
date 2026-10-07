@@ -1,16 +1,16 @@
+import { VolundError } from '@volund/shared'
+
 /**
  * 单 runner 串行门（volund 的 SessionController 是单活动会话模型）：
  * chat/completions 与 WS turn 共用同一把 FIFO 锁——等待超时的请求拿
  * 409 gateway_session_busy，而不是静默排队到天荒地老。
  */
 
-export class GatewayError extends Error {
-  readonly code: string
+export class GatewayError extends VolundError {
   readonly status: number
 
   constructor(code: string, status: number, message: string) {
-    super(message)
-    this.code = code
+    super(code, message)
     this.status = status
   }
 }

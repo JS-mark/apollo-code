@@ -9,6 +9,7 @@ import type {
   ProviderErrorCategory,
   ProviderRequest,
 } from '@volund/provider-kit'
+import { VolundError } from '@volund/shared'
 
 export interface HttpRequest {
   url: string
@@ -85,7 +86,11 @@ export async function approveOllamaEndpoint(
 ): Promise<OllamaEndpointApproval | undefined> {
   const endpoint = normalizeOllamaEndpoint(value)
   if (isLoopbackOllamaEndpoint(endpoint)) return undefined
-  if (!options.interactive) throw new Error('ollama_remote_endpoint_non_interactive_denied')
+  if (!options.interactive)
+    throw new VolundError(
+      'ollama_remote_endpoint_non_interactive_denied',
+      'ollama_remote_endpoint_non_interactive_denied',
+    )
   const plaintext = endpoint.startsWith('http:')
   const confirmed = await options.confirm?.({
     endpoint,
@@ -94,14 +99,21 @@ export async function approveOllamaEndpoint(
       ? `DANGER: send prompts in plaintext to remote Ollama endpoint ${endpoint}?`
       : `Send prompts to remote Ollama endpoint ${endpoint}?`,
   })
-  if (!confirmed) throw new Error('ollama_remote_endpoint_confirmation_required')
+  if (!confirmed)
+    throw new VolundError(
+      'ollama_remote_endpoint_confirmation_required',
+      'ollama_remote_endpoint_confirmation_required',
+    )
   return Object.freeze({ endpoint, [APPROVAL]: true as const })
 }
 
 function assertEndpointApproved(endpoint: string, approval?: OllamaEndpointApproval): void {
   if (isLoopbackOllamaEndpoint(endpoint)) return
   if (approval?.[APPROVAL] !== true || approval.endpoint !== endpoint)
-    throw new Error('ollama_remote_endpoint_confirmation_required')
+    throw new VolundError(
+      'ollama_remote_endpoint_confirmation_required',
+      'ollama_remote_endpoint_confirmation_required',
+    )
 }
 
 export const ollamaCapabilities: ProviderCapabilities = {
@@ -349,10 +361,11 @@ function assertSafeResponse(
   requested: string,
   approval?: OllamaEndpointApproval,
 ) {
-  if (response.status >= 300 && response.status < 400) throw new Error('ollama_redirect_denied')
+  if (response.status >= 300 && response.status < 400)
+    throw new VolundError('ollama_redirect_denied', 'ollama_redirect_denied')
   if (response.url && normalizeOllamaEndpoint(response.url) !== requested) {
     assertEndpointApproved(normalizeOllamaEndpoint(response.url), approval)
-    throw new Error('ollama_redirect_target_changed')
+    throw new VolundError('ollama_redirect_target_changed', 'ollama_redirect_target_changed')
   }
 }
 

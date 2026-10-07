@@ -22,7 +22,8 @@
   "dependencies": {
     "@volund/native-bridge": "workspace:*",
     "@volund/plugin-sdk": "workspace:*",
-    "@volund/provider-kit": "workspace:*"
+    "@volund/provider-kit": "workspace:*",
+    "@volund/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

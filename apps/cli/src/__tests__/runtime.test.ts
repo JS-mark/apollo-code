@@ -2139,8 +2139,8 @@ describe('registerPluginCommands', () => {
     expect(second).toHaveLength(1)
     expect(onWarn).toHaveBeenCalledTimes(2)
     const warnings = onWarn.mock.calls.map(([message]) => String(message)).join('\n')
-    expect(warnings).toMatch(/slash_command_conflict/)
-    expect(warnings).toMatch(/slash_command_builtin_reserved/)
+    expect(warnings).toMatch(/\/env from volund-plugin-second not registered/)
+    expect(warnings).toMatch(/\/status from volund-plugin-second not registered/)
     expect(
       registry
         .snapshot()

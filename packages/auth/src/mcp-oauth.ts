@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 
+import { VolundError } from '@volund/shared'
+
 import type { CredentialStore } from './index'
 
 /** SM-07：OAuth 2.1 客户端流所需的授权服务器元数据（RFC 8414 / OIDC 发现）。 */
@@ -39,7 +41,12 @@ export interface McpOAuthOptions {
 export const oauthCredentialKey = (serverName: string) => `mcp.${serverName}.oauth`
 export const oauthHeaderKey = (serverName: string) => `mcp.${serverName}.Authorization`
 
-export class McpOAuthError extends Error {}
+export class McpOAuthError extends VolundError {
+  constructor(message: string, options?: ErrorOptions) {
+    super('mcp_oauth_failed', message, undefined, options)
+    this.name = 'McpOAuthError'
+  }
+}
 
 const base64url = (bytes: Buffer) => bytes.toString('base64url')
 const redirectUriFor = (port: number) => `http://127.0.0.1:${port}/callback`

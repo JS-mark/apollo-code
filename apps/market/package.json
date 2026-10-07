@@ -16,6 +16,7 @@
   "dependencies": {
     "@ant-design/icons": "catalog:",
     "@ant-design/nextjs-registry": "catalog:",
+    "@volund/shared": "workspace:*",
     "antd": "catalog:",
     "next": "catalog:",
     "react": "catalog:",

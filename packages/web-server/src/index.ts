@@ -19,8 +19,7 @@ import type { IncomingMessage } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 
 import { acceptWebSocket, WsConnection } from '@volund/gateway-server'
-import type { TaskDefinition } from '@volund/shared'
-import type { SubmitAttachment } from '@volund/shared'
+import { VolundError, type TaskDefinition, type SubmitAttachment } from '@volund/shared'
 
 import { actionDispatcher, parseMcpAddBody, type ManagementPorts } from './management'
 import type { SessionGroupsPort } from './session-groups'
@@ -484,9 +483,15 @@ function parseCookies(header: string | undefined): Map<string, string> {
 
 export async function createWebServer(options: WebServerOptions): Promise<WebServerHandle> {
   if (!LOOPBACK_HOSTS.has(options.host))
-    throw new Error(`volund web only binds loopback (127.0.0.1 / ::1); got: ${options.host}`)
+    throw new VolundError(
+      'web_bind_host_invalid',
+      `volund web only binds loopback (127.0.0.1 / ::1); got: ${options.host}`,
+    )
   if (options.port !== 0 && (options.port < 1024 || options.port > 65535))
-    throw new Error(`--port must be 1024..65535 (got ${options.port}); 0 picks a free port`)
+    throw new VolundError(
+      'web_port_invalid',
+      `--port must be 1024..65535 (got ${options.port}); 0 picks a free port`,
+    )
 
   const serverId = randomBytes(16).toString('base64url')
   // P6-09：进程内唯一，重启必然变化（serverId 同样重启轮换，但语义是「这轮 server」，

@@ -3,7 +3,7 @@ import type {
   InteractiveSession as InteractiveSessionContract,
   PermissionInteractionMode as PermissionInteractionModeContract,
 } from '@volund/app-runtime'
-import type { JsonValue } from '@volund/shared'
+import { VolundError, type JsonValue } from '@volund/shared'
 import type {
   MemoryMaintenanceService,
   MemoryRecallService,
@@ -317,10 +317,10 @@ export function unavailablePorts(): VolundPorts {
     auth: {
       health: async () => ({ configured: false, detail: 'auth port not connected' }),
       login: async () => {
-        throw new Error('auth port not connected')
+        throw new VolundError('auth_port_not_connected', 'auth port not connected')
       },
       logout: async () => {
-        throw new Error('auth port not connected')
+        throw new VolundError('auth_port_not_connected', 'auth port not connected')
       },
     },
     config: { health: async () => ({ valid: false, detail: 'config port not connected' }) },

@@ -204,6 +204,7 @@ export const ErrorCodes = {
   taskDaemonRunning: 'task_daemon_running', // volund daemon 单实例：另一 daemon（活 pid）持有调度权
   taskDefinitionInvalid: 'task_definition_invalid', // tasks-schema 校验拒绝（TaskStore.upsertTask 实参）
   taskIo: 'task_io', // task-store.ts 等锁超时 / 存储事务 IO
+  taskNotFound: 'task_not_found', // cli/web.ts setEnabled 指定任务 id 不存在
   taskRunFailed: 'task_run_failed', // 任务运行失败（spawn 失败 / 超时击杀 / 非零退出 / daemon 中断）
   taskStoreCorrupt: 'task_store_corrupt', // task-store.ts 快照与恢复备份均不可读
   taskTrustMissing: 'task_trust_missing', // daemon F1-03：任务冻结 cwd 已不被信任，拒绝执行
@@ -310,6 +311,160 @@ export const ErrorCodes = {
   volundStreamTruncated: 'VOLUND_STREAM_TRUNCATED',
   volundTimeout: 'VOLUND_TIMEOUT',
   volundUnknown: 'VOLUND_UNKNOWN',
+
+  /* ── VolundError 迁移批次（2026-10-06）：infra 域（config / tool-kit / kernel / file-lock / agent-schema） ── */
+  agentToolsUnknown: 'agent_tools_unknown', // shared/agent-schema parseAgentDefinition：tools 白名单含父注册表未登记的工具名
+  configTomlInvalid: 'config_toml_invalid', // packages/config/src/index.ts TOML 行/键/值/字符串/内联表语法解析失败
+  filelockConflict: 'filelock_conflict', // shared/file-lock 跨进程文件锁重试耗尽仍被持有
+  kernelPanelMissing: 'kernel_panel_missing', // kernel UiService.panel 取用未注册的面板 id
+  toolkitToolConflict: 'toolkit_tool_conflict', // tool-kit ToolRegistry.register 工具名重复注册
+  toolkitToolInvalid: 'toolkit_tool_invalid', // tool-kit 工具名与来源前缀（mcp__ / plugin:）不符
+
+  /* ── VolundError 迁移批次：permission 域 ─────────────────────────────── */
+  permissionDenied: 'permission_denied', // packages/permission 工具请求被拒绝后无兜底提示
+  permissionExecutorAlreadyBound: 'permission_executor_already_bound', // app-runtime/permission bindExecutor 重复绑定
+  permissionNetUrlInvalid: 'permission_net_url_invalid', // permission/net-origin InvalidNetUrlError（net 权限 URL 非法）
+  permissionParentSnapshotMissing: 'permission_parent_snapshot_missing', // app-runtime/permission PermissionSessionInvariantError
+  permissionPathPatternInvalid: 'permission_path_pattern_invalid', // permission/path-pattern PathPatternError（裸名/否定/~user 模式）
+
+  /* ── VolundError 迁移批次：auth / 凭据域 ─────────────────────────────── */
+  authCredentialCancelled: 'auth_credential_cancelled', // app-runtime/auth-domain 登录凭据输入被取消
+  authPortNotConnected: 'auth_port_not_connected', // cli/ports unavailablePorts 的 auth 存根被调用
+  authStoreLocked: 'auth_store_locked', // auth/encrypted-store 凭据库锁定期内访问
+  authStoreUnlockFailed: 'auth_store_unlock_failed', // auth/encrypted-store 解密/解锁失败
+  authStoreUnavailable: 'auth_store_unavailable', // auth/index login 时无 keychain/encrypted store 可用
+  authVerificationFailed: 'auth_verification_failed', // auth/index login verify 回调不通过
+  credentialInputCancelled: 'credential_input_cancelled', // cli/runtime promptSecret Ctrl+C 取消
+  credentialPassphraseRequired: 'credential_passphrase_required', // cli/runtime 凭据库 passphrase 为空必填
+  mcpOAuthFailed: 'mcp_oauth_failed', // auth/mcp-oauth McpOAuthError（MCP OAuth 2.1 客户端流失败）
+  providerCredentialUnavailable: 'provider_credential_unavailable', // cli/runtime provider 凭据解析为空
+
+  /* ── VolundError 迁移批次：core / context 域 ─────────────────────────── */
+  contextSummaryProviderCompleteUnsupported: 'context_summary_provider_complete_unsupported', // context/index SummaryPolicy provider 无 complete
+  coreContextPolicyAlreadyRegistered: 'core_context_policy_already_registered', // core/context-policy-registry 重名注册
+  coreContextPolicyNameMismatch: 'core_context_policy_name_mismatch', // core/context-policy-registry 注册名与 policy.name 不符
+  coreContextPolicyNoneAvailable: 'core_context_policy_none_available', // core/context-policy-registry 无任何可用 policy
+  coreContextPolicyUnknown: 'core_context_policy_unknown', // core/context-policy-registry select 指定名不存在
+  coreInternal: 'core_internal', // core/event-bus 附录 D payload 契约内部断言
+  corePromptFragmentAlreadyRegistered: 'core_prompt_fragment_already_registered', // core/prompt-composer fragment id 重复注册
+  semanticCloudEmbeddingNotAuthorized: 'semantic_cloud_embedding_not_authorized', // context/semantic 云嵌入未授权
+
+  /* ── VolundError 迁移批次：native-bridge 域 ──────────────────────────── */
+  nativeBridgeAstQueryNativeRequired: 'native_bridge_ast_query_native_required', // search.ts AST 查询需原生 worker
+  nativeBridgeBinaryFileUnsupported: 'native_bridge_binary_file_unsupported', // fs.ts 二进制文件拒绝解码
+  nativeBridgeChecksumMismatch: 'native_bridge_checksum_mismatch', // resolver.ts 产物 sha256 不匹配
+  nativeBridgePluginBridgeFdUnavailable: 'native_bridge_plugin_bridge_fd_unavailable', // sandbox.ts 插件桥 fd3 不可用
+  nativeBridgeReadLimitExceeded: 'native_bridge_read_limit_exceeded', // fs.ts readLarge 超 maxBytes
+  nativeBridgeSandboxBinaryMissing: 'native_bridge_sandbox_binary_missing', // sandbox.ts 冻结探测后二进制消失
+  nativeBridgeSandboxExecFailed: 'native_bridge_sandbox_exec_failed', // sandbox.ts sandbox 子进程非零退出/启动失败
+  nativeBridgeWorkerHandshakeInvalid: 'native_bridge_worker_handshake_invalid', // worker-pool.ts 握手协议号非法
+  nativeBridgeWorkerHandshakeTimeout: 'native_bridge_worker_handshake_timeout', // worker-pool.ts worker 握手超时
+  nativeBridgeWorkerUnavailable: 'native_bridge_worker_unavailable', // worker-pool.ts worker 不可用（search/fs 共用）
+
+  /* ── VolundError 迁移批次：tools 域（Edit/Write 守卫 + web fetch/search） ── */
+  toolEditAmbiguous: 'tool_edit_ambiguous', // tools/index old_string 多处匹配且未 replace_all
+  toolEditNoOp: 'tool_edit_no_op', // tools/index Edit/MultiEdit 空操作拒绝
+  toolEditNotFound: 'tool_edit_not_found', // tools/index old_string 匹配 0 处
+  toolFileChangedAfterWrite: 'tool_file_changed_after_write', // tools/index 写后校验发现并发修改（已回滚）
+  toolFileChangedSinceRead: 'tool_file_changed_since_read', // tools/index lost-update 门：读后文件已变
+  toolFileNotRead: 'tool_file_not_read', // tools/index Write guard：未读过即覆写
+  toolPathEscape: 'tool_path_escape', // tools/index pathInCwd/safeMutationPath 路径逃逸 cwd
+  toolSymlinkRejected: 'tool_symlink_rejected', // tools/index 拒绝对符号链接做写变更
+  webFetchContentTypeUnsupported: 'web_fetch_content_type_unsupported', // tools/web-fetch 非 text/json/xml
+  webFetchEncodingUnsupported: 'web_fetch_encoding_unsupported', // tools/web-fetch content-encoding 非 identity
+  webFetchHttpFailed: 'web_fetch_http_failed', // tools/web-fetch 响应状态码非 2xx
+  webFetchRateLimited: 'web_fetch_rate_limited', // tools/web-fetch 每 host 每分钟超限
+  webFetchRedirectForbidden: 'web_fetch_redirect_forbidden', // tools/web-fetch 重定向跳出许可 origin
+  webFetchRedirectInvalid: 'web_fetch_redirect_invalid', // tools/web-fetch 3xx 缺 Location 头
+  webFetchRedirectLimitExceeded: 'web_fetch_redirect_limit_exceeded', // tools/web-fetch 重定向次数超上限
+  webFetchResponseTooLarge: 'web_fetch_response_too_large', // tools/web-fetch 超字节上限
+  webFetchTargetForbidden: 'web_fetch_target_forbidden', // tools/web-fetch SSRF 门：私网/保留地址
+  webFetchUrlInvalid: 'web_fetch_url_invalid', // tools/web-fetch 非法绝对 URL / 非 http(s) / 携带凭证
+  webSearchProviderFailed: 'web_search_provider_failed', // tools/web-search WebSearchProviderError（provider 调用失败）
+  webSearchProviderMissing: 'web_search_provider_missing', // tools/web-search fail-closed：未配置 provider
+  webSearchQueryInvalid: 'web_search_query_invalid', // tools/web-search 查询参数校验（空/超长）
+
+  /* ── VolundError 迁移批次：mcp 域 ────────────────────────────────────── */
+  mcpFrameTooLarge: 'mcp_frame_too_large', // mcp-client 请求/响应/SSE 事件超尺寸
+  mcpHttpFailed: 'mcp_http_failed', // mcp-client HTTP/SSE 请求失败带状态码
+  mcpKeyrefUnresolved: 'mcp_keyref_unresolved', // app-runtime/mcp-domain 连接期 keyref 凭据缺失
+  mcpLoginTransportUnsupported: 'mcp_login_transport_unsupported', // app-runtime/mcp-domain mcp login 用于 stdio server
+  mcpMarketFetchFailed: 'mcp_market_fetch_failed', // app-runtime/mcp-market MCP 市场索引拉取失败
+  mcpMarketIndexInvalid: 'mcp_market_index_invalid', // app-runtime/mcp-market 市场索引/registry 文档校验拒绝
+  mcpResponseInvalid: 'mcp_response_invalid', // mcp-client MCP 响应体畸形
+  mcpServerNameInvalid: 'mcp_server_name_invalid', // mcp-client McpClient 构造：server 名不合法
+  mcpServerNotConfigured: 'mcp_server_not_configured', // app-runtime/mcp-domain mcp remove 无配置条目
+  mcpServerUnknown: 'mcp_server_unknown', // app-runtime/mcp-domain 按名找不到 MCP server
+  mcpSseReconnectExhausted: 'mcp_sse_reconnect_exhausted', // mcp-client SSE 重连次数耗尽
+  mcpTestFailed: 'mcp_test_failed', // app-runtime/mcp-domain mcp test 目标非 connected
+  mcpTransportStateInvalid: 'mcp_transport_state_invalid', // mcp-client 传输重复 start / 未 start 即 send
+  mcpUnavailable: 'mcp_unavailable', // app-runtime/mcp-domain 面板操作时无 MCP manager
+
+  /* ── VolundError 迁移批次：remote-link / 远程域 ──────────────────────── */
+  remoteLinkCapabilityUnavailable: 'remote_link_capability_unavailable', // remote-link hub 未实现该能力
+  remoteLinkMethodUnknown: 'remote_link_method_unknown', // remote-link 网关发来未知 uplink rpc 方法
+  remoteLinkNotStarted: 'remote_link_not_started', // cli/remote 配对时 uplink 未启动
+  remoteLinkTokenFailed: 'remote_link_token_failed', // remote-link client_credentials 换 token 失败
+  remoteNoActiveSession: 'remote_no_active_session', // cli/remote hub changes* RPC 无活动会话
+  remoteSubagentsUnavailable: 'remote_subagents_unavailable', // cli/remote hub 未装配 subagents 面
+  subagentNotRunning: 'subagent_not_running', // cli/runtime /subagents 取消目标不在运行
+
+  /* ── VolundError 迁移批次：subagent 域（VOLUND_SUBAGENT_* SCREAMING 族） ── */
+  volundSubagentNameMismatch: 'VOLUND_SUBAGENT_NAME_MISMATCH', // subagent/agent-registry frontmatter name 与文件名不一致
+  volundSubagentToolsExceedParent: 'VOLUND_SUBAGENT_TOOLS_EXCEED_PARENT', // subagent/agent-registry tools 白名单超出父注册表
+
+  /* ── VolundError 迁移批次：storage 域 ────────────────────────────────── */
+  evolutionFileShrank: 'evolution_file_shrank', // storage/evolution-store readRange 恢复期间文件缩短
+  storageBackupManifestCorrupt: 'storage_backup_manifest_corrupt', // storage/index readManifest 结构损坏
+  storageBackupPathEscape: 'storage_backup_path_escape', // storage/index assertWithin 备份路径逃逸
+  storageBackupTargetInvalid: 'storage_backup_target_invalid', // storage/index BackupStore.prepare 目标非常规文件
+  storageInternal: 'storage_internal', // storage/index PromptLoader.expand 内部断言
+  storageSessionBinaryRejected: 'storage_session_binary_rejected', // storage/index SessionStore.append 拒绝内联二进制
+  storageSessionIdInvalid: 'storage_session_id_invalid', // storage/index validateSessionId 非法会话 id
+  storageSessionVersionUnsupported: 'storage_session_version_unsupported', // storage/index 会话来自更新版本 volund
+
+  /* ── VolundError 迁移批次：skills / 任务编排域 ───────────────────────── */
+  skillMarketFetchFailed: 'skill_market_fetch_failed', // app-runtime/skill-market skill 市场索引拉取失败
+  skillMarketIndexInvalid: 'skill_market_index_invalid', // app-runtime/skill-market 市场索引/Claude 清单校验拒绝
+  skillNotFound: 'skill_not_found', // app-runtime/skills 托管 scope 找不到 skill / 无 SKILL.md
+  skillSourceInvalid: 'skill_source_invalid', // app-runtime/skill-install 安装源解析后无 SKILL.md
+  skillsNoActiveSession: 'skills_no_active_session', // app-runtime/skills 面板/斜杠调用时无活动会话
+
+  /* ── VolundError 迁移批次：cli 杂项域 ────────────────────────────────── */
+  appIdentityInvalid: 'app_identity_invalid', // cli/shared/app-identity 生产身份版本非法
+  askUnavailable: 'ask_unavailable', // app-runtime/ask-interaction 非交互模式提问不可用
+  cliInternal: 'cli_internal', // apps/cli 内部断言兜底（dispatcher/schema/端口接线守卫）
+  historyImportInvalid: 'history_import_invalid', // cli/history 导入载荷校验失败
+  historySessionExists: 'history_session_exists', // cli/history 导入目标会话文件已存在
+  sessionTtyRequired: 'session_tty_required', // app-runtime/session-controller 非交互终端且无 prompt
+  trustSensitiveScopeRejected: 'trust_sensitive_scope_rejected', // cli/trust 拒绝对敏感目录授予信任
+
+  /* ── VolundError 迁移批次：gateway / 移动站域 ────────────────────────── */
+  gatewayBaseInvalid: 'gateway_base_invalid', // mobile/gateway 网关地址须 http(s)
+  gatewayDownloadFailed: 'gateway_download_failed', // mobile/gateway 附件下载失败
+  gatewayInternal: 'gateway_internal', // gateway-server 装配/注册内部断言
+  gatewayNotPaired: 'gateway_not_paired', // mobile/page 无已配对会话
+  gatewayPairingFailed: 'gateway_pairing_failed', // mobile/gateway 配对核销失败
+  gatewayRequestFailed: 'gateway_request_failed', // mobile/gateway REST 非 2xx
+  gatewaySessionExpired: 'gateway_session_expired', // mobile/gateway 401 凭证失效
+  gatewayUnreachable: 'gateway_unreachable', // mobile/gateway fetch 断网/CORS 拦截
+  gatewayUploadFailed: 'gateway_upload_failed', // mobile/gateway 附件上传失败
+
+  /* ── VolundError 迁移批次：web / market 域 ───────────────────────────── */
+  marketConflict: 'market_conflict', // apps/market/lib/http ConflictError（409）
+  marketPathEscape: 'market_path_escape', // apps/market/lib/store bundle 路径逃逸
+  marketValidationFailed: 'market_validation_failed', // apps/market/lib/validate ValidationError（422）
+  telemetryInternal: 'telemetry_internal', // telemetry/index read() 行结构内部断言（原 new Error()）
+  webBindHostInvalid: 'web_bind_host_invalid', // web-server createWebServer 非 loopback host
+  webPortInvalid: 'web_port_invalid', // web-server createWebServer 端口越界
+  webWorkbenchContainerMissing: 'web_workbench_container_missing', // web/CodePage workbench 容器未挂载
+
+  /* ── VolundError 迁移批次：plugins 域 ────────────────────────────────── */
+  pluginMarketEntryNotFound: 'plugin_market_entry_not_found', // app-runtime/plugins-domain 目标不在市场索引
+  pluginMarketSourceMissing: 'plugin_market_source_missing', // app-runtime/plugins-domain [plugins] market 未配置
+  pluginUninstallRejected: 'plugin_uninstall_rejected', // app-runtime/plugins-domain 内置/dev 插件卸载拒绝
+  pluginWebSearchAborted: 'plugin_web_search_aborted', // app-runtime/plugins-domain-web-search 搜索被信号中止
+  pluginsBuiltinDomainUnknown: 'plugins_builtin_domain_unknown', // app-runtime/plugins-domain 未知工具域 id
 
   /* ── 测试基建（packages/testkit，随包发布、可向用户冒泡） ────────────── */
   mockProviderDisposed: 'mock_provider_disposed',

@@ -1,6 +1,17 @@
+import { VolundError } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryProviderRegistry, type ProviderCapabilities, type ProviderClient } from '../index'
+
+const expectErrorCode = (run: () => unknown, code: string): void => {
+  try {
+    run()
+  } catch (error) {
+    expect((error as VolundError).code).toBe(code)
+    return
+  }
+  expect.unreachable(`expected VolundError code ${code}`)
+}
 
 const capabilities: ProviderCapabilities = {
   maxContextTokens: 8192,
@@ -40,16 +51,18 @@ describe('InMemoryProviderRegistry', () => {
       },
     )
     expect(Object.isFrozen(registry.describe('plugin-vllm')!.meta.capabilities)).toBe(true)
-    expect(() =>
-      registry.register(
-        client('plugin-vllm'),
-        { kind: 'core' },
-        {
-          capabilities,
-          displayName: 'conflict',
-        },
-      ),
-    ).toThrow('provider_name_conflict')
+    expectErrorCode(
+      () =>
+        registry.register(
+          client('plugin-vllm'),
+          { kind: 'core' },
+          {
+            capabilities,
+            displayName: 'conflict',
+          },
+        ),
+      'provider_name_conflict',
+    )
     await registration.dispose()
     expect(first.dispose).toHaveBeenCalledOnce()
     expect(registry.get('plugin-vllm')).toBeUndefined()

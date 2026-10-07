@@ -13,6 +13,7 @@ import type { GatewayHubLike } from '@volund/gateway-server'
 import { createGatewayModelResolver, readModelAliases } from '@volund/gateway-server'
 import { createRemoteLink, RemoteLink } from '@volund/remote-link'
 import type { RemoteLinkConfig } from '@volund/remote-link'
+import { VolundError } from '@volund/shared'
 import { TaskStore } from '@volund/storage'
 import type { RemoteControlPort } from '@volund/web-server'
 import { SessionHub } from '@volund/web-server/session-hub'
@@ -91,7 +92,10 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
   const ensureLink = async (): Promise<RemoteLink> => {
     if (link) return link
     if (!ports.session.startInteractive || !ports.permissionPrompts)
-      throw new Error('remote control requires the session and permission ports to be wired')
+      throw new VolundError(
+        'cli_internal',
+        'remote control requires the session and permission ports to be wired',
+      )
     // 远程审批卡需要权限交互离开 'none'（与 web 嵌入式同门）。
     ports.session.configurePermissionInteraction?.({ mode: 'tui' })
     const sessionHub = new SessionHub(
@@ -166,17 +170,19 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       changesDiff: (path) => {
         const activeId = sessionHub.active?.id
         if (!activeId || !ports.changes?.fileDiff)
-          return Promise.reject(new Error('no active session'))
+          return Promise.reject(new VolundError('remote_no_active_session', 'no active session'))
         return ports.changes.fileDiff(activeId, path)
       },
       changesUndoPreview: () => {
         const activeId = sessionHub.active?.id
-        if (!activeId || !ports.changes) return Promise.reject(new Error('no active session'))
+        if (!activeId || !ports.changes)
+          return Promise.reject(new VolundError('remote_no_active_session', 'no active session'))
         return ports.changes.previewUndo(activeId)
       },
       changesUndo: () => {
         const activeId = sessionHub.active?.id
-        if (!activeId || !ports.changes) return Promise.reject(new Error('no active session'))
+        if (!activeId || !ports.changes)
+          return Promise.reject(new VolundError('remote_no_active_session', 'no active session'))
         return ports.changes.undoStep(activeId)
       },
       // SAG-13：subagent 运行注册表（移动站只读运行行 + 取消的隧道终点）。
@@ -187,12 +193,22 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
           : Promise.resolve({ runs: [] }),
       subagentsCancel: (sessionId) => {
         if (!ports.subagents)
-          return Promise.reject(new Error('subagents surface is not supported by this hub'))
+          return Promise.reject(
+            new VolundError(
+              'remote_subagents_unavailable',
+              'subagents surface is not supported by this hub',
+            ),
+          )
         return ports.subagents.cancel(sessionId).then((message) => ({ message }))
       },
       subagentsCancelAll: () => {
         if (!ports.subagents)
-          return Promise.reject(new Error('subagents surface is not supported by this hub'))
+          return Promise.reject(
+            new VolundError(
+              'remote_subagents_unavailable',
+              'subagents surface is not supported by this hub',
+            ),
+          )
         return ports.subagents.cancelAll().then((stopped) => ({ stopped }))
       },
     }
@@ -279,7 +295,7 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
     },
     createPairing: async () => {
       const active = link ?? (await ensureLink())
-      if (!link) throw new Error('remote link is not started')
+      if (!link) throw new VolundError('remote_link_not_started', 'remote link is not started')
       return active.createPairing()
     },
     listDevices: async () => {

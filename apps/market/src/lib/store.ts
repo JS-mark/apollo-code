@@ -7,6 +7,8 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 
+import { VolundError } from '@volund/shared/errors'
+
 import { seedDatabase, writeSeedBundles } from './seed'
 import type { MarketDatabase } from './types'
 
@@ -68,7 +70,8 @@ export async function updateDatabase<T>(
 export async function readBundleFile(name: string, version: string, path: string): Promise<Buffer> {
   const root = join(bundleRoot(), name, version)
   const target = join(root, path)
-  if (!target.startsWith(`${root}${sep}`)) throw new Error('bundle path escape')
+  if (!target.startsWith(`${root}${sep}`))
+    throw new VolundError('market_path_escape', 'bundle path escape')
   return readFile(target)
 }
 
@@ -80,7 +83,8 @@ export async function writeBundleFiles(
   const root = join(bundleRoot(), name, version)
   for (const file of files) {
     const target = join(root, file.path)
-    if (!target.startsWith(`${root}${sep}`)) throw new Error('bundle path escape')
+    if (!target.startsWith(`${root}${sep}`))
+      throw new VolundError('market_path_escape', 'bundle path escape')
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, file.content)
   }

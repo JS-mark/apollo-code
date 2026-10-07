@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 
+import { VolundError } from '@volund/shared'
 import fg from 'fast-glob'
 
 import { nativeProbes } from './probe'
@@ -114,12 +115,21 @@ export async function* astQuery(
   signal?: AbortSignal,
 ): AsyncIterable<AstMatch> {
   throwIfAborted(signal)
-  if (!nativeSearchReady()) throw new Error('AST query requires the native volund-search worker')
+  if (!nativeSearchReady())
+    throw new VolundError(
+      'native_bridge_ast_query_native_required',
+      'AST query requires the native volund-search worker',
+    )
   let result: { matches?: AstMatch[] }
   try {
     result = (await workerPool.call('search', 'search.ast_query', options)) as typeof result
   } catch (error) {
-    throw new Error('AST query requires the native volund-search worker', { cause: error })
+    throw new VolundError(
+      'native_bridge_ast_query_native_required',
+      'AST query requires the native volund-search worker',
+      undefined,
+      { cause: error },
+    )
   }
   for (const match of result.matches ?? []) {
     throwIfAborted(signal)

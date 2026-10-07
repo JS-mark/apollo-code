@@ -1,5 +1,6 @@
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
+import { VolundError } from '@volund/shared'
 
 import type { McpTransport } from './index'
 
@@ -23,7 +24,8 @@ export class SdkTransportAdapter implements Transport {
     this.#inner = inner
   }
   async start(): Promise<void> {
-    if (this.#started) throw new Error('MCP transport already started')
+    if (this.#started)
+      throw new VolundError('mcp_transport_state_invalid', 'MCP transport already started')
     this.#started = true
     await this.#inner.start(
       (message) => {

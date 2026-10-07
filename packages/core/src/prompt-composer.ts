@@ -1,3 +1,5 @@
+import { VolundError } from '@volund/shared'
+
 export interface Disposable {
   dispose(): void
 }
@@ -42,7 +44,10 @@ export class DefaultPromptComposer implements PromptComposer {
   readonly #cache = new Map<string, string>()
   register(fragment: PromptFragment): Disposable {
     if (this.#fragments.has(fragment.id))
-      throw new Error(`Prompt fragment already registered: ${fragment.id}`)
+      throw new VolundError(
+        'core_prompt_fragment_already_registered',
+        `Prompt fragment already registered: ${fragment.id}`,
+      )
     this.#fragments.set(fragment.id, fragment)
     this.invalidate()
     return {

@@ -20,6 +20,7 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import type { GatewayEnvelope, GatewayHubLike } from '@volund/gateway-server'
 import type { GatewaySubmitAttachment } from '@volund/gateway-server'
 import type { MachineFrame, UplinkCommandMethod } from '@volund/gateway-server'
+import { VolundError } from '@volund/shared'
 
 /** 连接配置（缺任一字段视为未配置，等待重试）。 */
 export interface RemoteLinkConfig {
@@ -202,7 +203,10 @@ export class RemoteLink {
       typeof created.url !== 'string' ||
       typeof created.expiresAt !== 'number'
     )
-      throw new Error('gateway returned a malformed pairing invitation')
+      throw new VolundError(
+        'gateway_pairing_invalid',
+        'gateway returned a malformed pairing invitation',
+      )
     return { code: created.code, url: created.url, expiresAt: created.expiresAt }
   }
 
@@ -435,7 +439,11 @@ export class RemoteLink {
       })
     if (method === 'hub.stageAttachment') {
       const stage = this.options.hub.stageAttachment
-      if (!stage) throw new Error('attachments are not supported by this hub')
+      if (!stage)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'attachments are not supported by this hub',
+        )
       return stage.call(this.options.hub, {
         mime: String(params.mime ?? ''),
         dataBase64: String(params.dataBase64 ?? ''),
@@ -443,7 +451,11 @@ export class RemoteLink {
     }
     if (method === 'hub.readAttachment') {
       const read = this.options.hub.readAttachment
-      if (!read) throw new Error('attachment reads are not supported by this hub')
+      if (!read)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'attachment reads are not supported by this hub',
+        )
       return read.call(this.options.hub, String(params.handle ?? ''))
     }
     if (method === 'hub.interrupt') return this.options.hub.interrupt()
@@ -456,7 +468,11 @@ export class RemoteLink {
       )
     if (method === 'hub.answerAsk') {
       const answer = this.options.hub.answerAsk
-      if (!answer) throw new Error('ask answering is not supported by this hub')
+      if (!answer)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'ask answering is not supported by this hub',
+        )
       return answer.call(
         this.options.hub,
         String(params.requestId ?? ''),
@@ -468,17 +484,29 @@ export class RemoteLink {
       return this.options.listSessions ? this.options.listSessions() : []
     if (method === 'tasks.status') {
       const port = this.options.tasksPort
-      if (!port) throw new Error('tasks surface is not supported by this hub')
+      if (!port)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'tasks surface is not supported by this hub',
+        )
       return port.status()
     }
     if (method === 'tasks.list') {
       const port = this.options.tasksPort
-      if (!port) throw new Error('tasks surface is not supported by this hub')
+      if (!port)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'tasks surface is not supported by this hub',
+        )
       return port.list()
     }
     if (method === 'tasks.runs') {
       const port = this.options.tasksPort
-      if (!port) throw new Error('tasks surface is not supported by this hub')
+      if (!port)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'tasks surface is not supported by this hub',
+        )
       const limit = Number(params.limit ?? 20)
       return port.runs(
         typeof params.task === 'string' && params.task ? params.task : undefined,
@@ -487,7 +515,11 @@ export class RemoteLink {
     }
     if (method === 'sessions.delete') {
       const del = this.options.hub.deleteSession
-      if (!del) throw new Error('session deletion is not supported by this hub')
+      if (!del)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'session deletion is not supported by this hub',
+        )
       return del.call(this.options.hub, String(params.id ?? ''))
     }
     if (method === 'session.transcript') {
@@ -509,17 +541,29 @@ export class RemoteLink {
     }
     if (method === 'changes.diff') {
       const diff = this.options.hub.changesDiff
-      if (!diff) throw new Error('changes diff is not supported by this hub')
+      if (!diff)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'changes diff is not supported by this hub',
+        )
       return diff.call(this.options.hub, String(params.path ?? ''))
     }
     if (method === 'changes.undoPreview') {
       const preview = this.options.hub.changesUndoPreview
-      if (!preview) throw new Error('changes undo is not supported by this hub')
+      if (!preview)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'changes undo is not supported by this hub',
+        )
       return preview.call(this.options.hub)
     }
     if (method === 'changes.undo') {
       const undo = this.options.hub.changesUndo
-      if (!undo) throw new Error('changes undo is not supported by this hub')
+      if (!undo)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'changes undo is not supported by this hub',
+        )
       return undo.call(this.options.hub)
     }
     // SAG-13：subagent 运行注册表（移动站只读运行行 + 取消；经本机面板控制器）。
@@ -529,15 +573,23 @@ export class RemoteLink {
     }
     if (method === 'subagents.cancel') {
       const cancel = this.options.hub.subagentsCancel
-      if (!cancel) throw new Error('subagent cancel is not supported by this hub')
+      if (!cancel)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'subagent cancel is not supported by this hub',
+        )
       return cancel.call(this.options.hub, String(params.sessionId ?? ''))
     }
     if (method === 'subagents.cancelAll') {
       const cancelAll = this.options.hub.subagentsCancelAll
-      if (!cancelAll) throw new Error('subagent cancel is not supported by this hub')
+      if (!cancelAll)
+        throw new VolundError(
+          'remote_link_capability_unavailable',
+          'subagent cancel is not supported by this hub',
+        )
       return cancelAll.call(this.options.hub)
     }
-    throw new Error(`unknown uplink rpc method: ${method}`)
+    throw new VolundError('remote_link_method_unknown', `unknown uplink rpc method: ${method}`)
   }
 
   /** 事件透传 + active/pending 变化重推（注册成功后挂上，断开即摘）。 */
@@ -589,10 +641,14 @@ export class RemoteLink {
         scope: 'uplink chat sessions',
       }),
     })
-    if (!res.ok) throw new Error(`gateway token request failed with ${res.status}`)
+    if (!res.ok)
+      throw new VolundError(
+        'remote_link_token_failed',
+        `gateway token request failed with ${res.status}`,
+      )
     const body = (await res.json()) as { access_token?: string; expires_in?: number }
     if (typeof body.access_token !== 'string' || typeof body.expires_in !== 'number')
-      throw new Error('gateway token response is malformed')
+      throw new VolundError('remote_link_token_failed', 'gateway token response is malformed')
     this.token = { value: body.access_token, expiresAtMs: this.now() + body.expires_in * 1000 }
     return body.access_token
   }

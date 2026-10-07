@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { PermissionSpec } from '@volund/permission'
+import { VolundError } from '@volund/shared'
 import type { JsonValue } from '@volund/shared'
 import type { Tool, ToolContext, ToolRegistry, ToolResult } from '@volund/tool-kit'
 
@@ -31,7 +32,8 @@ export class StdioTransport implements McpTransport {
   #buffer = Buffer.alloc(0)
   constructor(readonly options: StdioOptions) {}
   async start(onMessage: (message: unknown) => void, onClose: (error?: Error) => void) {
-    if (this.#child) throw new Error('MCP stdio transport already started')
+    if (this.#child)
+      throw new VolundError('mcp_transport_state_invalid', 'MCP stdio transport already started')
     const child = spawn(this.options.command, this.options.args ?? [], {
       cwd: this.options.cwd,
       env: { ...process.env, ...this.options.env },
@@ -72,23 +74,26 @@ export class StdioTransport implements McpTransport {
   #consume(chunk: Buffer, onMessage: (message: unknown) => void) {
     this.#buffer = Buffer.concat([this.#buffer, chunk])
     const limit = this.options.maxMessageBytes ?? DEFAULT_LIMIT
-    if (this.#buffer.length > limit) throw new Error('MCP response exceeds size limit')
+    if (this.#buffer.length > limit)
+      throw new VolundError('mcp_frame_too_large', 'MCP response exceeds size limit')
     while (true) {
       const newline = this.#buffer.indexOf(10)
       if (newline < 0) return
       const line = this.#buffer.subarray(0, newline).toString('utf8').trim()
       this.#buffer = this.#buffer.subarray(newline + 1)
       if (!line) continue
-      if (Buffer.byteLength(line) > limit) throw new Error('MCP response exceeds size limit')
+      if (Buffer.byteLength(line) > limit)
+        throw new VolundError('mcp_frame_too_large', 'MCP response exceeds size limit')
       onMessage(JSON.parse(line))
     }
   }
   async send(message: unknown, signal?: AbortSignal) {
-    if (!this.#child) throw new Error('MCP stdio transport is not started')
+    if (!this.#child)
+      throw new VolundError('mcp_transport_state_invalid', 'MCP stdio transport is not started')
     if (signal?.aborted) signal.throwIfAborted()
     const payload = `${JSON.stringify(message)}\n`
     if (Buffer.byteLength(payload) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
-      throw new Error('MCP request exceeds size limit')
+      throw new VolundError('mcp_frame_too_large', 'MCP request exceeds size limit')
     await new Promise<void>((resolve, reject) => {
       const abort = () => reject(signal?.reason ?? new Error('MCP request aborted'))
       signal?.addEventListener('abort', abort, { once: true })
@@ -133,7 +138,8 @@ export class HttpSseTransport implements McpTransport {
     this.#endpoint = options.url
   }
   async start(onMessage: (message: unknown) => void, onClose: (error?: Error) => void) {
-    if (this.#abort) throw new Error('MCP HTTP/SSE transport already started')
+    if (this.#abort)
+      throw new VolundError('mcp_transport_state_invalid', 'MCP HTTP/SSE transport already started')
     this.#abort = new AbortController()
     this.#onMessage = onMessage
     this.#onClose = onClose
@@ -203,10 +209,12 @@ export class HttpSseTransport implements McpTransport {
         },
         signal: this.#abort!.signal,
       })
-      if (!response.ok || !response.body) throw new Error(`MCP SSE failed: HTTP ${response.status}`)
+      if (!response.ok || !response.body)
+        throw new VolundError('mcp_http_failed', `MCP SSE failed: HTTP ${response.status}`)
       await this.#consumeSse(response, onMessage)
       if (this.#abort!.signal.aborted) return
-      if (attempt >= maxReconnects) throw new Error('MCP SSE reconnect limit exceeded')
+      if (attempt >= maxReconnects)
+        throw new VolundError('mcp_sse_reconnect_exhausted', 'MCP SSE reconnect limit exceeded')
       await delay(
         Math.min((this.options.reconnectBaseMs ?? 100) * 2 ** attempt, 5000),
         this.#abort!.signal,
@@ -237,11 +245,12 @@ export class HttpSseTransport implements McpTransport {
         this.#listenStreamDisabled = true
         return
       }
-      if (!response.ok || !response.body) throw new Error(`MCP SSE failed: HTTP ${response.status}`)
+      if (!response.ok || !response.body)
+        throw new VolundError('mcp_http_failed', `MCP SSE failed: HTTP ${response.status}`)
       await this.#consumeSse(response, onMessage)
       if (this.#abort!.signal.aborted) return
       if (attempt >= (this.options.maxReconnects ?? 5))
-        throw new Error('MCP SSE reconnect limit exceeded')
+        throw new VolundError('mcp_sse_reconnect_exhausted', 'MCP SSE reconnect limit exceeded')
       await delay(
         Math.min((this.options.reconnectBaseMs ?? 100) * 2 ** attempt, 5000),
         this.#abort!.signal,
@@ -257,7 +266,7 @@ export class HttpSseTransport implements McpTransport {
       if (done) break
       buffer += new TextDecoder().decode(value, { stream: true })
       if (Buffer.byteLength(buffer) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
-        throw new Error('MCP SSE event exceeds size limit')
+        throw new VolundError('mcp_frame_too_large', 'MCP SSE event exceeds size limit')
       let boundary: number
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {
         const event = buffer.slice(0, boundary).replace(/\r/g, '')
@@ -298,7 +307,8 @@ export class HttpSseTransport implements McpTransport {
       this.#sessionId = undefined
       this.#onClose?.(new Error('MCP session expired: HTTP 404'))
     }
-    if (!response.ok) throw new Error(`MCP HTTP request failed: HTTP ${response.status}`)
+    if (!response.ok)
+      throw new VolundError('mcp_http_failed', `MCP HTTP request failed: HTTP ${response.status}`)
     if (response.status === 202) return
     const contentType = response.headers.get('content-type') ?? ''
     if (streamable && contentType.includes('text/event-stream') && response.body) {
@@ -308,12 +318,12 @@ export class HttpSseTransport implements McpTransport {
     }
     const text = await response.text()
     if (Buffer.byteLength(text) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
-      throw new Error('MCP HTTP response exceeds size limit')
+      throw new VolundError('mcp_frame_too_large', 'MCP HTTP response exceeds size limit')
     if (streamable && text.trim()) {
       try {
         this.#onMessage?.(JSON.parse(text))
       } catch {
-        throw new Error('Malformed MCP HTTP response')
+        throw new VolundError('mcp_response_invalid', 'Malformed MCP HTTP response')
       }
     }
   }
@@ -359,7 +369,8 @@ export class McpClient {
   readonly #unregister: Array<() => void> = []
   #started = false
   constructor(readonly options: McpClientOptions) {
-    if (!/^[A-Za-z0-9._-]+$/.test(options.name)) throw new Error('Invalid MCP server name')
+    if (!/^[A-Za-z0-9._-]+$/.test(options.name))
+      throw new VolundError('mcp_server_name_invalid', 'Invalid MCP server name')
     this.#adapter = new SdkTransportAdapter(options.transport)
     this.#adapter.onUnderlyingClose = (error) => this.options.onClose?.(error)
     this.#adapter.onerror = (error) =>
@@ -463,7 +474,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 function asRecord(value: unknown): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error('Malformed MCP response')
+  if (!isRecord(value)) throw new VolundError('mcp_response_invalid', 'Malformed MCP response')
   return value
 }
 function asError(value: unknown): Error {

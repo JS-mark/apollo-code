@@ -16,7 +16,7 @@ import { dirname } from 'node:path'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { validateTaskDefinition, type TaskDefinition } from '@volund/shared'
+import { validateTaskDefinition, VolundError, type TaskDefinition } from '@volund/shared'
 
 export const TASK_STORE_SCHEMA_VERSION = 'volund.tasks.v1'
 
@@ -51,13 +51,13 @@ export interface TaskSnapshot {
 
 export type TaskErrorCode = 'task_definition_invalid' | 'task_io' | 'task_store_corrupt'
 
-export class TaskError extends Error {
+export class TaskError extends VolundError {
   constructor(
-    readonly code: TaskErrorCode,
+    override readonly code: TaskErrorCode,
     message: string,
     options?: ErrorOptions,
   ) {
-    super(message, options)
+    super(code, message, undefined, options)
     this.name = 'TaskError'
   }
 }

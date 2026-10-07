@@ -1,6 +1,18 @@
 import type { JsonValue } from './index'
 import { sanitize } from './sanitize'
 
+export class VolundError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details?: JsonValue,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+    this.name = 'VolundError'
+  }
+}
+
 export type VolundErrorCategory =
   | 'network'
   | 'auth'

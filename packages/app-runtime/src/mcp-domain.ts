@@ -13,9 +13,8 @@ import {
   type McpToolDescription,
   type McpTransport,
 } from '@volund/mcp-client'
-import { sanitize } from '@volund/shared'
-import type { Logger } from '@volund/shared'
-import { productIdentity, type JsonValue } from '@volund/shared'
+import { productIdentity, sanitize, VolundError } from '@volund/shared'
+import type { JsonValue, Logger } from '@volund/shared'
 import type { Tool, ToolRegistry } from '@volund/tool-kit'
 
 import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
@@ -443,7 +442,7 @@ export class McpManager {
   /** 启停一个 server（连接侧；持久化由调用方写 config）。 */
   async setEnabled(name: string, enabled: boolean): Promise<void> {
     const state = this.#states.get(name)
-    if (!state) throw new Error(`Unknown MCP server: ${name}`)
+    if (!state) throw new VolundError('mcp_server_unknown', `Unknown MCP server: ${name}`)
     if (enabled) {
       if (state.status === 'connected' || state.status === 'connecting') return
       await this.#connectState(state)
@@ -468,7 +467,7 @@ export class McpManager {
   }
   async inspect(name: string): Promise<{ entry: McpManagerEntry; tools: McpToolDescription[] }> {
     const state = this.#states.get(name)
-    if (!state) throw new Error(`Unknown MCP server: ${name}`)
+    if (!state) throw new VolundError('mcp_server_unknown', `Unknown MCP server: ${name}`)
     if (state.status === 'connecting') await this.#settled(name)
     const entry = this.snapshot().find((item) => item.name === name)!
     return { entry, tools: state.tools }
@@ -670,7 +669,8 @@ export class McpManager {
       const reference = /^keyref:\/\/(.+)$/.exec(value)![1]!
       const credential = await resolve(reference)
       if (credential === undefined)
-        throw new Error(
+        throw new VolundError(
+          'mcp_keyref_unresolved',
           `keyref://${reference} not found in the auth store (store the credential or use ${productIdentity.commandName} mcp login ${config.name})`,
         )
       headers[key] = credential
@@ -783,7 +783,7 @@ export async function upsertMcpServerToml(input: {
   transport: McpTransportConfig
 }): Promise<void> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(input.name))
-    throw new Error(`Invalid MCP server name: ${input.name}`)
+    throw new VolundError('mcp_add_invalid', `Invalid MCP server name: ${input.name}`)
   const config = await readTomlOrEmpty(input.file)
   const servers =
     config.mcp_servers &&
@@ -988,9 +988,12 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
         onWarning: (message) => options.logger.warn(message),
       })
       const server = servers.find((entry) => entry.name === serverName)
-      if (!server) throw new Error(`Unknown MCP server: ${serverName}`)
+      if (!server) throw new VolundError('mcp_server_unknown', `Unknown MCP server: ${serverName}`)
       if (server.transport.kind !== 'http')
-        throw new Error(`mcp login applies to http servers only: '${serverName}' is stdio`)
+        throw new VolundError(
+          'mcp_login_transport_unsupported',
+          `mcp login applies to http servers only: '${serverName}' is stdio`,
+        )
       const oauth = new McpOAuthClient({
         serverName,
         serverUrl: server.transport.url,
@@ -1035,7 +1038,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       try {
         const { entry } = await manager.inspect(name)
         if (entry.status !== 'connected')
-          throw new Error(
+          throw new VolundError(
+            'mcp_test_failed',
             `mcp server '${name}' is ${entry.status}${entry.detail ? `: ${entry.detail}` : ''}`,
           )
         return { protocolVersion: entry.protocolVersion ?? 'unknown' }
@@ -1099,7 +1103,7 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
           await toolTrustStore.remove(name)
           return { file }
         }
-      throw new Error(`MCP server not configured: ${name}`)
+      throw new VolundError('mcp_server_not_configured', `MCP server not configured: ${name}`)
     },
     /** S2：批准当前工具集（live manager 写快照 + 解除调用门）。 */
     async approveTools(name) {
@@ -1138,7 +1142,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       return await reloadDomainManager()
     },
     async setEnabled(name, enabled) {
-      if (!mcpManager) throw new Error('MCP is not available in this session')
+      if (!mcpManager)
+        throw new VolundError('mcp_unavailable', 'MCP is not available in this session')
       if (enabled) mcpDisabled.delete(name)
       else mcpDisabled.add(name)
       await mcpManager.setEnabled(name, enabled)
@@ -1146,7 +1151,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       return `mcp server ${name} ${enabled ? 'enabled' : 'disabled'}`
     },
     async inspect(name) {
-      if (!mcpManager) throw new Error('MCP is not available in this session')
+      if (!mcpManager)
+        throw new VolundError('mcp_unavailable', 'MCP is not available in this session')
       const { entry, tools } = await mcpManager.inspect(name)
       return {
         entry: entry,

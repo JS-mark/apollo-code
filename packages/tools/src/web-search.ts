@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { sanitize } from '@volund/shared'
+import { sanitize, VolundError } from '@volund/shared'
 import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 export interface WebSearchInput {
@@ -23,13 +23,13 @@ export interface WebSearchProvider {
   ): Promise<readonly WebSearchProviderResult[]>
 }
 
-export class WebSearchProviderError extends Error {
+export class WebSearchProviderError extends VolundError {
   constructor(
     message: string,
     readonly retryable = false,
     options?: ErrorOptions,
   ) {
-    super(message, options)
+    super('web_search_provider_failed', message, undefined, options)
     this.name = 'WebSearchProviderError'
   }
 }
@@ -149,10 +149,18 @@ export class WebSearchTool implements Tool<WebSearchInput> {
     const started = Date.now()
     try {
       context.abortSignal.throwIfAborted()
-      if (!this.provider) throw new Error('WebSearch is unavailable: no provider configured')
-      if (!input.query.trim()) throw new Error('WebSearch query must not be empty')
+      if (!this.provider)
+        throw new VolundError(
+          'web_search_provider_missing',
+          'WebSearch is unavailable: no provider configured',
+        )
+      if (!input.query.trim())
+        throw new VolundError('web_search_query_invalid', 'WebSearch query must not be empty')
       if (input.query.length > this.#limits.maxQueryCharacters)
-        throw new Error(`WebSearch query exceeds ${this.#limits.maxQueryCharacters} characters`)
+        throw new VolundError(
+          'web_search_query_invalid',
+          `WebSearch query exceeds ${this.#limits.maxQueryCharacters} characters`,
+        )
       const limit = Math.max(
         1,
         Math.min(
@@ -177,7 +185,12 @@ export class WebSearchTool implements Tool<WebSearchInput> {
             attempt === this.#limits.maxRetries
           ) {
             const detail = error instanceof Error ? error.message : String(error)
-            throw new Error(`WebSearch provider failed: ${detail}`, { cause: error })
+            throw new VolundError(
+              'web_search_provider_failed',
+              `WebSearch provider failed: ${detail}`,
+              undefined,
+              { cause: error },
+            )
           }
         }
       }

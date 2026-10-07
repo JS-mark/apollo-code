@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { VolundError } from './errors'
+
 /**
  * §2.7.1 自定义 subagent 定义 frontmatter 契约（r13-G3）。
  * 文件位置：`~/.volund/agents/<name>.md`（user，trusted）与
@@ -34,7 +36,10 @@ export function parseAgentDefinition(
     const known = new Set(options.allowedTools)
     const unknown = parsed.tools.filter((tool) => !known.has(tool))
     if (unknown.length > 0)
-      throw new Error(`agent tools exceed parent registry: ${unknown.join(', ')}`)
+      throw new VolundError(
+        'agent_tools_unknown',
+        `agent tools exceed parent registry: ${unknown.join(', ')}`,
+      )
   }
   return parsed
 }

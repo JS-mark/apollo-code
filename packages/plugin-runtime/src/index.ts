@@ -26,6 +26,7 @@ import type {
   ProviderRegistry,
   ProviderRequest,
 } from '@volund/provider-kit'
+import { VolundError } from '@volund/shared'
 
 export const LEGACY_PLUGIN_UNAVAILABLE = Object.freeze({
   available: false as const,
@@ -40,12 +41,12 @@ const legacyPluginUnavailable = (operation: string) =>
     LEGACY_PLUGIN_UNAVAILABLE.code,
     `${operation} is temporarily unavailable; ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition} required`,
   )
-export class PluginError extends Error {
+export class PluginError extends VolundError {
   constructor(
-    readonly code: string,
+    override readonly code: string,
     message: string,
   ) {
-    super(`${code}: ${message}`)
+    super(code, `${code}: ${message}`)
   }
 }
 

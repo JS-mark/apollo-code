@@ -7,6 +7,7 @@
 import { join } from 'node:path'
 
 import { loadTomlFile } from '@volund/config'
+import { VolundError } from '@volund/shared'
 import type { JsonValue } from '@volund/shared'
 import type { WebSearchProvider, WebSearchProviderResult } from '@volund/tools'
 
@@ -108,7 +109,10 @@ export function pluginWebSearchProvider(input: {
         effective,
       )) as unknown
       if (!Array.isArray(raw))
-        throw new Error(`web search provider '${input.plugin}' returned a non-array response`)
+        throw new VolundError(
+          'plugin_web_search_invalid',
+          `web search provider '${input.plugin}' returned a non-array response`,
+        )
       const items: WebSearchProviderResult[] = []
       for (const entry of raw) {
         const item = entry as Partial<WebSearchProviderResult> | null | undefined
@@ -118,7 +122,10 @@ export function pluginWebSearchProvider(input: {
           typeof item.url !== 'string' ||
           typeof item.snippet !== 'string'
         )
-          throw new Error(`web search provider '${input.plugin}' returned a malformed result item`)
+          throw new VolundError(
+            'plugin_web_search_invalid',
+            `web search provider '${input.plugin}' returned a malformed result item`,
+          )
         const normalized: WebSearchProviderResult = {
           title: item.title,
           url: item.url,
@@ -127,7 +134,8 @@ export function pluginWebSearchProvider(input: {
         if (typeof item.publishedAt === 'string') normalized.publishedAt = item.publishedAt
         items.push(normalized)
       }
-      if (context.signal.aborted) throw new Error('Web search aborted')
+      if (context.signal.aborted)
+        throw new VolundError('plugin_web_search_aborted', 'Web search aborted')
       return items
     },
   }

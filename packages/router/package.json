@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@volund/provider-kit": "workspace:*"
+    "@volund/provider-kit": "workspace:*",
+    "@volund/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

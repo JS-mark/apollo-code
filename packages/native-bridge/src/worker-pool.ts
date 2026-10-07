@@ -1,6 +1,8 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'node:child_process'
 
+import { VolundError } from '@volund/shared'
+
 import { RpcPeer, type IpcTelemetry } from './ipc'
 import { resolveBinary } from './resolver'
 
@@ -63,7 +65,12 @@ export class WorkerPool {
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           child.kill('SIGKILL')
-          reject(new Error(`${kind} worker handshake timed out`))
+          reject(
+            new VolundError(
+              'native_bridge_worker_handshake_timeout',
+              `${kind} worker handshake timed out`,
+            ),
+          )
         }, this.handshakeMs)
       }),
     ]).finally(() => {
@@ -71,7 +78,7 @@ export class WorkerPool {
     })) as { protocol?: number }
     if (ready.protocol !== 1) {
       child.kill('SIGKILL')
-      throw new Error('invalid worker handshake')
+      throw new VolundError('native_bridge_worker_handshake_invalid', 'invalid worker handshake')
     }
     const handle: Handle = { child, rpc }
     child.once('exit', () => {
@@ -88,7 +95,8 @@ export class WorkerPool {
 
   async call(kind: WorkerKind, method: string, params: unknown): Promise<unknown> {
     const child = await this.ensureWorker(kind)
-    if (!child) throw new Error(`${kind} worker unavailable`)
+    if (!child)
+      throw new VolundError('native_bridge_worker_unavailable', `${kind} worker unavailable`)
     const handle = this.workers.get(kind)!
     this.touch(kind, handle)
     return handle.rpc.request(method, params)

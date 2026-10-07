@@ -1,4 +1,10 @@
-import { EVENT_NAMES, EVENT_SCHEMAS, type EventName, type JsonValue } from '@volund/shared'
+import {
+  EVENT_NAMES,
+  EVENT_SCHEMAS,
+  VolundError,
+  type EventName,
+  type JsonValue,
+} from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 /**
@@ -24,10 +30,15 @@ export type EventListener = (event: CoreEvent) => void | Promise<void>
 /** r13-I8（附录 D.1）：emit 出口的 payload 契约校验——失败即抛（内部不变量）。 */
 function assertPayloadContract(type: EventType, payload: JsonValue): void {
   const schema = EVENT_SCHEMAS[type as EventName]
-  if (!schema) throw new Error(`No appendix D payload schema registered for event: ${type}`)
+  if (!schema)
+    throw new VolundError(
+      'core_internal',
+      `No appendix D payload schema registered for event: ${type}`,
+    )
   const result = schema.safeParse(payload)
   if (!result.success) {
-    throw new Error(
+    throw new VolundError(
+      'core_internal',
       `Event payload violates appendix D contract for ${type}: ${result.error.issues
         .map((issue) => `${issue.path.join('.') || '<root>'} ${issue.message}`)
         .join('; ')}`,

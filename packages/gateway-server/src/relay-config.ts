@@ -24,6 +24,8 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { VolundError } from '@volund/shared'
+
 import {
   deriveSigningKey,
   generateGatewayClient,
@@ -56,7 +58,10 @@ function intFromEnv(value: string | undefined, fallback: number, min: number, ma
   if (value === undefined || value === '') return fallback
   const parsed = Number.parseInt(value, 10)
   if (!Number.isInteger(parsed) || parsed < min || parsed > max)
-    throw new Error(`invalid integer value ${value} (expected ${min}..${max})`)
+    throw new VolundError(
+      'config_invalid',
+      `invalid integer value ${value} (expected ${min}..${max})`,
+    )
   return parsed
 }
 
@@ -146,7 +151,7 @@ export async function resolveGatewayCredentials(
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
     if (current.some((entry) => entry.id === client.id))
-      throw new Error(`duplicate gateway client id: ${client.id}`)
+      throw new VolundError('gateway_internal', `duplicate gateway client id: ${client.id}`)
     await writeFile(clientsFile, `${JSON.stringify([...current, client], null, 2)}\n`, {
       mode: 0o600,
     })

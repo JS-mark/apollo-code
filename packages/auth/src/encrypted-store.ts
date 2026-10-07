@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { VolundError } from '@volund/shared'
 import { argon2id } from 'hash-wasm'
 
 import type { CredentialStore } from './index'
@@ -53,7 +54,7 @@ export class EncryptedCredentialStore implements CredentialStore {
     if (this.#values) return
     const state = await this.readState()
     if (state.lockedUntil && state.lockedUntil > Date.now())
-      throw new Error('Encrypted credential store is locked')
+      throw new VolundError('auth_store_locked', 'Encrypted credential store is locked')
     let raw: string
     try {
       raw = await readFile(this.path, 'utf8')
@@ -84,7 +85,12 @@ export class EncryptedCredentialStore implements CredentialStore {
         await new Promise((resolve) =>
           setTimeout(resolve, Math.min(2 ** (attempts - 3) * 100, 5000)),
         )
-      throw new Error('Unable to unlock encrypted credential store', { cause: error })
+      throw new VolundError(
+        'auth_store_unlock_failed',
+        'Unable to unlock encrypted credential store',
+        undefined,
+        { cause: error },
+      )
     }
   }
   private async save() {

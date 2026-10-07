@@ -9,6 +9,7 @@ import type {
   PluginInventoryEntry,
   PluginManifest,
 } from '@volund/plugin-sdk'
+import { VolundError } from '@volund/shared'
 
 import { PluginBridgeServer, PluginCallbackRef, PluginBridgeError } from './bridge-server'
 import { BRIDGE_PERMISSIONS, createRpcGuard, matchesHost, PluginError } from './index'
@@ -382,7 +383,10 @@ export function createLocalPluginDispatch(options: {
       return netAllowed().then((allowed) => {
         if (!allowed) throw new PluginError('plugin_net_denied', hostname)
         if (!services.httpFetch)
-          throw new Error('this host does not expose the plugin http.fetch egress')
+          throw new VolundError(
+            'plugin_integration_unavailable',
+            'this host does not expose the plugin http.fetch egress',
+          )
         return services.httpFetch(url, init ?? {})
       })
     }

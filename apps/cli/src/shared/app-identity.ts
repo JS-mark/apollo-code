@@ -1,4 +1,4 @@
-import { productIdentity } from '@volund/shared'
+import { productIdentity, VolundError } from '@volund/shared'
 
 import { buildIdentity } from './build-identity'
 
@@ -14,9 +14,15 @@ const semverPattern =
 
 export function defineAppIdentity(input: AppIdentity): Readonly<AppIdentity> {
   if (!semverPattern.test(input.version))
-    throw new Error(`Invalid ${productIdentity.shortName} version: ${input.version}`)
+    throw new VolundError(
+      'app_identity_invalid',
+      `Invalid ${productIdentity.shortName} version: ${input.version}`,
+    )
   if (input.version === '0.0.0')
-    throw new Error(`${productIdentity.shortName} production identity cannot use 0.0.0`)
+    throw new VolundError(
+      'app_identity_invalid',
+      `${productIdentity.shortName} production identity cannot use 0.0.0`,
+    )
   return Object.freeze({ ...input })
 }
 

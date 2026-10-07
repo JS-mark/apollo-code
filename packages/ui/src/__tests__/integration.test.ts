@@ -1,3 +1,4 @@
+import { VolundError } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -18,7 +19,12 @@ import {
 describe('themes and declarative plugin UI', () => {
   it('validates schema v1 and falls back deterministically', () => {
     expect(validateTheme(BUILTIN_THEMES.dark)).toEqual(BUILTIN_THEMES.dark)
-    expect(() => validateTheme({ ...BUILTIN_THEMES.dark, schemaVersion: 2 })).toThrow('version')
+    try {
+      validateTheme({ ...BUILTIN_THEMES.dark, schemaVersion: 2 })
+      expect.unreachable('theme_version_unsupported')
+    } catch (error) {
+      expect((error as VolundError).code).toBe('theme_version_unsupported')
+    }
     expect(() =>
       validateTheme({
         ...BUILTIN_THEMES.dark,

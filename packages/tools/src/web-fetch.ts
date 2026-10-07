@@ -3,6 +3,7 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
 
+import { VolundError } from '@volund/shared'
 import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 export interface WebFetchInput {
@@ -51,11 +52,12 @@ function parseUrl(value: string): URL {
   try {
     url = new URL(value)
   } catch {
-    throw new Error('WebFetch requires a valid absolute URL')
+    throw new VolundError('web_fetch_url_invalid', 'WebFetch requires a valid absolute URL')
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:')
-    throw new Error('WebFetch only permits http: and https: URLs')
-  if (url.username || url.password) throw new Error('WebFetch forbids URL credentials')
+    throw new VolundError('web_fetch_url_invalid', 'WebFetch only permits http: and https: URLs')
+  if (url.username || url.password)
+    throw new VolundError('web_fetch_url_invalid', 'WebFetch forbids URL credentials')
   url.hash = ''
   return url
 }
@@ -240,7 +242,10 @@ export class WebFetchTool implements Tool<WebFetchInput> {
         const addresses = await abortable(this.#resolver(url.hostname, signal), signal)
         signal.throwIfAborted()
         if (addresses.length === 0 || addresses.some(isForbiddenAddress))
-          throw new Error('WebFetch blocked a private, reserved, or unresolved address')
+          throw new VolundError(
+            'web_fetch_target_forbidden',
+            'WebFetch blocked a private, reserved, or unresolved address',
+          )
         const response = await abortable(
           this.#transport({ url, address: addresses[0]!, signal }),
           signal,
@@ -252,24 +257,47 @@ export class WebFetchTool implements Tool<WebFetchInput> {
         if (response.status >= 300 && response.status < 400) {
           await discardBody(response.body)
           const location = response.headers.location
-          if (!location) throw new Error('WebFetch redirect omitted Location')
-          if (redirect >= this.#maxRedirects) throw new Error('WebFetch redirect limit exceeded')
+          if (!location)
+            throw new VolundError(
+              'web_fetch_redirect_invalid',
+              'WebFetch redirect omitted Location',
+            )
+          if (redirect >= this.#maxRedirects)
+            throw new VolundError(
+              'web_fetch_redirect_limit_exceeded',
+              'WebFetch redirect limit exceeded',
+            )
           url = parseUrl(new URL(location, url).href)
           if (url.origin !== permittedOrigin)
-            throw new Error('WebFetch blocked a redirect outside the permitted origin')
+            throw new VolundError(
+              'web_fetch_redirect_forbidden',
+              'WebFetch blocked a redirect outside the permitted origin',
+            )
           this.#rateLimit(url.hostname)
           continue
         }
         if (response.status < 200 || response.status >= 300)
-          throw new Error(`WebFetch received HTTP ${response.status}`)
+          throw new VolundError(
+            'web_fetch_http_failed',
+            `WebFetch received HTTP ${response.status}`,
+          )
         if (!allowedContentType(response.headers['content-type']))
-          throw new Error('WebFetch rejected a non-text content type')
+          throw new VolundError(
+            'web_fetch_content_type_unsupported',
+            'WebFetch rejected a non-text content type',
+          )
         const encoding = response.headers['content-encoding']?.toLowerCase()
         if (encoding && encoding !== 'identity')
-          throw new Error('WebFetch rejected an encoded response')
+          throw new VolundError(
+            'web_fetch_encoding_unsupported',
+            'WebFetch rejected an encoded response',
+          )
         const declared = Number(response.headers['content-length'])
         if (Number.isFinite(declared) && declared > this.#maxBytes)
-          throw new Error('WebFetch response exceeds the byte limit')
+          throw new VolundError(
+            'web_fetch_response_too_large',
+            'WebFetch response exceeds the byte limit',
+          )
         const chunks: Uint8Array[] = []
         let bytes = 0
         const iterator = response.body[Symbol.asyncIterator]()
@@ -284,7 +312,11 @@ export class WebFetchTool implements Tool<WebFetchInput> {
             const chunk = next.value
             signal.throwIfAborted()
             bytes += chunk.byteLength
-            if (bytes > this.#maxBytes) throw new Error('WebFetch response exceeds the byte limit')
+            if (bytes > this.#maxBytes)
+              throw new VolundError(
+                'web_fetch_response_too_large',
+                'WebFetch response exceeds the byte limit',
+              )
             chunks.push(chunk)
           }
         } finally {
@@ -317,13 +349,17 @@ export class WebFetchTool implements Tool<WebFetchInput> {
       normalized.endsWith('.local') ||
       METADATA_HOSTS.has(normalized)
     )
-      throw new Error('WebFetch blocked a local or metadata hostname')
+      throw new VolundError(
+        'web_fetch_target_forbidden',
+        'WebFetch blocked a local or metadata hostname',
+      )
   }
 
   #rateLimit(hostname: string): void {
     const now = this.#now()
     const recent = (this.#requests.get(hostname) ?? []).filter((value) => now - value < 60_000)
-    if (recent.length >= this.#requestsPerMinute) throw new Error('WebFetch rate limit exceeded')
+    if (recent.length >= this.#requestsPerMinute)
+      throw new VolundError('web_fetch_rate_limited', 'WebFetch rate limit exceeded')
     recent.push(now)
     this.#requests.set(hostname, recent)
   }

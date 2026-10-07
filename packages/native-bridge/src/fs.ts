@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 
+import { VolundError } from '@volund/shared'
 import { createTwoFilesPatch } from 'diff'
 import { encode } from 'gpt-tokenizer'
 import iconv from 'iconv-lite'
@@ -63,7 +64,12 @@ export async function readLarge(path: string, options: ReadLargeOptions = {}): P
   }
   const bytes = await fs.readFile(path)
   const maxBytes = options.maxBytes ?? 100 * 1024 * 1024
-  if (bytes.byteLength > maxBytes) throw new Error(`file exceeds read limit of ${maxBytes} bytes`)
-  if (bytes.subarray(0, 8192).includes(0)) throw new Error('binary file is not supported')
+  if (bytes.byteLength > maxBytes)
+    throw new VolundError(
+      'native_bridge_read_limit_exceeded',
+      `file exceeds read limit of ${maxBytes} bytes`,
+    )
+  if (bytes.subarray(0, 8192).includes(0))
+    throw new VolundError('native_bridge_binary_file_unsupported', 'binary file is not supported')
   return iconv.decode(bytes, options.encoding ?? 'utf8')
 }

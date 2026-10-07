@@ -7,6 +7,7 @@
  * 跨源部署时网关侧须配 GATEWAY_CORS_ORIGINS 放行本站 Origin；token 过期 →
  * 清本地回到配对页。
  */
+import { VolundError } from '@volund/shared/errors'
 
 export interface MobileSession {
   readonly token: string
@@ -39,7 +40,8 @@ export function saveModelOverride(model: string | undefined): void {
 /** 网关基址规范化：仅接受 http(s) 绝对地址，去尾斜杠；空串 = 同源。 */
 function normalizeBase(raw: string): string {
   const value = raw.trim().replace(/\/+$/, '')
-  if (value && !/^https?:\/\//.test(value)) throw new Error('网关地址须以 http(s):// 开头')
+  if (value && !/^https?:\/\//.test(value))
+    throw new VolundError('gateway_base_invalid', '网关地址须以 http(s):// 开头')
   return value
 }
 
@@ -141,7 +143,8 @@ export async function redeemPairing(code: string, name: string): Promise<Pairing
     })
   } catch {
     // fetch 在断网与 CORS 拦截下都抛 TypeError——给出可操作的提示而非裸异常。
-    throw new Error(
+    throw new VolundError(
+      'gateway_unreachable',
       '连不上网关：确认网关地址可达；跨源部署时网关侧须把本站 Origin 加进 GATEWAY_CORS_ORIGINS',
     )
   }
@@ -152,7 +155,10 @@ export async function redeemPairing(code: string, name: string): Promise<Pairing
     error?: { message?: string }
   }
   if (!res.ok || !body.access_token || !body.device_id) {
-    throw new Error(body.error?.message ?? `配对失败（${res.status}）`)
+    throw new VolundError(
+      'gateway_pairing_failed',
+      body.error?.message ?? `配对失败（${res.status}）`,
+    )
   }
   const session: MobileSession = {
     token: body.access_token,
@@ -285,9 +291,9 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new Error('凭证已失效，请重新配对')
+      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
     }
-    if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
+    if (!res.ok) throw new VolundError('gateway_request_failed', `网关请求失败（${res.status}）`)
     return (await res.json()) as T
   }
 
@@ -304,13 +310,16 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new Error('凭证已失效，请重新配对')
+      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
     }
     if (!res.ok) {
       const body = (await res.json().catch(() => undefined)) as
         | { error?: { message?: string } }
         | undefined
-      throw new Error(body?.error?.message ?? `网关请求失败（${res.status}）`)
+      throw new VolundError(
+        'gateway_request_failed',
+        body?.error?.message ?? `网关请求失败（${res.status}）`,
+      )
     }
     return (await res.json()) as { deleted: true; next?: string }
   }
@@ -359,9 +368,9 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new Error('凭证已失效，请重新配对')
+      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
     }
-    if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
+    if (!res.ok) throw new VolundError('gateway_request_failed', `网关请求失败（${res.status}）`)
     return (await res.json()) as { undone: boolean; reason?: string }
   }
 
@@ -379,9 +388,9 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new Error('凭证已失效，请重新配对')
+      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
     }
-    if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
+    if (!res.ok) throw new VolundError('gateway_request_failed', `网关请求失败（${res.status}）`)
     return (await res.json()) as { message: string }
   }
 
@@ -394,13 +403,16 @@ export class GatewayApi {
     })
     if (res.status === 401) {
       notifyUnauthorized()
-      throw new Error('凭证已失效，请重新配对')
+      throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
     }
     const body = (await res.json().catch(() => ({}))) as StagedAttachment & {
       error?: { message?: string }
     }
     if (!res.ok) {
-      throw new Error(body.error?.message ?? `图片上传失败（${res.status}）`)
+      throw new VolundError(
+        'gateway_upload_failed',
+        body.error?.message ?? `图片上传失败（${res.status}）`,
+      )
     }
     return body
   }
@@ -419,9 +431,9 @@ export class GatewayApi {
       })
       if (res.status === 401) {
         notifyUnauthorized()
-        throw new Error('凭证已失效，请重新配对')
+        throw new VolundError('gateway_session_expired', '凭证已失效，请重新配对')
       }
-      if (!res.ok) throw new Error(`图片下载失败（${res.status}）`)
+      if (!res.ok) throw new VolundError('gateway_download_failed', `图片下载失败（${res.status}）`)
       return res.blob()
     })()
     attachmentBlobCache.set(key, pending)

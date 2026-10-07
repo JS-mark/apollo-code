@@ -19,7 +19,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@volund/gateway-server": "workspace:*"
+    "@volund/gateway-server": "workspace:*",
+    "@volund/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

@@ -1,4 +1,5 @@
 import type { SandboxTier } from '@volund/native-bridge'
+import { VolundError } from '@volund/shared'
 
 /** §5 sandbox tier 的界面披露形状（UI-neutral；Web /status 同一视图模型）。 */
 export interface SandboxDisclosure {
@@ -302,20 +303,20 @@ export const EDITABLE_STATUS_CONFIG_IDS = new Set([
 
 export function validateStatusConfigValue(configItem: StatusConfigItem, value: StatusValue) {
   if (!configItem.editable || !EDITABLE_STATUS_CONFIG_IDS.has(configItem.id))
-    throw new Error(`${configItem.label} is read-only`)
+    throw new VolundError('config_invalid', `${configItem.label} is read-only`)
   if (configItem.kind === 'boolean' && typeof value !== 'boolean')
-    throw new Error('Expected a boolean')
+    throw new VolundError('config_invalid', 'Expected a boolean')
   if ((configItem.kind === 'enum' || configItem.kind === 'string') && typeof value !== 'string')
-    throw new Error('Expected text')
+    throw new VolundError('config_invalid', 'Expected text')
   if (configItem.kind === 'enum' && !configItem.choices?.includes(String(value)))
-    throw new Error(`Allowed values: ${configItem.choices?.join(', ')}`)
+    throw new VolundError('config_invalid', `Allowed values: ${configItem.choices?.join(', ')}`)
   if (configItem.kind === 'number') {
     if (typeof value !== 'number' || !Number.isInteger(value))
-      throw new Error('Expected an integer')
+      throw new VolundError('config_invalid', 'Expected an integer')
     if (configItem.min !== undefined && value < configItem.min)
-      throw new Error(`Minimum is ${configItem.min}`)
+      throw new VolundError('config_invalid', `Minimum is ${configItem.min}`)
     if (configItem.max !== undefined && value > configItem.max)
-      throw new Error(`Maximum is ${configItem.max}`)
+      throw new VolundError('config_invalid', `Maximum is ${configItem.max}`)
   }
 }
 

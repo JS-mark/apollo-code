@@ -3,7 +3,7 @@ import { open, mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { detectSecret } from '@volund/shared'
+import { detectSecret, VolundError } from '@volund/shared'
 
 export const MEMORY_RECORD_SCHEMA_VERSION = 1 as const
 const SNAPSHOT_SCHEMA_VERSION = 1 as const
@@ -141,13 +141,13 @@ export type MemoryErrorCode =
   | 'memory_scope_denied'
   | 'memory_validation'
 
-export class MemoryError extends Error {
+export class MemoryError extends VolundError {
   constructor(
-    readonly code: MemoryErrorCode,
+    override readonly code: MemoryErrorCode,
     message: string,
     options?: ErrorOptions,
   ) {
-    super(message, options)
+    super(code, message, undefined, options)
     this.name = 'MemoryError'
   }
 }

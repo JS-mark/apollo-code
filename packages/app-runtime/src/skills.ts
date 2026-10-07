@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path'
 import { loadTomlFile } from '@volund/config'
 import { DefaultPromptComposer } from '@volund/core'
 import type { PermissionSpec } from '@volund/permission'
-import { sanitize } from '@volund/shared'
+import { sanitize, VolundError } from '@volund/shared'
 import type { Logger } from '@volund/shared'
 import type { SkillEntry, SkillsRuntime } from '@volund/skills-runtime'
 import { defaultSkillSources, SkillsRuntime as SkillsRuntimeClass } from '@volund/skills-runtime'
@@ -92,7 +92,8 @@ export function createSkillDomain(options: SkillDomainOptions): SkillDomain {
     registry: options.slashCommands,
     invoke: async (name, args) => {
       const runtime = [...skillsRuntimes][0]
-      if (!runtime) throw new Error('No active session; open a session first')
+      if (!runtime)
+        throw new VolundError('skills_no_active_session', 'No active session; open a session first')
       // 业界堆叠：`/a /b task` —— 后续 token 命中已注册 skill 名即续堆（上限 6）。
       const { stack, taskArgs } = splitSkillStack(
         name,
@@ -161,7 +162,8 @@ export function createSkillDomain(options: SkillDomainOptions): SkillDomain {
       return skillsPanelEntries()
     },
     async setActive(name, active) {
-      if (skillsRuntimes.size === 0) throw new Error('No active session; open a session first')
+      if (skillsRuntimes.size === 0)
+        throw new VolundError('skills_no_active_session', 'No active session; open a session first')
       for (const runtime of skillsRuntimes) {
         if (active) await runtime.activate(name)
         else runtime.deactivate(name)
@@ -276,7 +278,8 @@ export function createSkillDomain(options: SkillDomainOptions): SkillDomain {
             !item.interop,
         )
       if (!entry || !entry.path)
-        throw new Error(
+        throw new VolundError(
+          'skill_not_found',
           `Skill not found in a managed (non-interop) ${uninstallOptions?.scope ?? 'user|project'} scope: ${name}`,
         )
       await rm(resolve(entry.path, '..'), { recursive: true, force: true })
@@ -285,7 +288,8 @@ export function createSkillDomain(options: SkillDomainOptions): SkillDomain {
       const runtime = await listingSkillsRuntime()
       await runtime.discover()
       const entry = runtime.entries().find((item) => item.name === name)
-      if (!entry || !entry.path) throw new Error(`No SKILL.md available for ${name}`)
+      if (!entry || !entry.path)
+        throw new VolundError('skill_not_found', `No SKILL.md available for ${name}`)
       return readFile(entry.path, 'utf8')
     },
     async setEnabled(name, enabled) {

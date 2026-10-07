@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
-import { parseAgentDefinition, type AgentDefinition } from '@volund/shared'
+import { parseAgentDefinition, VolundError, type AgentDefinition } from '@volund/shared'
 import { parse } from 'yaml'
 
 /**
@@ -97,7 +97,8 @@ export class AgentDefinitionRegistry {
         const definition = parseAgentDefinition(data)
         const fileStem = basename(entry.name, '.md')
         if (definition.name !== fileStem)
-          throw new Error(
+          throw new VolundError(
+            'VOLUND_SUBAGENT_NAME_MISMATCH',
             `frontmatter name '${definition.name}' must match file name '${fileStem}'`,
           )
         // §2.7.1 强制点「tools 超父集拒绝」（G3 接线）：白名单只能收紧不能放宽。
@@ -107,7 +108,10 @@ export class AgentDefinitionRegistry {
             (tool) => !parentTools.has(tool) && !isDynamicToolName(tool),
           )
           if (unknown.length > 0)
-            throw new Error(`agent tools exceed parent registry: ${unknown.join(', ')}`)
+            throw new VolundError(
+              'VOLUND_SUBAGENT_TOOLS_EXCEED_PARENT',
+              `agent tools exceed parent registry: ${unknown.join(', ')}`,
+            )
         }
         this.#resolved.set(definition.name, {
           definition,

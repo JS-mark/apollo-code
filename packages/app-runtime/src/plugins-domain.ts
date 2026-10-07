@@ -244,7 +244,10 @@ export async function collectBuiltinCandidates(
         targetDir,
       )
       if (header.name !== stem)
-        throw new Error(`archive file name '${stem}' does not match manifest name '${header.name}'`)
+        throw new VolundError(
+          'plugin_archive_invalid',
+          `archive file name '${stem}' does not match manifest name '${header.name}'`,
+        )
       candidates.push(targetDir)
     } catch (error) {
       failed.push({
@@ -449,7 +452,7 @@ import {
 } from '@volund/plugin-runtime'
 import type { StatusTabContribution } from '@volund/plugin-runtime'
 import type { PluginInstallResult, PluginInventory, PluginInventoryEntry } from '@volund/plugin-sdk'
-import { productIdentity } from '@volund/shared'
+import { productIdentity, VolundError } from '@volund/shared'
 import type { Logger } from '@volund/shared'
 import type { WebSearchProvider } from '@volund/tools'
 import { builtinToolDomains } from '@volund/tools'
@@ -611,7 +614,10 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
         extraAllowedHosts: () => webSearchExtraAllowedHosts(options.home),
         httpFetch: (url, init) => {
           if (!options.httpFetch)
-            throw new Error('this host does not expose the plugin http.fetch egress')
+            throw new VolundError(
+              'plugin_integration_unavailable',
+              'this host does not expose the plugin http.fetch egress',
+            )
           return options.httpFetch(url, init)
         },
       },
@@ -743,7 +749,10 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     const name = normalizePluginName(input)
     const source = await readMarketSource(options.home)
     if (!source)
-      throw new Error('no market configured — set [plugins] market in ~/.volund/config.toml')
+      throw new VolundError(
+        'plugin_market_source_missing',
+        'no market configured — set [plugins] market in ~/.volund/config.toml',
+      )
     if (!isLocalMarketSource(source))
       throw new PluginError(
         'plugin_registry_signature_required',
@@ -753,7 +762,11 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     const deadline = AbortSignal.timeout(MARKET_INSTALL_DEADLINE_MS)
     const index = await cachedMarketIndex(source, true, deadline)
     const entry = index.plugins.find((candidate) => candidate.name === name)
-    if (!entry) throw new Error(`${name} not found in market index (${source})`)
+    if (!entry)
+      throw new VolundError(
+        'plugin_market_entry_not_found',
+        `${name} not found in market index (${source})`,
+      )
     // 同名已装载（旧版本）先停用；换新版后必须重新批准，绝不自动重启。
     await unloadPlugin(name)
     const installed = await installFromMarket({
@@ -810,11 +823,13 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     const loaded = loadedPluginEntries.find((entry) => entry.name === name)
     const source = loaded?.source ?? state?.source
     if (source === 'builtin')
-      throw new Error(
+      throw new VolundError(
+        'plugin_uninstall_rejected',
         `${name} is a builtin plugin shipped with the ${productIdentity.shortName} artifact; it cannot be uninstalled`,
       )
     if (source === 'dev')
-      throw new Error(
+      throw new VolundError(
+        'plugin_uninstall_rejected',
         `${name} is a dev plugin (from ~/.volund/plugins-dev/ or VOLUND_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
       )
     await unloadPlugin(name)
@@ -866,7 +881,10 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
     },
     async setBuiltinDomain(id: string, enabled: boolean) {
       if (!/^volund\.(core-tools|exec|orchestration)$/.test(id))
-        throw new Error(`Unknown builtin tool domain: ${id}`)
+        throw new VolundError(
+          'plugins_builtin_domain_unknown',
+          `Unknown builtin tool domain: ${id}`,
+        )
       await updateConfigBuiltinDisabled({ home: options.home, domain: id, disable: !enabled })
       if (enabled) builtinToolsDisabled.delete(id)
       else builtinToolsDisabled.add(id)

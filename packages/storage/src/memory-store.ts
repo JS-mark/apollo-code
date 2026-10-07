@@ -1,6 +1,8 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import { VolundError } from '@volund/shared'
+
 export const MEMORY_SCHEMA_VERSION = 'volund.memory.v1'
 
 export type MemoryScope =
@@ -90,7 +92,8 @@ export class ScopedMemoryStore {
   async write(input: MemoryInput, principal: MemoryPrincipal): Promise<ScopedMemoryRecord> {
     validateId(input.id)
     validateScope(input.scope)
-    if (!canAccessMemory(input.scope, principal)) throw new Error('memory_scope_denied')
+    if (!canAccessMemory(input.scope, principal))
+      throw new VolundError('memory_scope_denied', 'memory_scope_denied')
     if (!input.text.trim()) throw new TypeError('Memory text is empty')
     const attachments = input.attachments ?? []
     if (!attachments.every(validateMemoryAttachmentReference))

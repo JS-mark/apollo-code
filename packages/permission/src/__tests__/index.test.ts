@@ -600,16 +600,16 @@ describe('structured deny reasons (timeout / fatigue)', () => {
   it('reason: fatigue → mcp_fatigue_rate_limited 码前缀文案', async () => {
     const manager = new PermissionManager({})
     manager.setPromptHandler(async () => ({ kind: 'deny', reason: 'fatigue' }))
-    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toThrow(
-      'mcp_fatigue_rate_limited:',
+    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toMatchObject(
+      { code: 'mcp_fatigue_rate_limited' },
     )
   })
 
   it('reason: timeout → permission_timeout 文案（回归锚）', async () => {
     const manager = new PermissionManager({})
     manager.setPromptHandler(async () => ({ kind: 'deny', reason: 'timeout' }))
-    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toThrow(
-      'permission_timeout:',
+    await expect(manager.requestAndExecute(baseRequest, async () => 'never')).rejects.toMatchObject(
+      { code: 'permission_timeout' },
     )
   })
 

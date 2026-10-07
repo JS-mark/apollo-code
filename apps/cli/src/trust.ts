@@ -3,6 +3,8 @@ import { mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
+import { VolundError } from '@volund/shared'
+
 export type TrustScope = 'exact' | 'tree'
 export interface TrustRule {
   path: string
@@ -121,9 +123,10 @@ export class DirectoryTrustStore {
     try {
       const value = JSON.parse(source) as Partial<TrustDocument>
       if (value.version !== 1 || !Array.isArray(value.rules))
-        throw new Error('invalid trust schema')
+        throw new VolundError('cli_internal', 'invalid trust schema')
       const rules = value.rules.filter(isTrustRule)
-      if (rules.length !== value.rules.length) throw new Error('invalid trust rule')
+      if (rules.length !== value.rules.length)
+        throw new VolundError('cli_internal', 'invalid trust rule')
       return { corrupt: false, document: { version: 1, rules } }
     } catch {
       return { corrupt: true, document: emptyDocument(), source }
@@ -145,7 +148,10 @@ export class DirectoryTrustStore {
         await new Promise((resolveWait) => setTimeout(resolveWait, 10))
       }
     }
-    throw new Error('Timed out waiting for the directory trust store lock')
+    throw new VolundError(
+      'trust_store_unavailable',
+      'Timed out waiting for the directory trust store lock',
+    )
   }
 }
 
@@ -172,5 +178,8 @@ function assertSafeTrustTarget(path: string): void {
     (prefix) => path === prefix || isWithin(prefix, path),
   )
   if (root || path === home || sensitive)
-    throw new Error(`Refusing to trust a sensitive directory scope: ${path}`)
+    throw new VolundError(
+      'trust_sensitive_scope_rejected',
+      `Refusing to trust a sensitive directory scope: ${path}`,
+    )
 }

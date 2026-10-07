@@ -142,7 +142,7 @@ export function createConfigDomain(options: ConfigDomainOptions): ConfigDomain {
         options.localPluginHub,
       )
       const item = data.config.find((candidate) => candidate.id === id)
-      if (!item) throw new Error(`Unknown configuration item: ${id}`)
+      if (!item) throw new VolundError('config_unknown_key', `Unknown configuration item: ${id}`)
       validateStatusConfigValue(item, value)
       const path = join(options.home, 'config.toml')
       let config: Record<string, JsonValue> = {}

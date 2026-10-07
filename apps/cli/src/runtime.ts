@@ -69,7 +69,7 @@ import {
   SingleProviderRouter,
 } from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
-import { sanitize, type JsonValue } from '@volund/shared'
+import { sanitize, VolundError, type JsonValue } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import {
   AttachmentStore,
@@ -370,7 +370,7 @@ async function openProxyTunnel(
   })
   if (signal.aborted) {
     socket.destroy()
-    throw new Error('proxy_tunnel_aborted')
+    throw new VolundError('proxy_tunnel_aborted', 'proxy_tunnel_aborted')
   }
   const onAbort = () => socket.destroy()
   signal.addEventListener('abort', onAbort, { once: true })
@@ -394,7 +394,7 @@ async function openProxyTunnel(
         } else {
           settled = true
           socket.destroy()
-          reject(new Error(`proxy_tunnel_rejected: ${statusLine}`))
+          reject(new VolundError('proxy_tunnel_rejected', `${statusLine}`))
         }
       }
       socket.on('data', onData)
@@ -402,14 +402,14 @@ async function openProxyTunnel(
     socket.once('error', (cause) => {
       if (settled) return
       settled = true
-      reject(new Error(`proxy_tunnel_failed: ${cause.message}`))
+      reject(new VolundError('proxy_tunnel_failed', `${cause.message}`))
     })
     // abort 走 destroy（无 error 事件）——close 先于 settled 到达时也要拒给上层，
     // 否则隧道中途被中断会让 openProxyTunnel 的 await 永久悬挂。
     socket.once('close', () => {
       if (settled) return
       settled = true
-      reject(new Error('proxy_tunnel_closed'))
+      reject(new VolundError('proxy_tunnel_closed', 'proxy_tunnel_closed'))
     })
   }).finally(() => {
     signal.removeEventListener('abort', onAbort)
@@ -547,7 +547,7 @@ export function requestHttp2(url: URL, input: HttpRequest): Promise<HttpResponse
                 if ((tlsSocket.alpnProtocol ?? 'http/1.1') !== 'h2') {
                   tlsSocket.destroy()
                   tunneled.destroy()
-                  rej(new Error('proxy_alpn_not_h2'))
+                  rej(new VolundError('proxy_alpn_not_h2', 'proxy_alpn_not_h2'))
                   return
                 }
                 res(tlsSocket)
@@ -679,7 +679,10 @@ async function promptSecret(question: string): Promise<string> {
     }
     const onData = (chunk: Buffer) => {
       for (const byte of chunk) {
-        if (byte === 3) return finish(new Error('Credential input was cancelled'))
+        if (byte === 3)
+          return finish(
+            new VolundError('credential_input_cancelled', 'Credential input was cancelled'),
+          )
         if (byte === 13 || byte === 10) return finish()
         if (byte === 8 || byte === 127) value = value.slice(0, -1)
         else if (byte >= 32) value += String.fromCharCode(byte)
@@ -807,7 +810,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         size += chunk.length
         // fd3 桥帧上限 1MB（plugin_host.mjs MAX_FRAME）：响应体整体作为 JSON 帧
         // 回传，必须留在帧限以内。
-        if (size > 900_000) throw new Error('plugin http.fetch response exceeds 900KB')
+        if (size > 900_000)
+          throw new VolundError(
+            'plugin_rpc_frame_too_large',
+            'plugin http.fetch response exceeds 900KB',
+          )
         chunks.push(Buffer.from(chunk))
       }
       return {
@@ -832,7 +839,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
     const value = await promptSecret('Credential-store passphrase: ')
-    if (!value) throw new Error('A credential-store passphrase is required')
+    if (!value)
+      throw new VolundError(
+        'credential_passphrase_required',
+        'A credential-store passphrase is required',
+      )
     cachedPassphrase = value
     return value
   }
@@ -1010,7 +1021,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       }))
     },
     async cancel(sessionId) {
-      if (!dispatcher.cancel(sessionId)) throw new Error(`Subagent ${sessionId} is not running`)
+      if (!dispatcher.cancel(sessionId))
+        throw new VolundError('subagent_not_running', `Subagent ${sessionId} is not running`)
       return `Subagent cancelled`
     },
     async cancelAll() {
@@ -1066,7 +1078,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       task: {
         dispatcher,
         parent: () => {
-          throw new Error('dispatch parent handle is only available during a parent turn')
+          throw new VolundError(
+            'cli_internal',
+            'dispatch parent handle is only available during a parent turn',
+          )
         },
       },
     })) {
@@ -1317,7 +1332,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
             return undefined
           }
           const value = await auth.getCredential('anthropic')
-          if (!value) throw new Error('Anthropic credential unavailable')
+          if (!value)
+            throw new VolundError(
+              'provider_credential_unavailable',
+              'Anthropic credential unavailable',
+            )
           return value
         },
       },
@@ -1358,9 +1377,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       const openai = new OpenAIClient({
         credentials: {
           async getCredential(): Promise<string> {
-            if (skipAuth) throw new Error('OpenAI credential unavailable (skipAuth)')
+            if (skipAuth)
+              throw new VolundError(
+                'provider_credential_unavailable',
+                'OpenAI credential unavailable (skipAuth)',
+              )
             const value = await auth.getCredential('openai')
-            if (!value) throw new Error('OpenAI credential unavailable')
+            if (!value)
+              throw new VolundError(
+                'provider_credential_unavailable',
+                'OpenAI credential unavailable',
+              )
             return value
           },
         },
@@ -1378,9 +1405,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       const gemini = new GeminiClient({
         credentials: {
           async getCredential(): Promise<string> {
-            if (skipAuth) throw new Error('Gemini credential unavailable (skipAuth)')
+            if (skipAuth)
+              throw new VolundError(
+                'provider_credential_unavailable',
+                'Gemini credential unavailable (skipAuth)',
+              )
             const value = await auth.getCredential('gemini')
-            if (!value) throw new Error('Gemini credential unavailable')
+            if (!value)
+              throw new VolundError(
+                'provider_credential_unavailable',
+                'Gemini credential unavailable',
+              )
             return value
           },
         },

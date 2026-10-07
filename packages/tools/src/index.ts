@@ -4,7 +4,7 @@ import { relative, resolve } from 'node:path'
 
 import type { PermissionManager, PermissionSpec } from '@volund/permission'
 import type { ContentPart } from '@volund/provider-kit'
-import { acquireFileLock } from '@volund/shared'
+import { acquireFileLock, VolundError } from '@volund/shared'
 import type { DispatchParent, SubagentBudget, SubagentDispatcher } from '@volund/subagent'
 import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
@@ -34,7 +34,8 @@ const failure = (error: unknown, started = Date.now()): ToolResult => ({
 function pathInCwd(cwd: string, input: string): string {
   const path = resolve(cwd, input)
   const rel = relative(resolve(cwd), path)
-  if (rel.startsWith('..')) throw new Error('Path escapes working directory')
+  if (rel.startsWith('..'))
+    throw new VolundError('tool_path_escape', 'Path escapes working directory')
   return path
 }
 
@@ -67,9 +68,11 @@ async function safeMutationPath(cwd: string, input: string): Promise<string> {
   const root = await realpath(cwd)
   const parent = await realpath(resolve(path, '..'))
   const rel = relative(root, parent)
-  if (rel.startsWith('..')) throw new Error('Path escapes working directory through a symlink')
+  if (rel.startsWith('..'))
+    throw new VolundError('tool_path_escape', 'Path escapes working directory through a symlink')
   try {
-    if ((await lstat(path)).isSymbolicLink()) throw new Error('Refusing to mutate a symbolic link')
+    if ((await lstat(path)).isSymbolicLink())
+      throw new VolundError('tool_symlink_rejected', 'Refusing to mutate a symbolic link')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
@@ -198,11 +201,11 @@ export async function mutateFiles(
       : await prepareEphemeralTransaction(paths)
     for (const update of updates)
       if (update.expect && !sameSnapshot(update.expect, await snapshotOf(update.path)))
-        throw new Error(changedSinceReadError(update.path))
+        throw new VolundError('tool_file_changed_since_read', changedSinceReadError(update.path))
     for (const update of updates) await atomicWrite(update.path, update.content)
     for (const update of updates)
       if ((await snapshotOf(update.path)).hash !== contentHash(Buffer.from(update.content)))
-        throw new Error(changedAfterWriteError(update.path))
+        throw new VolundError('tool_file_changed_after_write', changedAfterWriteError(update.path))
     await transaction?.commit()
   } catch (error) {
     await transaction?.rollback().catch(() => undefined)
@@ -330,8 +333,10 @@ export class WriteTool implements Tool<WriteInput> {
           throw error
         }
         const expected = i.expect ?? sessionReadHash(c.session.id, p)
-        if (expected === undefined) throw new Error(notReadInSessionError(p))
-        if (current.hash !== expected) throw new Error(changedSinceReadError(p))
+        if (expected === undefined)
+          throw new VolundError('tool_file_not_read', notReadInSessionError(p))
+        if (current.hash !== expected)
+          throw new VolundError('tool_file_changed_since_read', changedSinceReadError(p))
       }
       await mutateFiles(c.session, [{ path: p, content: i.content, guard }], this.backups)
       // A successful write makes this session the author of the on-disk content.
@@ -376,15 +381,18 @@ export class EditTool implements Tool<EditInput> {
   async invoke(i: EditInput, c: ToolContext) {
     const s = Date.now()
     try {
-      if (i.new_string === i.old_string) throw new Error(noOpEditError(i.path))
+      if (i.new_string === i.old_string)
+        throw new VolundError('tool_edit_no_op', noOpEditError(i.path))
       const p = await safeMutationPath(c.session.cwd, i.path),
         oldBytes = await readFile(p),
         before: FileSnapshot = { hash: contentHash(oldBytes) },
         old = oldBytes.toString('utf8')
-      if (!sameSnapshot(before, await snapshotOf(p))) throw new Error(changedSinceReadError(p))
+      if (!sameSnapshot(before, await snapshotOf(p)))
+        throw new VolundError('tool_file_changed_since_read', changedSinceReadError(p))
       const count = old.split(i.old_string).length - 1
-      if (count === 0) throw new Error(notFoundError(p))
-      if (count > 1 && i.replace_all !== true) throw new Error(ambiguousMatchError(p, count))
+      if (count === 0) throw new VolundError('tool_edit_not_found', notFoundError(p))
+      if (count > 1 && i.replace_all !== true)
+        throw new VolundError('tool_edit_ambiguous', ambiguousMatchError(p, count))
       const next = i.replace_all
         ? old.split(i.old_string).join(i.new_string)
         : old.replace(i.old_string, i.new_string)
@@ -447,15 +455,25 @@ export class MultiEditTool implements Tool<MultiEditInput> {
         const before: FileSnapshot = { hash: contentHash(beforeBytes) }
         let content = beforeBytes.toString('utf8')
         if (!sameSnapshot(before, await snapshotOf(path)))
-          throw new Error(changedSinceReadError(path))
+          throw new VolundError('tool_file_changed_since_read', changedSinceReadError(path))
         beforeContents.set(path, content)
         for (const edit of edits) {
           if (edit.new_string === edit.old_string)
-            throw new Error(noOpEditError(relative(context.session.cwd, path)))
+            throw new VolundError(
+              'tool_edit_no_op',
+              noOpEditError(relative(context.session.cwd, path)),
+            )
           const count = content.split(edit.old_string).length - 1
-          if (count === 0) throw new Error(notFoundError(relative(context.session.cwd, path)))
+          if (count === 0)
+            throw new VolundError(
+              'tool_edit_not_found',
+              notFoundError(relative(context.session.cwd, path)),
+            )
           if (count > 1)
-            throw new Error(ambiguousMatchError(relative(context.session.cwd, path), count))
+            throw new VolundError(
+              'tool_edit_ambiguous',
+              ambiguousMatchError(relative(context.session.cwd, path), count),
+            )
           content = content.replace(edit.old_string, edit.new_string)
         }
         updates.push({ path, content, expect: before })

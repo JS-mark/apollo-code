@@ -8,18 +8,7 @@ export interface Logger {
   warn(message: string, context?: Record<string, JsonValue>): void
 }
 
-export class VolundError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly details?: JsonValue,
-    options?: ErrorOptions,
-  ) {
-    super(message, options)
-    this.name = 'VolundError'
-  }
-}
-
+export { VolundError } from './errors'
 export { validateWorkspacePath } from './path-guard'
 export { productIdentity, type ProductIdentity } from './product-identity'
 export { sanitize } from './sanitize'

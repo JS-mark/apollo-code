@@ -6,6 +6,8 @@
  */
 import { createHash } from 'node:crypto'
 
+import { VolundError } from '@volund/shared/errors'
+
 import type { MarketFileSpec, McpIndexEntry, PluginVersionRecord, SkillIndexEntry } from './types'
 
 const PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
@@ -24,7 +26,12 @@ export const MAX_FILES_PER_PLUGIN = 64
 export const MAX_FILE_BYTES = 8 * 1024 * 1024
 const MAX_TEXT_BYTES = 64 * 1024
 
-export class ValidationError extends Error {}
+export class ValidationError extends VolundError {
+  constructor(message: string) {
+    super('market_validation_failed', message)
+    this.name = 'ValidationError'
+  }
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "catalog:",
+    "@volund/shared": "workspace:*",
     "antd": "catalog:",
     "antd-mobile": "^5.43.0",
     "next": "catalog:",

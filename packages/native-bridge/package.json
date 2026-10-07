@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@volund/shared": "workspace:*",
     "diff": "^9.0.0",
     "fast-glob": "^3.3.3",
     "gpt-tokenizer": "^3.4.0",

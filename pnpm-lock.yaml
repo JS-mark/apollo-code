@@ -438,6 +438,9 @@ importers:
       '@ant-design/nextjs-registry':
         specifier: 'catalog:'
         version: 1.3.0(@ant-design/cssinjs@2.1.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(antd@6.6.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(next@16.3.4(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       antd:
         specifier: 'catalog:'
         version: 6.6.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -472,6 +475,9 @@ importers:
       '@ant-design/icons':
         specifier: 'catalog:'
         version: 6.3.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       antd:
         specifier: 'catalog:'
         version: 6.6.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -668,6 +674,9 @@ importers:
       '@codingame/monaco-vscode-workspace-trust-service-override':
         specifier: 'catalog:'
         version: 36.2.7
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@xterm/addon-fit':
         specifier: 'catalog:'
         version: 0.11.0
@@ -853,6 +862,9 @@ importers:
       '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -896,6 +908,10 @@ importers:
         version: 4.1.11(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.2)(terser@5.51.2)(yaml@2.9.0))
 
   packages/gateway-server:
+    dependencies:
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -918,6 +934,9 @@ importers:
       '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@volund/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit
@@ -962,6 +981,9 @@ importers:
 
   packages/native-bridge:
     dependencies:
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -1021,6 +1043,9 @@ importers:
       '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -1170,6 +1195,9 @@ importers:
       '@volund/gateway-server':
         specifier: workspace:*
         version: link:../gateway-server
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -1186,6 +1214,9 @@ importers:
       '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

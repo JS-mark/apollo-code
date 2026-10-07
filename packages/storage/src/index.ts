@@ -20,8 +20,14 @@ import { createInterface } from 'node:readline'
 
 import type { CoreEvent, EventBus, PromptComposer } from '@volund/core'
 import type { PermissionDecision, PermissionRequest } from '@volund/permission'
-import { acquireFileLock } from '@volund/shared'
-import { sanitize, unifiedDiff, formatUnifiedDiff, type JsonValue } from '@volund/shared'
+import {
+  acquireFileLock,
+  sanitize,
+  unifiedDiff,
+  formatUnifiedDiff,
+  VolundError,
+  type JsonValue,
+} from '@volund/shared'
 
 import type { MemoryRecordAttachment } from './memory-runtime'
 export * from './evolution-store'
@@ -66,7 +72,10 @@ export class SessionStore {
   }
   async append(event: StoredEvent): Promise<void> {
     if (containsInlineBinary(event.payload))
-      throw new Error('Binary attachments cannot be written to session JSONL')
+      throw new VolundError(
+        'storage_session_binary_rejected',
+        'Binary attachments cannot be written to session JSONL',
+      )
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
     const file = await open(this.path, 'a', 0o600)
     try {
@@ -83,7 +92,11 @@ export class SessionStore {
       for await (const line of rl) {
         if (!line) continue
         const event = JSON.parse(line) as StoredEvent
-        if (event.v > 1) throw new Error('Session is from a newer volund version')
+        if (event.v > 1)
+          throw new VolundError(
+            'storage_session_version_unsupported',
+            'Session is from a newer volund version',
+          )
         out.push(event)
       }
     } catch (error) {
@@ -202,7 +215,7 @@ export class PromptLoader {
     let text: string
     try {
       const stat = await file.stat()
-      if (!stat.isFile()) throw new Error('not a file')
+      if (!stat.isFile()) throw new VolundError('storage_internal', 'not a file')
       text = await file.readFile('utf8')
     } finally {
       await file.close()
@@ -450,7 +463,11 @@ export class BackupStore {
       paths.map(async (path) => {
         try {
           const info = await lstat(path)
-          if (!info.isFile()) throw new Error(`Backup target is not a regular file: ${path}`)
+          if (!info.isFile())
+            throw new VolundError(
+              'storage_backup_target_invalid',
+              `Backup target is not a regular file: ${path}`,
+            )
           const beforeHash = await sourceHash(path)
           const backupPath = resolve(this.root, sessionId, 'objects', beforeHash)
           await mkdir(dirname(backupPath), { recursive: true, mode: 0o700 })
@@ -862,7 +879,7 @@ export class BackupStore {
         await readFile(this.manifestPath(sessionId), 'utf8'),
       ) as BackupManifest
       if (parsed.v !== 1 || parsed.sessionId !== sessionId || !Array.isArray(parsed.records))
-        throw new Error('Backup manifest is corrupt')
+        throw new VolundError('storage_backup_manifest_corrupt', 'Backup manifest is corrupt')
       for (const record of parsed.records) {
         if (
           !record ||
@@ -872,13 +889,18 @@ export class BackupStore {
           (record.existed &&
             (typeof record.beforeHash !== 'string' || typeof record.backupPath !== 'string'))
         )
-          throw new Error('Backup manifest is corrupt')
+          throw new VolundError('storage_backup_manifest_corrupt', 'Backup manifest is corrupt')
       }
       return parsed
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
       if (error instanceof SyntaxError)
-        throw new Error('Backup manifest is corrupt', { cause: error })
+        throw new VolundError(
+          'storage_backup_manifest_corrupt',
+          'Backup manifest is corrupt',
+          undefined,
+          { cause: error },
+        )
       throw error
     }
   }
@@ -903,7 +925,8 @@ export class BackupStore {
 }
 
 function validateSessionId(sessionId: string): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error('Invalid session id')
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId))
+    throw new VolundError('storage_session_id_invalid', 'Invalid session id')
 }
 
 /** W-08「大 diff 虚拟化」：单端超过 4MB 不做全量 diff（备份对象可能未压缩）。 */
@@ -1053,7 +1076,8 @@ function undoRecordKey(record: BackupRecord): string {
 
 function assertWithin(root: string, path: string): void {
   const rel = relative(resolve(root), resolve(path))
-  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Backup manifest path escapes store')
+  if (rel.startsWith('..') || isAbsolute(rel))
+    throw new VolundError('storage_backup_path_escape', 'Backup manifest path escapes store')
 }
 
 async function directorySize(path: string): Promise<number> {

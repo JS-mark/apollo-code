@@ -11,7 +11,7 @@ import type {
   ToolSchema,
   Usage,
 } from '@volund/provider-kit'
-import type { JsonValue } from '@volund/shared'
+import { VolundError, type JsonValue } from '@volund/shared'
 
 /**
  * A declarative chunk script served by {@link MockProvider}.
@@ -182,14 +182,17 @@ export class MockProvider implements ProviderClient {
     const isSurrogatePair =
       char.length === 2 && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff
     if (!isSurrogatePair) {
-      throw new Error('testkit_truncate_utf8_requires_surrogate_pair')
+      throw new VolundError(
+        'testkit_truncate_utf8_requires_surrogate_pair',
+        'testkit_truncate_utf8_requires_surrogate_pair',
+      )
     }
     this.#utf8SplitChar = char
     return this
   }
 
   async *stream(request: ProviderRequest, signal: AbortSignal): AsyncIterable<ProviderChunk> {
-    if (this.#disposed) throw new Error('mock_provider_disposed')
+    if (this.#disposed) throw new VolundError('mock_provider_disposed', 'mock_provider_disposed')
     this.requests.push(request)
     this.#streamCount += 1
     const brokenPointers = new Map<string, number>()
@@ -286,7 +289,10 @@ export class MockProvider implements ProviderClient {
 
   #inject(afterChunkCount: number, chunk: ProviderChunk): void {
     if (!Number.isInteger(afterChunkCount) || afterChunkCount < 0) {
-      throw new Error('testkit_injection_requires_non_negative_integer')
+      throw new VolundError(
+        'testkit_injection_requires_non_negative_integer',
+        'testkit_injection_requires_non_negative_integer',
+      )
     }
     this.#injections.push({ afterChunkCount, chunk, order: (this.#injectionOrder += 1) })
   }
@@ -308,7 +314,8 @@ export class MockProvider implements ProviderClient {
       this.#lastServed = queued
       return queued
     }
-    if (this.#exhausted === 'throw') throw new Error('mock_provider_script_exhausted')
+    if (this.#exhausted === 'throw')
+      throw new VolundError('mock_provider_script_exhausted', 'mock_provider_script_exhausted')
     if (this.#exhausted === 'empty') return { chunks: [] }
     return this.#lastServed ?? { chunks: [] }
   }

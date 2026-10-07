@@ -7,6 +7,7 @@ import { join } from 'node:path'
 
 import type { AuthManager } from '@volund/auth'
 import { loadTomlFile } from '@volund/config'
+import { VolundError } from '@volund/shared'
 import type { JsonValue } from '@volund/shared'
 
 /** auth 端口的宿主接缝。 */
@@ -98,7 +99,8 @@ export function createAuthDomain(options: AuthDomainOptions) {
       }
       const credential =
         input.credential ?? (await options.promptCredential('Anthropic API key: ')).trim()
-      if (!credential) throw new Error('Credential input was cancelled')
+      if (!credential)
+        throw new VolundError('auth_credential_cancelled', 'Credential input was cancelled')
       const verifyBaseUrl = await readAnthropicBaseUrl()
       await options.auth.login(
         input.provider,

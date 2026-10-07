@@ -74,14 +74,14 @@ describe('skill market index (WEB-EXT-MANAGE-MARKET-r1 §S3.6)', () => {
 
     const bad = await tempHome()
     await writeFile(join(bad, 'config.toml'), '[skills]\nmarket = "http://192.168.1.10/x.json"\n')
-    await expect(readSkillMarketSource(bad)).rejects.toThrow('config_invalid')
+    await expect(readSkillMarketSource(bad)).rejects.toMatchObject({ code: 'config_invalid' })
   })
 
   it('fetchSkillMarketIndex reports config errors instead of throwing', async () => {
     const home = await tempHome()
     await writeFile(home + '/config.toml', '[skills]\nmarket = "not a url"\n')
     const result = await fetchSkillMarketIndex(home)
-    expect(result).toEqual({ error: expect.stringContaining('config_invalid') })
+    expect(result).toEqual({ error: expect.stringContaining('must be an HTTPS URL') })
   })
 })
 
@@ -132,14 +132,14 @@ describe('mcp market index (WEB-EXT-MANAGE-MARKET-r1 §S3.6)', () => {
 
     const bad = await tempHome()
     await writeFile(join(bad, 'config.toml'), '[mcp]\nmarket = "http://10.0.0.1/index.json"\n')
-    await expect(readMcpMarketSource(bad)).rejects.toThrow('config_invalid')
+    await expect(readMcpMarketSource(bad)).rejects.toMatchObject({ code: 'config_invalid' })
   })
 
   it('fetchSkillMarketIndex twin: fetchMcpMarketIndex reports config errors instead of throwing', async () => {
     const home = await tempHome()
     await writeFile(home + '/config.toml', '[mcp]\nmarket = "nope"\n')
     const result = await fetchMcpMarketIndex(home)
-    expect(result).toEqual({ error: expect.stringContaining('config_invalid') })
+    expect(result).toEqual({ error: expect.stringContaining('must be an HTTPS URL') })
   })
 })
 

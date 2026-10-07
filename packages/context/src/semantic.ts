@@ -10,6 +10,7 @@ import type {
   EmbeddingProvider,
   Message,
 } from '@volund/provider-kit'
+import { VolundError } from '@volund/shared'
 
 export const SEMANTIC_INDEX_SCHEMA_VERSION = 'volund.semantic-index.v1'
 
@@ -166,7 +167,7 @@ export class SemanticPolicy implements ContextPolicy {
     this.#options = options
     if (options.index) {
       const result = validateSemanticIndexDocument(options.index)
-      if (!result.ok) throw new Error(`semantic_index_invalid: ${result.errors.join(',')}`)
+      if (!result.ok) throw new VolundError('semantic_index_invalid', result.errors.join(','))
       this.#index = result.value
     }
   }
@@ -212,7 +213,10 @@ export class SemanticPolicy implements ContextPolicy {
       signal,
     )
     if (response.embeddings.length !== ctx.session.messages.length)
-      throw new Error('semantic_embedding_count_mismatch')
+      throw new VolundError(
+        'semantic_embedding_count_mismatch',
+        'semantic_embedding_count_mismatch',
+      )
     this.#index = {
       schemaVersion: SEMANTIC_INDEX_SCHEMA_VERSION,
       embedding: {
@@ -315,12 +319,16 @@ export class SemanticPolicy implements ContextPolicy {
   }
   private authorizedEmbeddingProvider(): EmbeddingProvider {
     const provider = this.#options.embedding
-    if (!provider) throw new Error('semantic_embedding_unconfigured')
+    if (!provider)
+      throw new VolundError('semantic_embedding_unconfigured', 'semantic_embedding_unconfigured')
     if (
       provider.scope === 'cloud' &&
       (!this.#options.allowCloudEmbeddings || this.#options.cloudAuthorization !== 'granted')
     )
-      throw new Error(`semantic_cloud_embedding_${this.#options.cloudAuthorization ?? 'denied'}`)
+      throw new VolundError(
+        'semantic_cloud_embedding_not_authorized',
+        `semantic_cloud_embedding_${this.#options.cloudAuthorization ?? 'denied'}`,
+      )
     return provider
   }
 }

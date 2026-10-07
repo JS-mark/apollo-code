@@ -1,9 +1,15 @@
 /** 路由层小工具：错误响应 / 冲突 / 分页参数。 */
+import { VolundError } from '@volund/shared/errors'
 
 export const jsonError = (message: string, status: number) =>
   Response.json({ error: message }, { status })
 
-export class ConflictError extends Error {}
+export class ConflictError extends VolundError {
+  constructor(message: string) {
+    super('market_conflict', message)
+    this.name = 'ConflictError'
+  }
+}
 
 export interface Pagination {
   readonly page: number

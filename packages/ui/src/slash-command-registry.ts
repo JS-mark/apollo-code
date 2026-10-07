@@ -1,3 +1,5 @@
+import { VolundError } from '@volund/shared'
+
 import type { SlashCommand } from './app'
 
 export interface SlashCommandSource {
@@ -40,7 +42,7 @@ const builtinNames = new Set<string>(BUILTIN_SLASH_COMMAND_NAMES)
 
 export function normalizeSlashCommandName(value: string): string {
   const name = value.trim().replace(/^\/+/, '').toLowerCase()
-  if (!validName.test(name)) throw new Error(`slash_command_invalid_name: ${value}`)
+  if (!validName.test(name)) throw new VolundError('slash_command_invalid_name', value)
   return name
 }
 
@@ -54,14 +56,12 @@ export class MutableSlashCommandRegistry implements SlashCommandRegistry {
     const keys = [name, ...aliases]
     for (const key of keys) {
       if (source.kind !== 'builtin' && builtinNames.has(key))
-        throw new Error(`slash_command_builtin_reserved: ${key}`)
+        throw new VolundError('slash_command_builtin_reserved', key)
       const existing = this.find(key)
       if (existing)
-        throw new Error(
-          existing.source.kind === 'builtin'
-            ? `slash_command_builtin_reserved: ${key}`
-            : `slash_command_conflict: ${key}`,
-        )
+        throw existing.source.kind === 'builtin'
+          ? new VolundError('slash_command_builtin_reserved', key)
+          : new VolundError('slash_command_conflict', key)
     }
     const registered: RegisteredSlashCommand = Object.freeze({
       ...command,
