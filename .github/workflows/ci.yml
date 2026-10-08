@@ -12,8 +12,10 @@ jobs:
           - runner: ubuntu-24.04
             turbo-concurrency: 100%
             node-version: 24
+          # macos 托管 runner 满载时 spawn 连续报 EAGAIN（进程/线程配额打爆），
+          # vitest 满核 fork 加剧——50% 换稳定，时长可控。
           - runner: macos-14
-            turbo-concurrency: 100%
+            turbo-concurrency: 50%
             node-version: 24
         # windows-2022 已摘除：托管 runner 间歇性 0xC0000142（DLL init failure）
         # 杀 worker 进程，串行化 + 三次重跑也压不住；需要时按 ubuntu 项的形态
