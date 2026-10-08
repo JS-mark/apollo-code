@@ -26,7 +26,22 @@ import {
 const directories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  // daemon.tick() 对任务 runner 是 fire-and-forget（daemon.ts 的 void async 块，
+  // 完成后仍写 journal/status）；rm 与飞行写竞速时 rmdir 报 ENOTEMPTY。给删除
+  // 一个带退避的重试，等事件循环把尾写排空；非 ENOTEMPTY 照旧即抛。
+  await Promise.all(
+    directories.splice(0).map(async (dir) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await rm(dir, { recursive: true, force: true })
+          return
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY' || attempt >= 6) throw error
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)))
+        }
+      }
+    }),
+  )
 })
 
 async function tempHome(): Promise<string> {
