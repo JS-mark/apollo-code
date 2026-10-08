@@ -15,11 +15,9 @@ jobs:
           - runner: macos-14
             turbo-concurrency: 100%
             node-version: 24
-          # The Windows hosted runner can fail to initialize worker processes
-          # (0xC0000142) under Node 24 even after workspace work is serialized.
-          - runner: windows-2022
-            turbo-concurrency: 1
-            node-version: 22.13.0
+        # windows-2022 已摘除：托管 runner 间歇性 0xC0000142（DLL init failure）
+        # 杀 worker 进程，串行化 + 三次重跑也压不住；需要时按 ubuntu 项的形态
+        # 加回 { runner: windows-2022, turbo-concurrency: 1, node-version: 22.13.0 }。
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +29,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # windows-2022 托管 runner 会间歇性初始化失败子进程（0xC0000142，DLL init
-      # failure——与代码无关的 runner 抖动，命中哪个包纯随机）。失败即重跑：
+      # 托管 runner 偶发与代码无关的抖动（进程初始化失败等）。失败即重跑：
       # turbo 缓存跳过已完成任务，重试只补跑失败点，开销小。三次仍败才算真红。
       - name: Typecheck, test, and build
         shell: bash
