@@ -36,8 +36,12 @@ jobs:
       - name: Typecheck, test, and build
         shell: bash
         run: |
+          # macOS 独占坑：docs:build 的 vitepress lastUpdated 对每页 spawnSync
+          # git log（typedoc 生成 2000+ 页后高频 spawn），macOS 上确定性
+          # spawn git EAGAIN（ubuntu 同图通过）——docs 站构建由 ubuntu 链与
+          # docs.yml 覆盖，macos 图排除之（ubuntu 全图照跑）。
           for attempt in 1 2 3; do
-            if pnpm turbo run typecheck test build --concurrency=${{ matrix.turbo-concurrency }}; then
+            if pnpm turbo run typecheck test build --concurrency=${{ matrix.turbo-concurrency }} --filter='!@volund/docs'; then
               exit 0
             fi
             echo "::warning::turbo run failed (attempt $attempt/3); retrying — turbo cache skips completed tasks"
