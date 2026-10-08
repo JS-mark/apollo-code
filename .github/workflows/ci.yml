@@ -50,8 +50,11 @@ jobs:
       - name: Assert Rolldown single-bin output
         shell: bash
         run: |
+          # -maxdepth 1：只数 rolldown 产出的顶层 chunk（single-bin 语义）；
+          # dist/web-assets/（next 静态导出内嵌）里的 js 不归本断言管——
+          # web:build 先于 cli:build 完成时它们存在，递归 find 会假红。
           test -f apps/cli/dist/volund.js
-          test "$(find apps/cli/dist -type f -name '*.js' | wc -l | tr -d ' ')" = 1
+          test "$(find apps/cli/dist -maxdepth 1 -type f -name '*.js' | wc -l | tr -d ' ')" = 1
           head -n 1 apps/cli/dist/volund.js | grep -Fx '#!/usr/bin/env node'
       - uses: actions/upload-artifact@v4
         with:
