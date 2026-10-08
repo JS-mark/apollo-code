@@ -24,6 +24,8 @@ export const zh = {
   'chat.offlineNotice': '本机离线：桌面端隧道已断开，恢复后自动重连',
   'chat.stalledNotice': '长时间未收到新事件，本轮可能已中断；可点「中断」结束',
   'chat.truncated': '…（已截断）',
+  'chat.groupDone': '{n} 个完成',
+  'chat.groupRunning': '{n} 个运行中',
 
   // ChatView.tsx
   'chat.thinkingLabel': '思考过程',
@@ -212,6 +214,8 @@ export const en: Record<DictKey, string> = {
   'chat.stalledNotice':
     'No new events for a while — this turn may have stalled; tap Interrupt to end it',
   'chat.truncated': '… (truncated)',
+  'chat.groupDone': '{n} done',
+  'chat.groupRunning': '{n} running',
 
   'chat.thinkingLabel': 'Thinking',
   'chat.toolCallCount': '{count} calls',

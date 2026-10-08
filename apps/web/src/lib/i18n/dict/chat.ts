@@ -18,6 +18,8 @@ export const chatZh = {
   'chat.toolError': '失败',
   'chat.toolDone': '完成',
   'chat.toolCalls': '{n} 次工具调用',
+  'chat.groupDone': '{n} 个完成',
+  'chat.groupRunning': '{n} 个运行中',
   // ChatPanel：复制/队列/composer
   'chat.copy': '复制',
   'chat.copied': '已复制',
@@ -148,6 +150,8 @@ export const chatEn: Record<ChatKeys, string> = {
   'chat.toolError': 'Failed',
   'chat.toolDone': 'Done',
   'chat.toolCalls': '{n} tool calls',
+  'chat.groupDone': '{n} done',
+  'chat.groupRunning': '{n} running',
   // ChatPanel: copy / queue / composer
   'chat.copy': 'Copy',
   'chat.copied': 'Copied',

@@ -92,7 +92,7 @@ function toolRowText(
         ? t('chat.toolError')
         : t('chat.toolDone')
   if (tool.tool !== 'Task') return { name: tool.tool, status: base }
-  const name = `🤖 ${tool.task?.agentType ?? '子代理'}`
+  const name = `🤖 ${tool.task?.agentType ?? t('chat.subagent')}`
   const activity = tool.turnId ? subagents[tool.turnId] : undefined
   if (!activity) return { name, status: base }
   if (tool.status === 'running' && activity.lastTool)
@@ -285,13 +285,14 @@ function ToolGroupCard({
   tools: ToolCard[]
   subagents: Record<string, SubagentActivity>
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const running = tools.filter((tool) => tool.status === 'running').length
   const failed = tools.filter((tool) => tool.status === 'error').length
   const done = tools.length - running - failed
   const progress = [
-    ...(running > 0 && done > 0 ? [`${done} 个完成`] : []),
-    ...(running > 0 ? [`${running} 个运行中`] : []),
+    ...(running > 0 && done > 0 ? [t('chat.groupDone', { n: done })] : []),
+    ...(running > 0 ? [t('chat.groupRunning', { n: running })] : []),
   ]
   return (
     <div className="tool-block">
