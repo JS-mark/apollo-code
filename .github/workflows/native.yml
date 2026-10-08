@@ -16,36 +16,51 @@ jobs:
         with:
           tool: cargo-deny
       - run: cargo deny check licenses bans
+  native-matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      # windows targets 仅 tag 发布时进矩阵（job 级 if 拿不到 matrix 上下文，
+      # 排除逻辑必须落在矩阵生成侧）：托管 windows runner 在 PR/push 长图上
+      # 间歇性 0xC0000142（DLL init failure，与代码无关），且 windows 二进制
+      # 只有 release 资产链路真正消费。escape 套件仍全平台覆盖 windows。
+      - id: set
+        run: |
+          cat > /tmp/matrix-full.json <<'EOF'
+          [
+            { "runner": "macos-14", "target": "aarch64-apple-darwin", "verification": "native" },
+            { "runner": "macos-15-intel", "target": "x86_64-apple-darwin", "verification": "native" },
+            { "runner": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "verification": "native" },
+            { "runner": "ubuntu-24.04", "target": "aarch64-unknown-linux-gnu", "verification": "partial-verified" },
+            { "runner": "ubuntu-24.04", "target": "x86_64-unknown-linux-musl", "verification": "partial-verified" },
+            { "runner": "ubuntu-24.04", "target": "aarch64-unknown-linux-musl", "verification": "partial-verified" },
+            { "runner": "windows-2022", "target": "x86_64-pc-windows-msvc", "verification": "native" },
+            { "runner": "windows-11-arm", "target": "aarch64-pc-windows-msvc", "verification": "native" }
+          ]
+          EOF
+          cat > /tmp/matrix-pr.json <<'EOF'
+          [
+            { "runner": "macos-14", "target": "aarch64-apple-darwin", "verification": "native" },
+            { "runner": "macos-15-intel", "target": "x86_64-apple-darwin", "verification": "native" },
+            { "runner": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "verification": "native" },
+            { "runner": "ubuntu-24.04", "target": "aarch64-unknown-linux-gnu", "verification": "partial-verified" },
+            { "runner": "ubuntu-24.04", "target": "x86_64-unknown-linux-musl", "verification": "partial-verified" },
+            { "runner": "ubuntu-24.04", "target": "aarch64-unknown-linux-musl", "verification": "partial-verified" }
+          ]
+          EOF
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/* ]]; then
+            cp /tmp/matrix-full.json /tmp/matrix.json
+          else
+            cp /tmp/matrix-pr.json /tmp/matrix.json
+          fi
+          echo "include=$(jq -c . /tmp/matrix.json)" >> "$GITHUB_OUTPUT"
   native:
-    needs: license
-    # windows targets 仅在 tag 发布时跑：托管 windows runner 在 PR/push 长图上
-    # 间歇性 0xC0000142（DLL init failure，与代码无关），且 windows 二进制只有
-    # release 资产链路真正消费。escape 套件（sandbox-escape.yml）仍覆盖 windows。
-    if: ${{ !startsWith(matrix.target, 'windows') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
+    needs: [license, native-matrix]
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
-          - { runner: macos-15-intel, target: x86_64-apple-darwin, verification: native }
-          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
-          - {
-              runner: ubuntu-24.04,
-              target: aarch64-unknown-linux-gnu,
-              verification: partial-verified,
-            }
-          - {
-              runner: ubuntu-24.04,
-              target: x86_64-unknown-linux-musl,
-              verification: partial-verified,
-            }
-          - {
-              runner: ubuntu-24.04,
-              target: aarch64-unknown-linux-musl,
-              verification: partial-verified,
-            }
-          - { runner: windows-2022, target: x86_64-pc-windows-msvc, verification: native }
-          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, verification: native }
+        include: ${{ fromJSON(needs.native-matrix.outputs.include) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
