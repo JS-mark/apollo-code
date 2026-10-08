@@ -3049,7 +3049,15 @@ describe('renderInteractiveApp', () => {
       spec: { fs: { write: ['x'] } },
       toolName: 'Write',
     })
-    await app.waitUntilRenderFlush()
+    // 权限卡异步进场（request promise → setState → render）：满载 runner 上单次
+    // renderFlush 可能赶在请求落地前完成，unmount 后断言必空抖。等卡真出现再收。
+    await vi.waitFor(
+      () => {
+        expect(stdout.output).toContain('Permission request')
+        expect(stdout.output).toContain('2:Write')
+      },
+      { timeout: 15_000, interval: 100 },
+    )
     await app.unmount()
     await app.waitUntilExit()
 
