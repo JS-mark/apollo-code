@@ -18,6 +18,10 @@ jobs:
       - run: cargo deny check licenses bans
   native:
     needs: license
+    # windows targets 仅在 tag 发布时跑：托管 windows runner 在 PR/push 长图上
+    # 间歇性 0xC0000142（DLL init failure，与代码无关），且 windows 二进制只有
+    # release 资产链路真正消费。escape 套件（sandbox-escape.yml）仍覆盖 windows。
+    if: ${{ !startsWith(matrix.target, 'windows') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
     strategy:
       fail-fast: false
       matrix:
