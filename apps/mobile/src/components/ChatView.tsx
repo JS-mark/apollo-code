@@ -69,7 +69,7 @@ export interface SubmitImage extends ChatMessageImage {
  */
 function toolChipLabel(tool: ToolCard, subagents: Record<string, SubagentActivity>): string {
   if (tool.tool !== 'Task') return tool.tool
-  const name = `🤖 ${tool.task?.agentType ?? '子代理'}`
+  const name = `🤖 ${tool.task?.agentType ?? translate(currentLocale(), 'chat.subagent')}`
   const activity = tool.turnId ? subagents[tool.turnId] : undefined
   if (!activity) return name
   if (tool.status === 'running' && activity.lastTool) return `${name} · ${activity.lastTool}`
@@ -348,8 +348,8 @@ const ToolGroupRow = memo(function ToolGroupRowInner({
   const failed = tools.filter((tool) => tool.status === 'error').length
   const done = tools.length - running - failed
   const progress = [
-    ...(running > 0 && done > 0 ? [`${done} 个完成`] : []),
-    ...(running > 0 ? [`${running} 个运行中`] : []),
+    ...(running > 0 && done > 0 ? [translate(currentLocale(), 'chat.groupDone', { n: done })] : []),
+    ...(running > 0 ? [translate(currentLocale(), 'chat.groupRunning', { n: running })] : []),
   ]
   return (
     <div className="tool-block">
